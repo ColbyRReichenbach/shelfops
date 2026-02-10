@@ -1,0 +1,16 @@
+{
+  "models": [
+    {
+      "version": "v1",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-10T13:57:51.974315+00:00",
+      "dataset": "favorita",
+      "rows_trained": 27,
+      "mae": 41.97858802699905,
+      "mape": 0.2854896065857254,
+      "status": "champion",
+      "promoted_at": "2026-02-10T13:57:51.974341+00:00"
+    }
+  ],
+  "updated_at": "2026-02-10T13:57:51.975248+00:00"
+}

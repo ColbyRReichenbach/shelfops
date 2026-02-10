@@ -1,0 +1,78 @@
+"""
+ShelfOps API Dependencies
+
+Dependency injection for DB sessions, auth, and tenant context.
+"""
+
+from typing import AsyncGenerator, Optional
+from fastapi import Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+
+from db.session import AsyncSessionLocal
+from core.config import get_settings
+
+settings = get_settings()
+security = HTTPBearer(auto_error=not settings.debug)
+
+# Dev customer_id must match seed_test_data.py
+DEV_CUSTOMER_ID = "00000000-0000-0000-0000-000000000001"
+
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """Yield an async database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> dict:
+    """Decode JWT and return user payload. Bypassed in debug mode."""
+    if settings.debug:
+        return {
+            "sub": "dev-user",
+            "email": "dev@shelfops.com",
+            "customer_id": DEV_CUSTOMER_ID,
+        }
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
+    from core.security import decode_access_token
+    payload = decode_access_token(credentials.credentials)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    return payload
+
+
+async def get_tenant_db(
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user),
+) -> AsyncSession:
+    """
+    Get a DB session with tenant context set.
+    Sets PostgreSQL RLS variable for row-level security.
+    """
+    customer_id = user.get("customer_id")
+    if not customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No customer context",
+        )
+    await db.execute(
+        text("SELECT set_config('app.current_customer_id', :cid, true)"),
+        {"cid": str(customer_id)},
+    )
+    return db
+

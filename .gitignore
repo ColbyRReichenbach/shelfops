@@ -1,0 +1,36 @@
+# General
+.DS_Store
+*.log
+.env
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Node/Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.next/
+frontend/coverage/
+
+# Data & Models
+data/
+backend/reports/
+backend/models/*.joblib
+backend/models/*.h5
+backend/models/*.pkl
+notebooks/.ipynb_checkpoints/
+
+# Documentation (User Requested)
+docs/DATA_STRATEGY.md
+docs/ROADMAP.md
+
+# IDE
+.vscode/
+.idea/

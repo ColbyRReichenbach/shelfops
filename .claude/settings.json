@@ -1,0 +1,96 @@
+{
+  "hooks": {
+    "OnError": {
+      "command": "python",
+      "args": [
+        ".claude/hooks/on_error.py"
+      ],
+      "timeout": 5000
+    },
+    "OnSuccess": {
+      "command": "python",
+      "args": [
+        ".claude/hooks/on_success.py"
+      ],
+      "timeout": 5000
+    }
+  },
+  "mcpServers": {
+    "bigquery": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-bigquery"
+      ],
+      "env": {
+        "GOOGLE_APPLICATION_CREDENTIALS": "${GOOGLE_APPLICATION_CREDENTIALS}"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "${PWD}"
+      ]
+    }
+  },
+  "allowedTools": [
+    "Bash",
+    "Read",
+    "Write",
+    "Grep",
+    "Glob",
+    "CopyFile",
+    "MoveFile",
+    "DeleteFile",
+    "ListDir"
+  ],
+  "disallowedTools": [
+    "DeleteDir"
+  ],
+  "model": "claude-opus-4-5-20251101",
+  "systemPromptSuffix": "\n\n## Iterative Learning System\n\nYou have access to a self-improvement system:\n\n1. **Error Logging**: When you encounter errors, automatically log them to `.claude/docs/errors.md` with:\n   - Error message\n   - Context (what you were trying to do)\n   - Root cause analysis\n   - Solution\n   - Prevention strategy\n\n2. **Solution Catalog**: When you solve a problem successfully, log to `.claude/docs/solutions.md` with:\n   - Problem description\n   - Solution approach\n   - Performance metrics (if applicable)\n   - When to reuse this solution\n\n3. **Continuous Improvement**: After each major task:\n   - Review: Was this pattern reusable?\n   - Update: Should this go in CLAUDE.md or a skill?\n   - Share: Would others benefit from knowing this?\n\n4. **Business Logic Updates**: If you learn new industry data, update `business_logic.md` with:\n   - New benchmark\n   - Data source\n   - Date learned\n   - Confidence level\n\nThese logs persist across sessions and help you improve over time.",
+  "environmentVariables": {
+    "GOOGLE_APPLICATION_CREDENTIALS": "${HOME}/.gcp/sponsorgraph-sa.json",
+    "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+    "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY}",
+    "PYTHONPATH": "${PWD}/backend"
+  },
+  "shellInit": {
+    "bash": [
+      "source ${HOME}/.bashrc",
+      "export PS1='(shelfops) \\w $ '",
+      "alias api-dev='cd backend && uvicorn api.main:app --reload'",
+      "alias test-all='cd backend && pytest tests/ -v'",
+      "alias fe-dev='cd frontend && npm run dev'"
+    ]
+  },
+  "costWarnings": {
+    "enabled": true,
+    "thresholds": {
+      "tokenWarning": 100000,
+      "tokenLimit": 180000,
+      "dailyBudget": 50.00
+    }
+  },
+  "autoSave": {
+    "enabled": true,
+    "intervalSeconds": 300,
+    "backupPath": ".claude/backups"
+  },
+  "telemetry": {
+    "errorReporting": true,
+    "usageAnalytics": false,
+    "performanceMetrics": true
+  }
+}
