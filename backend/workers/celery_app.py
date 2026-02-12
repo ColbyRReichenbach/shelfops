@@ -28,12 +28,17 @@ celery_app.conf.update(
     task_routes={
         "workers.sync.*": {"queue": "sync"},
         "workers.retrain.*": {"queue": "ml"},
+        "workers.inventory_optimizer.*": {"queue": "ml"},
+        "workers.monitoring.*": {"queue": "sync"},
+        "workers.vendor_metrics.*": {"queue": "sync"},
+        "workers.promo_tracking.*": {"queue": "sync"},
     },
     # ── Celery Beat Schedule ─────────────────────────────────────────
     # These run automatically when `celery -A workers.celery_app beat` is started.
     # Customer IDs are placeholder — in production, a task would iterate over
     # all active customers that have connected integrations.
     beat_schedule={
+        # ── Data Sync ───────────────────────────────────────────────
         "sync-square-inventory-15m": {
             "task": "workers.sync.sync_square_inventory",
             "schedule": crontab(minute="*/15"),
@@ -46,15 +51,55 @@ celery_app.conf.update(
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
             "options": {"queue": "sync"},
         },
+        # ── ML Pipeline ────────────────────────────────────────────
         "retrain-forecast-weekly": {
             "task": "workers.retrain.retrain_forecast_model",
             "schedule": crontab(hour=2, minute=0, day_of_week="sunday"),
             "kwargs": {"promote": True},
             "options": {"queue": "ml"},
         },
+        # ── Decision Engine ────────────────────────────────────────
+        "optimize-reorder-points-nightly": {
+            "task": "workers.inventory_optimizer.optimize_reorder_points",
+            "schedule": crontab(hour=2, minute=30),  # After forecast generation
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "ml"},
+        },
+        # ── Alert & Monitoring ─────────────────────────────────────
         "alert-check-hourly": {
             "task": "workers.sync.run_alert_check",
             "schedule": crontab(minute=0),
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "drift-detection-daily": {
+            "task": "workers.monitoring.detect_model_drift",
+            "schedule": crontab(hour=3, minute=0),
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "data-freshness-hourly": {
+            "task": "workers.monitoring.check_data_freshness",
+            "schedule": crontab(minute=30),  # Offset from alert check
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "opportunity-cost-daily": {
+            "task": "workers.monitoring.calculate_opportunity_cost",
+            "schedule": crontab(hour=4, minute=0),
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        # ── Vendor & Promotions ────────────────────────────────────
+        "update-vendor-scorecards-daily": {
+            "task": "workers.vendor_metrics.update_vendor_scorecards",
+            "schedule": crontab(hour=1, minute=0),
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "promo-effectiveness-weekly": {
+            "task": "workers.promo_tracking.measure_completed_promotions",
+            "schedule": crontab(hour=5, minute=0, day_of_week="monday"),
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
             "options": {"queue": "sync"},
         },

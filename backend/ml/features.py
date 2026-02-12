@@ -28,6 +28,8 @@ import numpy as np
 from datetime import timedelta
 from typing import Literal
 
+from retail.calendar import RetailCalendar
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Feature Tier Definitions
@@ -119,7 +121,7 @@ def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame
         month=dt.dt.month.fillna(1).astype(int),
         quarter=dt.dt.quarter.fillna(1).astype(int),
         is_weekend=(dt.dt.dayofweek >= 5).astype(int),
-        is_holiday=0,  # Placeholder — plug in holidays calendar
+        is_holiday=dt.apply(lambda d: int(RetailCalendar.is_holiday(d.date()) if pd.notna(d) else 0)),
         week_of_year=dt.dt.isocalendar().week.astype(int),
         day_of_month=dt.dt.day.fillna(1).astype(int),
         is_month_start=dt.dt.is_month_start.astype(int),

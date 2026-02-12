@@ -27,6 +27,8 @@ from db.models import (
     Alert, InventoryLevel, ReorderPoint, DemandForecast,
     Product, ForecastAccuracy,
 )
+from retail.shrinkage import get_shrink_rate, apply_shrinkage_adjustment
+from retail.planogram import is_product_active_in_store
 
 settings = get_settings()
 
@@ -138,7 +140,14 @@ async def detect_stockouts(
         if inv is None:
             continue
 
-        available = inv.quantity_available
+        # Apply shrinkage adjustment to get realistic available inventory
+        raw_available = inv.quantity_available
+        days_since = (datetime.utcnow() - inv.timestamp).days if inv.timestamp else 0
+        shrink_rate = await get_shrink_rate(
+            db, uuid.UUID(key[1]), uuid.UUID(key[0]), uuid.UUID(customer_id)
+        )
+        available = apply_shrinkage_adjustment(raw_available, days_since, shrink_rate)
+
         if available < total_demand:
             days_of_supply = available / max(total_demand / 7, 0.01)
             severity = classify_severity(days_of_supply)
@@ -159,6 +168,9 @@ async def detect_stockouts(
                 ),
                 "metadata": {
                     "current_stock": available,
+                    "raw_stock": raw_available,
+                    "shrinkage_adjusted": available != raw_available,
+                    "shrink_rate_pct": round(shrink_rate * 100, 2),
                     "forecast_demand_7d": round(total_demand, 1),
                     "days_of_supply": round(days_of_supply, 1),
                 },
@@ -215,6 +227,10 @@ async def detect_reorder_needed(
         key = (str(rp.store_id), str(rp.product_id))
         inv = inventories.get(key)
         if inv is None:
+            continue
+
+        # Skip products not active in this store (delisted, seasonal_out, etc.)
+        if not await is_product_active_in_store(db, rp.product_id, rp.store_id):
             continue
 
         if inv.quantity_available <= rp.reorder_point:
