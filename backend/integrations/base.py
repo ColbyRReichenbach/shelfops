@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
+
 import structlog
 
 logger = structlog.get_logger()
@@ -21,27 +22,32 @@ logger = structlog.get_logger()
 
 # ── Integration types ──────────────────────────────────────────────────────
 
+
 class IntegrationType(str, Enum):
     """Supported integration protocols."""
-    EDI = "edi"               # EDI X12 flat files (enterprise)
-    SFTP = "sftp"             # Batch file ingestion (enterprise)
+
+    EDI = "edi"  # EDI X12 flat files (enterprise)
+    SFTP = "sftp"  # Batch file ingestion (enterprise)
     EVENT_STREAM = "event_stream"  # Kafka / Pub/Sub (modern enterprise)
-    REST_API = "rest_api"     # Square, Shopify, etc. (SMB)
+    REST_API = "rest_api"  # Square, Shopify, etc. (SMB)
 
 
 class SyncStatus(str, Enum):
     """Result status of a sync operation."""
+
     SUCCESS = "success"
-    PARTIAL = "partial"       # Some records synced, some failed
+    PARTIAL = "partial"  # Some records synced, some failed
     FAILED = "failed"
     NO_DATA = "no_data"
 
 
 # ── Sync result container ─────────────────────────────────────────────────
 
+
 @dataclass
 class SyncResult:
     """Standardized return from every adapter sync method."""
+
     status: SyncStatus
     records_processed: int = 0
     records_failed: int = 0
@@ -56,6 +62,7 @@ class SyncResult:
 
 
 # ── Abstract adapter ──────────────────────────────────────────────────────
+
 
 class RetailIntegrationAdapter(ABC):
     """
@@ -144,7 +151,5 @@ def get_adapter(
     """Factory: return the right adapter instance for the given type."""
     adapter_cls = _ADAPTER_REGISTRY.get(integration_type)
     if adapter_cls is None:
-        raise ValueError(
-            f"No adapter registered for integration type: {integration_type.value}"
-        )
+        raise ValueError(f"No adapter registered for integration type: {integration_type.value}")
     return adapter_cls(customer_id=customer_id, config=config)

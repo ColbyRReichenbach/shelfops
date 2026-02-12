@@ -2,28 +2,30 @@
 Integrations Router — POS integration management + Square OAuth.
 """
 
-from uuid import UUID
-from datetime import datetime
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from fastapi.responses import RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-import httpx
-import hmac
 import hashlib
+import hmac
 import json
+from datetime import datetime
+from uuid import UUID
 
-from api.deps import get_tenant_db, get_current_user, get_db
-from db.models import Integration
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.deps import get_current_user, get_db, get_tenant_db
 from core.config import get_settings
 from core.security import encrypt
+from db.models import Integration
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 settings = get_settings()
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class IntegrationResponse(BaseModel):
     integration_id: UUID
@@ -40,12 +42,17 @@ class IntegrationResponse(BaseModel):
 
 # ─── Square OAuth ───────────────────────────────────────────────────────────
 
+
 @router.get("/square/connect")
 async def square_connect(
     user: dict = Depends(get_current_user),
 ):
     """Redirect to Square OAuth authorization page."""
-    base_url = "https://connect.squareupsandbox.com" if settings.square_environment == "sandbox" else "https://connect.squareup.com"
+    base_url = (
+        "https://connect.squareupsandbox.com"
+        if settings.square_environment == "sandbox"
+        else "https://connect.squareup.com"
+    )
     auth_url = (
         f"{base_url}/oauth2/authorize"
         f"?client_id={settings.square_client_id}"
@@ -62,7 +69,11 @@ async def square_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Square OAuth callback — exchange code for tokens."""
-    base_url = "https://connect.squareupsandbox.com" if settings.square_environment == "sandbox" else "https://connect.squareup.com"
+    base_url = (
+        "https://connect.squareupsandbox.com"
+        if settings.square_environment == "sandbox"
+        else "https://connect.squareup.com"
+    )
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -96,6 +107,7 @@ async def square_callback(
 
 # ─── Square Webhook ─────────────────────────────────────────────────────────
 
+
 @router.post("/square/webhook")
 async def square_webhook(
     request: Request,
@@ -117,7 +129,7 @@ async def square_webhook(
 
     payload = json.loads(body)
     event_type = payload.get("type", "")
-    merchant_id = payload.get("merchant_id", "")
+    _merchant_id = payload.get("merchant_id", "")  # noqa: F841 — used in future event routing
 
     # Route events to processors
     # TODO: Implement event processors for inventory changes, orders, etc.
@@ -126,6 +138,7 @@ async def square_webhook(
 
 
 # ─── CRUD ───────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[IntegrationResponse])
 async def list_integrations(
@@ -142,9 +155,7 @@ async def disconnect_integration(
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """Disconnect a POS integration."""
-    result = await db.execute(
-        select(Integration).where(Integration.integration_id == integration_id)
-    )
+    result = await db.execute(select(Integration).where(Integration.integration_id == integration_id))
     integration = result.scalar_one_or_none()
     if not integration:
         raise HTTPException(status_code=404, detail="Integration not found")

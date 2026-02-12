@@ -26,18 +26,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from integrations.base import (
     IntegrationType,
     RetailIntegrationAdapter,
     SyncResult,
     SyncStatus,
 )
-import structlog
 
 logger = structlog.get_logger()
 
 
 # ── File format parsers ───────────────────────────────────────────────────
+
 
 class FlatFileParser:
     """
@@ -180,6 +182,7 @@ DEFAULT_STORE_MAPPING = {
 
 # ── SFTP Adapter ──────────────────────────────────────────────────────────
 
+
 class SFTPAdapter(RetailIntegrationAdapter):
     """
     SFTP batch file integration adapter.
@@ -231,6 +234,7 @@ class SFTPAdapter(RetailIntegrationAdapter):
         """Test SFTP connectivity."""
         try:
             import asyncssh
+
             async with asyncssh.connect(
                 self.sftp_host,
                 port=self.sftp_port,

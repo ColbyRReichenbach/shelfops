@@ -20,7 +20,7 @@ Skill: ml-forecasting
 from datetime import datetime, timedelta
 
 import pandas as pd
-from sqlalchemy import select, func, case
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import PODecision, PurchaseOrder
@@ -44,15 +44,16 @@ async def get_feedback_features(
             PurchaseOrder.store_id,
             PurchaseOrder.product_id,
             func.count(PODecision.decision_id).label("total_decisions"),
-            func.count(case(
-                (PODecision.decision_type == "rejected", 1),
-            )).label("rejections"),
+            func.count(
+                case(
+                    (PODecision.decision_type == "rejected", 1),
+                )
+            ).label("rejections"),
             func.avg(
                 case(
                     (
                         PODecision.original_qty > 0,
-                        (PODecision.final_qty - PODecision.original_qty)
-                        * 100.0 / PODecision.original_qty,
+                        (PODecision.final_qty - PODecision.original_qty) * 100.0 / PODecision.original_qty,
                     ),
                     else_=0,
                 )
@@ -68,10 +69,15 @@ async def get_feedback_features(
     rows = result.all()
 
     if not rows:
-        return pd.DataFrame(columns=[
-            "store_id", "product_id",
-            "rejection_rate_30d", "avg_qty_adjustment_pct", "forecast_trust_score",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "store_id",
+                "product_id",
+                "rejection_rate_30d",
+                "avg_qty_adjustment_pct",
+                "forecast_trust_score",
+            ]
+        )
 
     records = []
     for row in rows:
@@ -81,13 +87,15 @@ async def get_feedback_features(
         rejection_rate = rejections / total
         trust_score = 1.0 - rejection_rate  # Simple inverse
 
-        records.append({
-            "store_id": str(row.store_id),
-            "product_id": str(row.product_id),
-            "rejection_rate_30d": round(rejection_rate, 3),
-            "avg_qty_adjustment_pct": round(float(row.avg_qty_adjustment_pct or 0), 1),
-            "forecast_trust_score": round(trust_score, 3),
-        })
+        records.append(
+            {
+                "store_id": str(row.store_id),
+                "product_id": str(row.product_id),
+                "rejection_rate_30d": round(rejection_rate, 3),
+                "avg_qty_adjustment_pct": round(float(row.avg_qty_adjustment_pct or 0), 1),
+                "forecast_trust_score": round(trust_score, 3),
+            }
+        )
 
     return pd.DataFrame(records)
 

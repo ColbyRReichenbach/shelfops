@@ -13,22 +13,23 @@ Agent: full-stack-engineer
 Skill: fastapi
 """
 
-from uuid import UUID
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Optional
+from uuid import UUID
 
-from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
-from api.deps import get_tenant_db, get_current_user
-from db.models import PurchaseOrder, PODecision, ReceivingDiscrepancy, InventoryLevel, Product
+from api.deps import get_current_user, get_tenant_db
+from db.models import InventoryLevel, PODecision, Product, PurchaseOrder, ReceivingDiscrepancy
 
 router = APIRouter(prefix="/api/v1/purchase-orders", tags=["purchase-orders"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class POResponse(BaseModel):
     po_id: UUID
@@ -65,6 +66,7 @@ class POSummary(BaseModel):
 
 class POApprovalRequest(BaseModel):
     """Approve a suggested PO. Optionally modify quantity."""
+
     quantity: int | None = None  # Override suggested qty
     reason_code: str | None = None  # Required if quantity modified
     notes: str | None = None
@@ -72,26 +74,37 @@ class POApprovalRequest(BaseModel):
 
 class PORejectRequest(BaseModel):
     """Reject a PO with a reason code (required for ML feedback)."""
+
     reason_code: str = Field(
         ...,
         description="Why the PO was rejected",
-        examples=["overstock", "seasonal_end", "budget_constraint", "vendor_issue", "forecast_disagree", "manual_ordered_elsewhere"],
+        examples=[
+            "overstock",
+            "seasonal_end",
+            "budget_constraint",
+            "vendor_issue",
+            "forecast_disagree",
+            "manual_ordered_elsewhere",
+        ],
     )
     notes: str | None = None
 
 
 class POEditRequest(BaseModel):
     """Edit a PO before approval."""
+
     quantity: int | None = None
     supplier_id: UUID | None = None
     reason_code: str = Field(
-        ..., description="Why the PO was modified",
+        ...,
+        description="Why the PO was modified",
     )
     notes: str | None = None
 
 
 class POReceivingRequest(BaseModel):
     """Mark a PO as received with actual quantities."""
+
     received_qty: int = Field(..., gt=0)
     received_date: date | None = None
     total_received_cost: float | None = None
@@ -113,6 +126,7 @@ class PODecisionResponse(BaseModel):
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[POResponse])
 async def list_purchase_orders(
@@ -308,6 +322,11 @@ async def receive_purchase_order(
     po = await db.get(PurchaseOrder, po_id)
     if not po:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+    if po.status == "received":
+        raise HTTPException(
+            status_code=400,
+            detail="PO has already been received.",
+        )
     if po.status not in ("ordered", "shipped", "approved"):
         raise HTTPException(
             status_code=400,
@@ -337,6 +356,33 @@ async def receive_purchase_order(
         )
         db.add(discrepancy)
 
+    # Update inventory: create new snapshot reflecting received goods
+    latest_inv = await db.execute(
+        select(InventoryLevel)
+        .where(
+            InventoryLevel.store_id == po.store_id,
+            InventoryLevel.product_id == po.product_id,
+        )
+        .order_by(InventoryLevel.timestamp.desc())
+        .limit(1)
+    )
+    prev = latest_inv.scalar_one_or_none()
+    prev_on_hand = prev.quantity_on_hand if prev else 0
+    prev_available = prev.quantity_available if prev else 0
+    prev_on_order = prev.quantity_on_order if prev else 0
+
+    new_snapshot = InventoryLevel(
+        customer_id=po.customer_id,
+        store_id=po.store_id,
+        product_id=po.product_id,
+        timestamp=datetime.utcnow(),
+        quantity_on_hand=prev_on_hand + body.received_qty,
+        quantity_available=prev_available + body.received_qty,
+        quantity_on_order=max(0, prev_on_order - po.quantity),
+        source="po_receiving",
+    )
+    db.add(new_snapshot)
+
     await db.commit()
     await db.refresh(po)
     return po
@@ -349,8 +395,6 @@ async def get_po_decisions(
 ):
     """Get the decision history for a purchase order."""
     result = await db.execute(
-        select(PODecision)
-        .where(PODecision.po_id == po_id)
-        .order_by(PODecision.decided_at.desc())
+        select(PODecision).where(PODecision.po_id == po_id).order_by(PODecision.decided_at.desc())
     )
     return result.scalars().all()

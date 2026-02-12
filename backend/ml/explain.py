@@ -52,8 +52,9 @@ def generate_explanations(
         }
     """
     try:
-        import shap
         import matplotlib
+        import shap
+
         matplotlib.use("Agg")  # Non-interactive backend
         import matplotlib.pyplot as plt
     except ImportError:
@@ -61,6 +62,7 @@ def generate_explanations(
         return {}
 
     import json
+
     import pandas as pd
 
     # Output directories
@@ -129,9 +131,7 @@ def generate_explanations(
         artifacts["feature_importance"] = importance_path
 
         # Also save to reports/ for easy access
-        (REPORTS_DIR / "feature_importance.json").write_text(
-            json.dumps(importance, indent=2)
-        )
+        (REPORTS_DIR / "feature_importance.json").write_text(json.dumps(importance, indent=2))
         logger.info(
             "shap.feature_importance_saved",
             top_3=list(importance.keys())[:3],
@@ -161,10 +161,10 @@ def generate_explanations(
                 max_display=12,
                 show=False,
             )
-            plt.title(f"Local Explanation — Sample {i+1} (pred={predictions[idx]:.1f})")
+            plt.title(f"Local Explanation — Sample {i + 1} (pred={predictions[idx]:.1f})")
             plt.tight_layout()
 
-            local_path = version_dir / f"shap_local_{i+1}.png"
+            local_path = version_dir / f"shap_local_{i + 1}.png"
             plt.savefig(local_path, dpi=150, bbox_inches="tight")
             plt.close()
             local_paths.append(local_path)
@@ -178,9 +178,7 @@ def generate_explanations(
     return artifacts
 
 
-def _select_representative_indices(
-    predictions: np.ndarray, n: int = 5
-) -> list[int]:
+def _select_representative_indices(predictions: np.ndarray, n: int = 5) -> list[int]:
     """Select indices for min, 25th, median, 75th, max predictions."""
     if len(predictions) < n:
         return list(range(len(predictions)))

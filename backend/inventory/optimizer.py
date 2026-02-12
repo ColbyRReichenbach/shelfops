@@ -31,13 +31,17 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    DemandForecast, ReorderPoint, Product, Supplier, ReorderHistory,
+    DemandForecast,
+    Product,
+    ReorderHistory,
+    ReorderPoint,
+    Supplier,
 )
-from supply_chain.sourcing import SourcingEngine, SourcingDecision, LeadTimeEstimate
+from supply_chain.sourcing import LeadTimeEstimate, SourcingDecision, SourcingEngine
 
 logger = structlog.get_logger()
 
@@ -52,16 +56,17 @@ Z_SCORES = {
 # Vendor reliability → safety stock multiplier
 # Low reliability = higher buffer needed
 RELIABILITY_MULTIPLIERS = {
-    (0.95, 1.01): 1.0,   # 95%+ on-time → no penalty
-    (0.80, 0.95): 1.2,   # 80-94% → 20% buffer
-    (0.60, 0.80): 1.5,   # 60-79% → 50% buffer
-    (0.00, 0.60): 1.8,   # <60% → 80% buffer (unreliable)
+    (0.95, 1.01): 1.0,  # 95%+ on-time → no penalty
+    (0.80, 0.95): 1.2,  # 80-94% → 20% buffer
+    (0.60, 0.80): 1.5,  # 60-79% → 50% buffer
+    (0.00, 0.60): 1.8,  # <60% → 80% buffer (unreliable)
 }
 
 
 @dataclass
 class ReorderCalculation:
     """Result of a dynamic reorder point calculation."""
+
     reorder_point: int
     safety_stock: int
     economic_order_qty: int
@@ -111,18 +116,14 @@ class InventoryOptimizer:
         Returns None if insufficient data (no forecasts available).
         """
         # 1. Get demand forecast
-        demand = await self._get_forecast_demand(
-            customer_id, store_id, product_id, forecast_horizon_days
-        )
+        demand = await self._get_forecast_demand(customer_id, store_id, product_id, forecast_horizon_days)
         if demand is None:
             return None
 
         avg_daily_demand, demand_std_dev = demand
 
         # 2. Get sourcing strategy (DC vs vendor + lead time)
-        sourcing = await self.sourcing.get_sourcing_strategy(
-            customer_id, store_id, product_id
-        )
+        sourcing = await self.sourcing.get_sourcing_strategy(customer_id, store_id, product_id)
         if sourcing:
             lead_time = sourcing.lead_time.mean_days
             lead_time_var = sourcing.lead_time.variance_days
@@ -154,8 +155,8 @@ class InventoryOptimizer:
 
         # Safety stock accounts for BOTH demand variability AND lead time variability
         # SS = Z × √( LT × σ_demand² + D² × σ_LT² ) × reliability_multiplier
-        demand_component = lead_time * (demand_std_dev ** 2)
-        leadtime_component = (avg_daily_demand ** 2) * (lead_time_var ** 2)
+        demand_component = lead_time * (demand_std_dev**2)
+        leadtime_component = (avg_daily_demand**2) * (lead_time_var**2)
         combined_std = math.sqrt(demand_component + leadtime_component)
 
         safety_stock = max(1, round(z_score * combined_std * reliability_multiplier))
@@ -223,9 +224,7 @@ class InventoryOptimizer:
 
         Returns a summary dict if updated, or None if no change needed.
         """
-        calc = await self.calculate_dynamic_reorder_point(
-            customer_id, store_id, product_id
-        )
+        calc = await self.calculate_dynamic_reorder_point(customer_id, store_id, product_id)
         if calc is None:
             return None
 
@@ -254,18 +253,20 @@ class InventoryOptimizer:
             self.db.add(new_rp)
 
             # Log to history
-            self.db.add(ReorderHistory(
-                customer_id=customer_id,
-                store_id=store_id,
-                product_id=product_id,
-                old_reorder_point=0,
-                new_reorder_point=calc.reorder_point,
-                old_safety_stock=0,
-                new_safety_stock=calc.safety_stock,
-                old_eoq=0,
-                new_eoq=calc.economic_order_qty,
-                calculation_rationale=calc.rationale,
-            ))
+            self.db.add(
+                ReorderHistory(
+                    customer_id=customer_id,
+                    store_id=store_id,
+                    product_id=product_id,
+                    old_reorder_point=0,
+                    new_reorder_point=calc.reorder_point,
+                    old_safety_stock=0,
+                    new_safety_stock=calc.safety_stock,
+                    old_eoq=0,
+                    new_eoq=calc.economic_order_qty,
+                    calculation_rationale=calc.rationale,
+                )
+            )
 
             return {
                 "action": "created",
@@ -284,18 +285,20 @@ class InventoryOptimizer:
             return None  # Not enough change to warrant update
 
         # Log history BEFORE updating
-        self.db.add(ReorderHistory(
-            customer_id=customer_id,
-            store_id=store_id,
-            product_id=product_id,
-            old_reorder_point=current_rp.reorder_point,
-            new_reorder_point=calc.reorder_point,
-            old_safety_stock=current_rp.safety_stock,
-            new_safety_stock=calc.safety_stock,
-            old_eoq=current_rp.economic_order_qty,
-            new_eoq=calc.economic_order_qty,
-            calculation_rationale=calc.rationale,
-        ))
+        self.db.add(
+            ReorderHistory(
+                customer_id=customer_id,
+                store_id=store_id,
+                product_id=product_id,
+                old_reorder_point=current_rp.reorder_point,
+                new_reorder_point=calc.reorder_point,
+                old_safety_stock=current_rp.safety_stock,
+                new_safety_stock=calc.safety_stock,
+                old_eoq=current_rp.economic_order_qty,
+                new_eoq=calc.economic_order_qty,
+                calculation_rationale=calc.rationale,
+            )
+        )
 
         # Update the reorder point
         current_rp.reorder_point = calc.reorder_point
@@ -333,8 +336,7 @@ class InventoryOptimizer:
                 func.avg(DemandForecast.forecasted_demand),
                 func.stddev(DemandForecast.forecasted_demand),
                 func.count(DemandForecast.forecast_id),
-            )
-            .where(
+            ).where(
                 DemandForecast.customer_id == customer_id,
                 DemandForecast.store_id == store_id,
                 DemandForecast.product_id == product_id,

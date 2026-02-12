@@ -12,10 +12,10 @@ Skill: postgresql, ml-forecasting
 """
 
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import date, datetime, timedelta
 
 import structlog
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Promotion, PromotionResult, Transaction
@@ -79,8 +79,7 @@ async def measure_promotion_effectiveness(
         baseline_end = promo.start_date - timedelta(days=1)
 
         baseline_result = await db.execute(
-            select(func.avg(Transaction.quantity))
-            .where(
+            select(func.avg(Transaction.quantity)).where(
                 Transaction.customer_id == customer_id,
                 Transaction.store_id == promo_store_id,
                 Transaction.product_id == promo_product_id,
@@ -95,8 +94,7 @@ async def measure_promotion_effectiveness(
 
         # Promo period: avg daily sales
         promo_sales_result = await db.execute(
-            select(func.avg(Transaction.quantity))
-            .where(
+            select(func.avg(Transaction.quantity)).where(
                 Transaction.customer_id == customer_id,
                 Transaction.store_id == promo_store_id,
                 Transaction.product_id == promo_product_id,
@@ -113,18 +111,20 @@ async def measure_promotion_effectiveness(
         # Flag if variance > 30%
         needs_review = variance_pct > 30
 
-        db.add(PromotionResult(
-            customer_id=customer_id,
-            promotion_id=promo.promotion_id,
-            store_id=promo_store_id,
-            product_id=promo_product_id,
-            baseline_daily_avg=round(float(baseline_avg), 2),
-            promo_daily_avg=round(float(promo_avg), 2),
-            actual_lift=actual_lift,
-            expected_lift=expected_lift,
-            variance_pct=variance_pct,
-            needs_review=needs_review,
-        ))
+        db.add(
+            PromotionResult(
+                customer_id=customer_id,
+                promotion_id=promo.promotion_id,
+                store_id=promo_store_id,
+                product_id=promo_product_id,
+                baseline_daily_avg=round(float(baseline_avg), 2),
+                promo_daily_avg=round(float(promo_avg), 2),
+                actual_lift=actual_lift,
+                expected_lift=expected_lift,
+                variance_pct=variance_pct,
+                needs_review=needs_review,
+            )
+        )
 
         measured += 1
         if needs_review:

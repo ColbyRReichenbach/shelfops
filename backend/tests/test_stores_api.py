@@ -8,7 +8,6 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestStoresIntegration:
-
     async def test_create_and_list_store(self, client: AsyncClient):
         """Create a store, then list should include it."""
         store_data = {

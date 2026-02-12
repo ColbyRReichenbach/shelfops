@@ -53,145 +53,145 @@ DEPARTMENTS = {
     "Grocery": {
         "subcategories": ["Canned Goods", "Pasta & Rice", "Condiments", "Baking", "Cereal", "Snacks"],
         "price_range": (1.99, 12.99),
-        "margin_range": (0.25, 0.30),      # Center store: Kroger 22.3%, independents 27.4%
-        "demand_range": (10, 80),           # Mid-range, high variety
+        "margin_range": (0.25, 0.30),  # Center store: Kroger 22.3%, independents 27.4%
+        "demand_range": (10, 80),  # Mid-range, high variety
         "perishable": False,
         "seasonal_factor": 0.05,
         "shelf_life_range": (180, 730),
-        "shrink_rate": 0.010,              # 1.0% — primarily theft/admin
-        "promo_rate": 0.22,                # Highest promo-driven category
+        "shrink_rate": 0.010,  # 1.0% — primarily theft/admin
+        "promo_rate": 0.22,  # Highest promo-driven category
         "holiday_weight": 1.0,
     },
     "Dairy": {
         "subcategories": ["Milk", "Cheese", "Yogurt", "Butter", "Eggs"],
         "price_range": (2.49, 8.99),
-        "margin_range": (0.40, 0.50),      # High margin perishable group
-        "demand_range": (30, 200),          # High-frequency staple
+        "margin_range": (0.40, 0.50),  # High margin perishable group
+        "demand_range": (30, 200),  # High-frequency staple
         "perishable": True,
         "seasonal_factor": 0.10,
-        "shelf_life_range": (14, 21),       # 2-3 weeks
-        "shrink_rate": 0.025,              # 2.5% — 59% from approaching expiration
+        "shelf_life_range": (14, 21),  # 2-3 weeks
+        "shrink_rate": 0.025,  # 2.5% — 59% from approaching expiration
         "promo_rate": 0.15,
         "holiday_weight": 0.8,
     },
     "Produce": {
         "subcategories": ["Fruits", "Vegetables", "Herbs", "Salad Mixes"],
         "price_range": (0.99, 9.99),
-        "margin_range": (0.37, 0.42),      # 37% (2024), down from 38% (2023)
-        "demand_range": (20, 150),          # Seasonal variation
+        "margin_range": (0.37, 0.42),  # 37% (2024), down from 38% (2023)
+        "demand_range": (20, 150),  # Seasonal variation
         "perishable": True,
         "seasonal_factor": 0.30,
-        "shelf_life_range": (3, 10),        # Very short
-        "shrink_rate": 0.048,              # 4.8% — 37% of all unsold food
-        "promo_rate": 0.12,                # Lower promo, more seasonal
+        "shelf_life_range": (3, 10),  # Very short
+        "shrink_rate": 0.048,  # 4.8% — 37% of all unsold food
+        "promo_rate": 0.12,  # Lower promo, more seasonal
         "holiday_weight": 0.7,
     },
     "Meat & Seafood": {
         "subcategories": ["Beef", "Poultry", "Pork", "Seafood"],
         "price_range": (4.99, 24.99),
-        "margin_range": (0.28, 0.35),      # Perimeter category avg
-        "demand_range": (8, 60),           # Higher price, lower volume
+        "margin_range": (0.28, 0.35),  # Perimeter category avg
+        "demand_range": (8, 60),  # Higher price, lower volume
         "perishable": True,
         "seasonal_factor": 0.15,
-        "shelf_life_range": (3, 7),         # Very short
-        "shrink_rate": 0.040,              # 4.0% — spoilage + markdowns
+        "shelf_life_range": (3, 7),  # Very short
+        "shrink_rate": 0.040,  # 4.0% — spoilage + markdowns
         "promo_rate": 0.14,
-        "holiday_weight": 1.2,              # Thanksgiving/Christmas prime
+        "holiday_weight": 1.2,  # Thanksgiving/Christmas prime
     },
     "Frozen": {
         "subcategories": ["Meals", "Vegetables", "Ice Cream", "Pizza", "Breakfast"],
         "price_range": (2.99, 14.99),
-        "margin_range": (0.35, 0.50),      # Buyers target 50%+
-        "demand_range": (10, 70),           # Consistent mid-range
+        "margin_range": (0.35, 0.50),  # Buyers target 50%+
+        "demand_range": (10, 70),  # Consistent mid-range
         "perishable": False,
         "seasonal_factor": 0.20,
         "shelf_life_range": (180, 545),
-        "shrink_rate": 0.012,              # 1.2% — low spoilage
+        "shrink_rate": 0.012,  # 1.2% — low spoilage
         "promo_rate": 0.18,
         "holiday_weight": 1.1,
     },
     "Beverages": {
         "subcategories": ["Water", "Soda", "Juice", "Coffee", "Tea", "Sports Drinks", "Energy Drinks"],
         "price_range": (0.99, 8.99),
-        "margin_range": (0.35, 0.45),      # Strong category margin
-        "demand_range": (25, 120),          # High summer demand
+        "margin_range": (0.35, 0.45),  # Strong category margin
+        "demand_range": (25, 120),  # High summer demand
         "perishable": False,
         "seasonal_factor": 0.25,
         "shelf_life_range": (180, 365),
-        "shrink_rate": 0.012,              # 1.2%
+        "shrink_rate": 0.012,  # 1.2%
         "promo_rate": 0.20,
         "holiday_weight": 0.9,
     },
     "Bakery": {
         "subcategories": ["Bread", "Rolls", "Pastries", "Cakes"],
         "price_range": (2.49, 12.99),
-        "margin_range": (0.48, 0.55),      # In-store production premium
-        "demand_range": (15, 90),           # High spoilage offset
+        "margin_range": (0.48, 0.55),  # In-store production premium
+        "demand_range": (15, 90),  # High spoilage offset
         "perishable": True,
         "seasonal_factor": 0.15,
-        "shelf_life_range": (2, 5),         # Very short — highest shrink dept
-        "shrink_rate": 0.080,              # 8.0% — shortest shelf life
+        "shelf_life_range": (2, 5),  # Very short — highest shrink dept
+        "shrink_rate": 0.080,  # 8.0% — shortest shelf life
         "promo_rate": 0.10,
-        "holiday_weight": 1.5,              # Holiday baking spike
+        "holiday_weight": 1.5,  # Holiday baking spike
     },
     "Household": {
         "subcategories": ["Cleaning", "Paper Products", "Laundry", "Trash Bags"],
         "price_range": (3.99, 19.99),
-        "margin_range": (0.30, 0.40),      # Non-grocery general merchandise
-        "demand_range": (5, 40),            # Lower frequency purchases
+        "margin_range": (0.30, 0.40),  # Non-grocery general merchandise
+        "demand_range": (5, 40),  # Lower frequency purchases
         "perishable": False,
         "seasonal_factor": 0.05,
         "shelf_life_range": (365, 1095),
-        "shrink_rate": 0.020,              # 2.0% — ORC target
+        "shrink_rate": 0.020,  # 2.0% — ORC target
         "promo_rate": 0.18,
         "holiday_weight": 0.6,
     },
     "Health & Beauty": {
         "subcategories": ["Oral Care", "Hair Care", "Skin Care", "Medicine"],
         "price_range": (2.99, 29.99),
-        "margin_range": (0.40, 0.50),      # High margin category
-        "demand_range": (3, 30),            # Low volume, high margin
+        "margin_range": (0.40, 0.50),  # High margin category
+        "demand_range": (3, 30),  # Low volume, high margin
         "perishable": False,
         "seasonal_factor": 0.08,
         "shelf_life_range": (365, 730),
-        "shrink_rate": 0.025,              # 2.5% — ORC target (NRF)
+        "shrink_rate": 0.025,  # 2.5% — ORC target (NRF)
         "promo_rate": 0.15,
-        "holiday_weight": 1.3,              # Gift sets, stocking stuffers
+        "holiday_weight": 1.3,  # Gift sets, stocking stuffers
     },
     "Pet Supplies": {
         "subcategories": ["Dog Food", "Cat Food", "Treats", "Accessories"],
         "price_range": (4.99, 39.99),
-        "margin_range": (0.30, 0.40),      # Moderate margin
-        "demand_range": (5, 35),            # Loyal repeat buyers
+        "margin_range": (0.30, 0.40),  # Moderate margin
+        "demand_range": (5, 35),  # Loyal repeat buyers
         "perishable": False,
         "seasonal_factor": 0.05,
         "shelf_life_range": (365, 730),
-        "shrink_rate": 0.010,              # 1.0%
+        "shrink_rate": 0.010,  # 1.0%
         "promo_rate": 0.12,
         "holiday_weight": 0.8,
     },
     "Baby": {
         "subcategories": ["Diapers", "Formula", "Baby Food", "Wipes"],
         "price_range": (5.99, 34.99),
-        "margin_range": (0.30, 0.38),      # Necessity-driven
-        "demand_range": (5, 40),            # Necessity-driven
+        "margin_range": (0.30, 0.38),  # Necessity-driven
+        "demand_range": (5, 40),  # Necessity-driven
         "perishable": False,
         "seasonal_factor": 0.03,
         "shelf_life_range": (365, 730),
-        "shrink_rate": 0.008,              # 0.8% — low theft
+        "shrink_rate": 0.008,  # 0.8% — low theft
         "promo_rate": 0.14,
         "holiday_weight": 0.5,
     },
     "Hardware": {
         "subcategories": ["Tools", "Fasteners", "Paint", "Electrical", "Plumbing"],
         "price_range": (2.99, 89.99),
-        "margin_range": (0.35, 0.45),      # Lowe's/HD avg
-        "demand_range": (2, 20),            # Low volume, high ticket
+        "margin_range": (0.35, 0.45),  # Lowe's/HD avg
+        "demand_range": (2, 20),  # Low volume, high ticket
         "perishable": False,
         "seasonal_factor": 0.20,
         "shelf_life_range": (730, 1825),
-        "shrink_rate": 0.015,              # 1.5%
-        "promo_rate": 0.08,                # Low promo frequency
+        "shrink_rate": 0.015,  # 1.5%
+        "promo_rate": 0.08,  # Low promo frequency
         "holiday_weight": 0.4,
     },
 }
@@ -199,24 +199,36 @@ DEPARTMENTS = {
 # Year-over-year growth rates by category (2024 actuals)
 # Source: JLL, Provisioner Online, Beverage Marketing Corp, AFFI, etc.
 YOY_GROWTH = {
-    "Grocery":        0.018,   # +1.8%
-    "Produce":        0.022,   # +2.2% dollar sales
-    "Dairy":          0.015,   # +1.5%
-    "Meat & Seafood": 0.047,   # +4.7% (strongest fresh — $105B total)
-    "Frozen":         0.029,   # +2.9% Q1 2024
-    "Beverages":      0.033,   # +3.3% ($255.3B retail)
-    "Bakery":         0.020,   # +2.0%
-    "Household":      0.020,   # +2.0% CAGR
+    "Grocery": 0.018,  # +1.8%
+    "Produce": 0.022,  # +2.2% dollar sales
+    "Dairy": 0.015,  # +1.5%
+    "Meat & Seafood": 0.047,  # +4.7% (strongest fresh — $105B total)
+    "Frozen": 0.029,  # +2.9% Q1 2024
+    "Beverages": 0.033,  # +3.3% ($255.3B retail)
+    "Bakery": 0.020,  # +2.0%
+    "Household": 0.020,  # +2.0% CAGR
     "Health & Beauty": 0.035,  # +3.5%
-    "Pet Supplies":   0.040,   # +4.0% (premium segment growing fast)
-    "Baby":           0.010,   # +1.0% stable
-    "Hardware":       0.015,   # +1.5% post-pandemic normalization
+    "Pet Supplies": 0.040,  # +4.0% (premium segment growing fast)
+    "Baby": 0.010,  # +1.0% stable
+    "Hardware": 0.015,  # +1.5% post-pandemic normalization
 }
 
 BRANDS = [
-    "NatureBest", "FreshFirst", "PureChoice", "ValuePack", "GreenHarvest",
-    "HomeBasics", "FieldFresh", "PrimeSelect", "DailyEssentials", "TopShelf",
-    "ClearSpring", "SunValley", "BlueRidge", "GoldenCrest", "PeakPerformance",
+    "NatureBest",
+    "FreshFirst",
+    "PureChoice",
+    "ValuePack",
+    "GreenHarvest",
+    "HomeBasics",
+    "FieldFresh",
+    "PrimeSelect",
+    "DailyEssentials",
+    "TopShelf",
+    "ClearSpring",
+    "SunValley",
+    "BlueRidge",
+    "GoldenCrest",
+    "PeakPerformance",
 ]
 
 STORE_LOCATIONS = [
@@ -252,6 +264,7 @@ SUPPLIERS = [
 
 
 # ── Generators ─────────────────────────────────────────────────────────────
+
 
 def generate_gtin() -> str:
     """Generate a realistic 14-digit GTIN (GS1 standard)."""
@@ -295,25 +308,27 @@ def generate_products(n: int) -> list[dict[str, Any]]:
         shelf_lo, shelf_hi = info["shelf_life_range"]
         shelf_life = random.randint(shelf_lo, shelf_hi)
 
-        products.append({
-            "product_id": str(uuid.uuid4()),
-            "sku": f"SKU-{i+1:05d}",
-            "gtin": gtin,
-            "upc": generate_upc_from_gtin(gtin),
-            "name": f"{brand} {subcat} #{i+1}",
-            "category": dept,
-            "subcategory": subcat,
-            "brand": brand,
-            "unit_cost": cost,
-            "unit_price": price,
-            "margin_pct": round(margin * 100, 1),
-            "weight": round(random.uniform(0.1, 25.0), 2),
-            "shelf_life_days": shelf_life,
-            "is_perishable": info["perishable"],
-            "is_seasonal": random.random() < info["seasonal_factor"],
-            "supplier_idx": random.randint(0, len(SUPPLIERS) - 1),
-            "avg_daily_demand": avg_demand,
-        })
+        products.append(
+            {
+                "product_id": str(uuid.uuid4()),
+                "sku": f"SKU-{i + 1:05d}",
+                "gtin": gtin,
+                "upc": generate_upc_from_gtin(gtin),
+                "name": f"{brand} {subcat} #{i + 1}",
+                "category": dept,
+                "subcategory": subcat,
+                "brand": brand,
+                "unit_cost": cost,
+                "unit_price": price,
+                "margin_pct": round(margin * 100, 1),
+                "weight": round(random.uniform(0.1, 25.0), 2),
+                "shelf_life_days": shelf_life,
+                "is_perishable": info["perishable"],
+                "is_seasonal": random.random() < info["seasonal_factor"],
+                "supplier_idx": random.randint(0, len(SUPPLIERS) - 1),
+                "avg_daily_demand": avg_demand,
+            }
+        )
 
     return products
 
@@ -338,13 +353,13 @@ def seasonal_multiplier(day_of_year: int, category: str) -> float:
 
     # Category-specific seasonal peak day (0-365)
     peaks = {
-        "Beverages": 180,        # July
-        "Frozen": 195,           # Mid-July
-        "Produce": 150,          # June
-        "Hardware": 120,         # May
-        "Bakery": 340,           # Early Dec (holiday baking)
-        "Meat & Seafood": 185,   # Summer grilling
-        "Household": 90,         # Spring cleaning
+        "Beverages": 180,  # July
+        "Frozen": 195,  # Mid-July
+        "Produce": 150,  # June
+        "Hardware": 120,  # May
+        "Bakery": 340,  # Early Dec (holiday baking)
+        "Meat & Seafood": 185,  # Summer grilling
+        "Household": 90,  # Spring cleaning
     }
 
     peak_day = peaks.get(category, 180)
@@ -359,8 +374,13 @@ def seasonal_multiplier(day_of_year: int, category: str) -> float:
 
     # Super Bowl week (late Jan, day ~28-35) — snacks, beverages, frozen appetizers
     if 28 <= day_of_year <= 35:
-        superbowl_categories = {"Grocery": 0.30, "Beverages": 0.45, "Frozen": 0.35,
-                                "Meat & Seafood": 0.20, "Dairy": 0.15}
+        superbowl_categories = {
+            "Grocery": 0.30,
+            "Beverages": 0.45,
+            "Frozen": 0.35,
+            "Meat & Seafood": 0.20,
+            "Dairy": 0.15,
+        }
         if category in superbowl_categories:
             proximity = 1 - abs(day_of_year - 32) / 4
             base += superbowl_categories[category] * max(0, proximity)
@@ -435,10 +455,13 @@ def generate_transactions(
             # Each store sells a subset of products each day
             active_products = random.sample(
                 products,
-                k=min(len(products), random.randint(
-                    int(len(products) * 0.5),
-                    int(len(products) * 0.85),
-                )),
+                k=min(
+                    len(products),
+                    random.randint(
+                        int(len(products) * 0.5),
+                        int(len(products) * 0.85),
+                    ),
+                ),
             )
 
             for product in active_products:
@@ -458,18 +481,20 @@ def generate_transactions(
                 if random.random() < promo_rate:
                     qty = int(qty * random.uniform(1.3, 4.0))
 
-                rows.append({
-                    "TRANS_ID": str(uuid.uuid4())[:8],
-                    "STORE_NBR": store["external_code"],
-                    "ITEM_NBR": product["sku"],
-                    "UPC": product["upc"],
-                    "QTY_SOLD": qty,
-                    "UNIT_PRICE": product["unit_price"],
-                    "SALE_AMT": round(qty * product["unit_price"], 2),
-                    "TRANS_DATE": date.strftime("%Y-%m-%d"),
-                    "TRANS_TIME": f"{random.randint(6, 22):02d}:{random.randint(0, 59):02d}:00",
-                    "TRANS_TYPE": "SALE",
-                })
+                rows.append(
+                    {
+                        "TRANS_ID": str(uuid.uuid4())[:8],
+                        "STORE_NBR": store["external_code"],
+                        "ITEM_NBR": product["sku"],
+                        "UPC": product["upc"],
+                        "QTY_SOLD": qty,
+                        "UNIT_PRICE": product["unit_price"],
+                        "SALE_AMT": round(qty * product["unit_price"], 2),
+                        "TRANS_DATE": date.strftime("%Y-%m-%d"),
+                        "TRANS_TIME": f"{random.randint(6, 22):02d}:{random.randint(0, 59):02d}:00",
+                        "TRANS_TYPE": "SALE",
+                    }
+                )
 
         # Write daily file
         if rows:
@@ -534,15 +559,17 @@ def generate_inventory_snapshots(
                 qty = max(0, qty)
                 inventory[key] = qty
 
-                rows.append({
-                    "STORE_NBR": store["external_code"],
-                    "ITEM_NBR": product["sku"],
-                    "UPC": product["upc"],
-                    "GTIN": product["gtin"],
-                    "ON_HAND_QTY": qty,
-                    "ON_ORDER_QTY": random.randint(0, max_stock) if qty < max_stock * 0.5 else 0,
-                    "SNAPSHOT_DATE": date.strftime("%Y-%m-%d"),
-                })
+                rows.append(
+                    {
+                        "STORE_NBR": store["external_code"],
+                        "ITEM_NBR": product["sku"],
+                        "UPC": product["upc"],
+                        "GTIN": product["gtin"],
+                        "ON_HAND_QTY": qty,
+                        "ON_ORDER_QTY": random.randint(0, max_stock) if qty < max_stock * 0.5 else 0,
+                        "SNAPSHOT_DATE": date.strftime("%Y-%m-%d"),
+                    }
+                )
 
         with open(filepath, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -571,26 +598,28 @@ def generate_edi_846_files(
         subset = random.sample(products, k=min(50, len(products)))
 
         segments = [
-            f"ISA*00*          *00*          *ZZ*RETAILER       *ZZ*SHELFOPS       *{date_str}*{time_str}*U*00401*{i+1:09d}*0*P*>",
-            f"GS*IB*RETAILER*SHELFOPS*{date_long}*{time_str}*{i+1}*X*004010",
-            f"ST*846*{i+1:04d}",
+            f"ISA*00*          *00*          *ZZ*RETAILER       *ZZ*SHELFOPS       *{date_str}*{time_str}*U*00401*{i + 1:09d}*0*P*>",
+            f"GS*IB*RETAILER*SHELFOPS*{date_long}*{time_str}*{i + 1}*X*004010",
+            f"ST*846*{i + 1:04d}",
         ]
 
         for j, product in enumerate(subset, 1):
-            segments.extend([
-                f"LIN*{j}*UP*{product['upc']}*IN*{product['gtin']}",
-                f"QTY*33*{random.randint(10, 500)}*EA",
-                f"QTY*02*{random.randint(0, 200)}*EA",
-                f"DTM*405*{date_long}",
-                f"N1*WH*{store['name']}*92*{store['external_code']}",
-            ])
+            segments.extend(
+                [
+                    f"LIN*{j}*UP*{product['upc']}*IN*{product['gtin']}",
+                    f"QTY*33*{random.randint(10, 500)}*EA",
+                    f"QTY*02*{random.randint(0, 200)}*EA",
+                    f"DTM*405*{date_long}",
+                    f"N1*WH*{store['name']}*92*{store['external_code']}",
+                ]
+            )
 
         seg_count = len(segments) + 1  # +1 for SE
-        segments.append(f"SE*{seg_count}*{i+1:04d}")
-        segments.append(f"GE*1*{i+1}")
-        segments.append(f"IEA*1*{i+1:09d}")
+        segments.append(f"SE*{seg_count}*{i + 1:04d}")
+        segments.append(f"GE*1*{i + 1}")
+        segments.append(f"IEA*1*{i + 1:09d}")
 
-        filepath = output_dir / f"EDI846_{date_long}_{i+1:03d}.edi"
+        filepath = output_dir / f"EDI846_{date_long}_{i + 1:03d}.edi"
         with open(filepath, "w") as f:
             f.write("~\n".join(segments) + "~")
 
@@ -614,21 +643,21 @@ def generate_kafka_events(
         for _ in range(items_count):
             product = random.choice(products)
             qty = random.randint(1, 10)
-            items.append({
-                "sku": product["upc"],
-                "gtin": product["gtin"],
-                "quantity": qty,
-                "unit_price": product["unit_price"],
-                "total": round(qty * product["unit_price"], 2),
-            })
+            items.append(
+                {
+                    "sku": product["upc"],
+                    "gtin": product["gtin"],
+                    "quantity": qty,
+                    "unit_price": product["unit_price"],
+                    "total": round(qty * product["unit_price"], 2),
+                }
+            )
 
         event = {
             "event_id": f"evt_{uuid.uuid4().hex[:12]}",
             "event_type": "transaction.completed",
             "store_id": store["external_code"],
-            "timestamp": (
-                datetime.utcnow() - timedelta(minutes=random.randint(0, 1440))
-            ).isoformat() + "Z",
+            "timestamp": (datetime.utcnow() - timedelta(minutes=random.randint(0, 1440))).isoformat() + "Z",
             "register_id": f"POS_{random.randint(1, 12):02d}",
             "items": items,
             "payment_method": random.choice(["credit_card", "debit_card", "cash", "mobile_pay"]),
@@ -645,6 +674,7 @@ def generate_kafka_events(
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(description="Generate enterprise-scale retail seed data")
@@ -664,7 +694,7 @@ def main():
     print(f"  Stores:       {args.stores}")
     print(f"  Days:         {args.days}")
     print(f"  Output:       {output}")
-    print(f"  Benchmarks:   docs/RETAIL_DATA_ANALYSIS.md")
+    print("  Benchmarks:   docs/RETAIL_DATA_ANALYSIS.md")
     print()
 
     # ── Products ──────────────────────────────────────────────
@@ -672,11 +702,26 @@ def main():
     products = generate_products(args.products)
     products_file = output / "products.csv"
     with open(products_file, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            "product_id", "sku", "gtin", "upc", "name", "category",
-            "subcategory", "brand", "unit_cost", "unit_price", "margin_pct",
-            "weight", "shelf_life_days", "is_perishable", "is_seasonal",
-        ])
+        writer = csv.DictWriter(
+            f,
+            fieldnames=[
+                "product_id",
+                "sku",
+                "gtin",
+                "upc",
+                "name",
+                "category",
+                "subcategory",
+                "brand",
+                "unit_cost",
+                "unit_price",
+                "margin_pct",
+                "weight",
+                "shelf_life_days",
+                "is_perishable",
+                "is_seasonal",
+            ],
+        )
         writer.writeheader()
         for p in products:
             row = {k: v for k, v in p.items() if k in writer.fieldnames}
@@ -692,25 +737,27 @@ def main():
         avg_m = sum(margins) / len(margins)
         target = DEPARTMENTS[dept]["margin_range"]
         status = "✅" if target[0] * 100 <= avg_m <= target[1] * 100 else "⚠️"
-        print(f"     {status} {dept:20s}: {avg_m:5.1f}% (target: {target[0]*100:.0f}–{target[1]*100:.0f}%)")
+        print(f"     {status} {dept:20s}: {avg_m:5.1f}% (target: {target[0] * 100:.0f}–{target[1] * 100:.0f}%)")
 
     # ── Stores ────────────────────────────────────────────────
     print("\n🏬 Generating store master data...")
-    stores_data = STORE_LOCATIONS[:args.stores]
+    stores_data = STORE_LOCATIONS[: args.stores]
     stores = []
     for i, (name, city, state, zip_code, lat, lon, tz, vol_mult) in enumerate(stores_data):
-        stores.append({
-            "store_id": str(uuid.uuid4()),
-            "external_code": f"STR-{i+1:03d}",
-            "name": name,
-            "city": city,
-            "state": state,
-            "zip_code": zip_code,
-            "lat": lat,
-            "lon": lon,
-            "timezone": tz,
-            "volume_multiplier": vol_mult,
-        })
+        stores.append(
+            {
+                "store_id": str(uuid.uuid4()),
+                "external_code": f"STR-{i + 1:03d}",
+                "name": name,
+                "city": city,
+                "state": state,
+                "zip_code": zip_code,
+                "lat": lat,
+                "lon": lon,
+                "timezone": tz,
+                "volume_multiplier": vol_mult,
+            }
+        )
     stores_file = output / "stores.csv"
     with open(stores_file, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(stores[0].keys()))
@@ -721,16 +768,22 @@ def main():
     # ── Transactions ──────────────────────────────────────────
     print(f"\n💳 Generating {args.days} days of transactions...")
     tx_count = generate_transactions(
-        products, stores, args.days, output / "transactions",
+        products,
+        stores,
+        args.days,
+        output / "transactions",
     )
     print(f"  ✅ {tx_count:,} total transactions")
 
     # ── Inventory Snapshots ───────────────────────────────────
     print(f"\n📦 Generating {args.days} days of inventory snapshots...")
     generate_inventory_snapshots(
-        products, stores, args.days, output / "inventory",
+        products,
+        stores,
+        args.days,
+        output / "inventory",
     )
-    print(f"  ✅ Inventory snapshots generated")
+    print("  ✅ Inventory snapshots generated")
 
     # ── EDI 846 Files ─────────────────────────────────────────
     print("\n📄 Generating EDI X12 sample files...")
@@ -749,10 +802,10 @@ def main():
     print(f"  📊 Products:          {len(products)} with GTINs + per-dept margins")
     print(f"  🏬 Stores:            {len(stores)} across 3 zones (volume-weighted)")
     print(f"  💳 Transactions:      {tx_count:,} rows (with YoY growth + event spikes)")
-    print(f"  📄 EDI 846 files:     10 sample documents")
-    print(f"  ⚡ Kafka events:      200 sample events")
-    print(f"\n  Copy transactions/ and inventory/ to SFTP staging dir")
-    print(f"  Copy edi/ to /data/edi/inbound for EDI adapter testing")
+    print("  📄 EDI 846 files:     10 sample documents")
+    print("  ⚡ Kafka events:      200 sample events")
+    print("\n  Copy transactions/ and inventory/ to SFTP staging dir")
+    print("  Copy edi/ to /data/edi/inbound for EDI adapter testing")
     print()
 
 

@@ -17,8 +17,8 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import select, func, case
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import case, func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
 
@@ -47,85 +47,85 @@ def update_vendor_scorecards(self, customer_id: str):
 
     async def _update():
         from core.config import get_settings
-        from db.models import Supplier, PurchaseOrder
+        from db.models import PurchaseOrder, Supplier
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        updated = 0
+            updated = 0
 
-        async with async_session() as db:
-            cutoff = datetime.utcnow() - timedelta(days=90)
+            async with async_session() as db:
+                cutoff = datetime.utcnow() - timedelta(days=90)
 
-            # Get all active suppliers for this customer
-            result = await db.execute(
-                select(Supplier).where(
-                    Supplier.customer_id == customer_id,
-                    Supplier.status == "active",
-                )
-            )
-            suppliers = result.scalars().all()
-
-            for supplier in suppliers:
-                # Get received POs for this supplier in rolling 90-day window
-                po_result = await db.execute(
-                    select(PurchaseOrder).where(
-                        PurchaseOrder.customer_id == customer_id,
-                        PurchaseOrder.supplier_id == supplier.supplier_id,
-                        PurchaseOrder.status == "received",
-                        PurchaseOrder.received_at >= cutoff,
+                # Get all active suppliers for this customer
+                result = await db.execute(
+                    select(Supplier).where(
+                        Supplier.customer_id == customer_id,
+                        Supplier.status == "active",
                     )
                 )
-                received_pos = po_result.scalars().all()
+                suppliers = result.scalars().all()
 
-                if not received_pos:
-                    continue
+                for supplier in suppliers:
+                    # Get received POs for this supplier in rolling 90-day window
+                    po_result = await db.execute(
+                        select(PurchaseOrder).where(
+                            PurchaseOrder.customer_id == customer_id,
+                            PurchaseOrder.supplier_id == supplier.supplier_id,
+                            PurchaseOrder.status == "received",
+                            PurchaseOrder.received_at >= cutoff,
+                        )
+                    )
+                    received_pos = po_result.scalars().all()
 
-                # Calculate metrics
-                on_time_count = 0
-                lead_times = []
+                    if not received_pos:
+                        continue
 
-                for po in received_pos:
-                    if po.actual_delivery_date and po.promised_delivery_date:
-                        days_diff = (po.actual_delivery_date - po.promised_delivery_date).days
-                        if abs(days_diff) <= 1:
-                            on_time_count += 1
+                    # Calculate metrics
+                    on_time_count = 0
+                    lead_times = []
 
-                    if po.actual_delivery_date and po.ordered_at:
-                        actual_lt = (po.actual_delivery_date - po.ordered_at.date()).days
-                        if actual_lt > 0:
-                            lead_times.append(actual_lt)
+                    for po in received_pos:
+                        if po.actual_delivery_date and po.promised_delivery_date:
+                            days_diff = (po.actual_delivery_date - po.promised_delivery_date).days
+                            if abs(days_diff) <= 1:
+                                on_time_count += 1
 
-                total_pos = len(received_pos)
+                        if po.actual_delivery_date and po.ordered_at:
+                            actual_lt = (po.actual_delivery_date - po.ordered_at.date()).days
+                            if actual_lt > 0:
+                                lead_times.append(actual_lt)
 
-                # Update supplier metrics
-                supplier.on_time_delivery_rate = round(on_time_count / total_pos, 3) if total_pos > 0 else None
-                supplier.last_delivery_date = max(
-                    (po.actual_delivery_date for po in received_pos if po.actual_delivery_date),
-                    default=None,
-                )
+                    total_pos = len(received_pos)
 
-                if lead_times:
-                    import statistics
-                    supplier.avg_lead_time_actual = round(statistics.mean(lead_times), 1)
-                    supplier.lead_time_variance = (
-                        round(statistics.stdev(lead_times), 1) if len(lead_times) > 1 else 0.0
+                    # Update supplier metrics
+                    supplier.on_time_delivery_rate = round(on_time_count / total_pos, 3) if total_pos > 0 else None
+                    supplier.last_delivery_date = max(
+                        (po.actual_delivery_date for po in received_pos if po.actual_delivery_date),
+                        default=None,
                     )
 
-                    # Update composite reliability score
-                    # Weighted: 60% on-time rate + 40% lead time consistency
-                    on_time_score = supplier.on_time_delivery_rate or 0.5
-                    consistency_score = max(0, 1.0 - (supplier.lead_time_variance or 0) / supplier.lead_time_days)
-                    supplier.reliability_score = round(
-                        0.6 * on_time_score + 0.4 * max(0, consistency_score), 3
-                    )
+                    if lead_times:
+                        import statistics
 
-                updated += 1
+                        supplier.avg_lead_time_actual = round(statistics.mean(lead_times), 1)
+                        supplier.lead_time_variance = (
+                            round(statistics.stdev(lead_times), 1) if len(lead_times) > 1 else 0.0
+                        )
 
-            await db.commit()
+                        # Update composite reliability score
+                        # Weighted: 60% on-time rate + 40% lead time consistency
+                        on_time_score = supplier.on_time_delivery_rate or 0.5
+                        consistency_score = max(0, 1.0 - (supplier.lead_time_variance or 0) / supplier.lead_time_days)
+                        supplier.reliability_score = round(0.6 * on_time_score + 0.4 * max(0, consistency_score), 3)
 
-        await engine.dispose()
+                    updated += 1
+
+                await db.commit()
+        finally:
+            await engine.dispose()
 
         summary = {
             "status": "success",

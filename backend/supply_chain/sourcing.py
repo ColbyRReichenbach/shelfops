@@ -19,28 +19,33 @@ import math
 from dataclasses import dataclass
 from uuid import UUID
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    ProductSourcingRule, DCInventory, Supplier,
-    DistributionCenter, Store,
+    DCInventory,
+    DistributionCenter,
+    ProductSourcingRule,
+    Store,
+    Supplier,
 )
 
 
 @dataclass
 class LeadTimeEstimate:
     """Lead time estimate with variance for safety stock calculation."""
+
     mean_days: float
     variance_days: float  # Std dev — used in safety stock formula
-    source: str           # Description for audit trail
+    source: str  # Description for audit trail
 
 
 @dataclass
 class SourcingDecision:
     """Result of sourcing evaluation for a (store, product) pair."""
-    source_type: str        # vendor_direct, dc, regional_dc, transfer
-    source_id: UUID         # supplier_id or dc_id
+
+    source_type: str  # vendor_direct, dc, regional_dc, transfer
+    source_id: UUID  # supplier_id or dc_id
     source_name: str
     lead_time: LeadTimeEstimate
     min_order_qty: int
@@ -55,12 +60,7 @@ def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float
     R = 3959  # Earth radius in miles
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
-    a = (
-        math.sin(dlat / 2) ** 2
-        + math.cos(math.radians(lat1))
-        * math.cos(math.radians(lat2))
-        * math.sin(dlon / 2) ** 2
-    )
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     return R * 2 * math.asin(math.sqrt(a))
 
 
@@ -94,10 +94,7 @@ class SourcingEngine:
                 ProductSourcingRule.product_id == product_id,
                 ProductSourcingRule.active.is_(True),
             )
-            .where(
-                (ProductSourcingRule.store_id == store_id)
-                | (ProductSourcingRule.store_id.is_(None))
-            )
+            .where((ProductSourcingRule.store_id == store_id) | (ProductSourcingRule.store_id.is_(None)))
             .order_by(
                 # Prefer store-specific rules, then by priority
                 ProductSourcingRule.store_id.is_(None).asc(),
@@ -117,16 +114,12 @@ class SourcingEngine:
         # All rules exhausted (e.g., DC out of stock, no vendor fallback)
         return None
 
-    async def _evaluate_rule(
-        self, rule: ProductSourcingRule, quantity: int
-    ) -> SourcingDecision | None:
+    async def _evaluate_rule(self, rule: ProductSourcingRule, quantity: int) -> SourcingDecision | None:
         """Evaluate a single sourcing rule. Returns None if rule can't fulfill."""
 
         if rule.source_type in ("dc", "regional_dc"):
             # Check DC inventory availability
-            dc_stock = await self._get_dc_available_stock(
-                rule.source_id, rule.product_id
-            )
+            dc_stock = await self._get_dc_available_stock(rule.source_id, rule.product_id)
             if dc_stock is not None and dc_stock >= quantity:
                 source_name = await self._get_dc_name(rule.source_id)
                 return SourcingDecision(
@@ -173,9 +166,7 @@ class SourcingEngine:
                     rule.min_order_qty or 1,
                     supplier.min_order_quantity if supplier else 1,
                 ),
-                cost_per_order=rule.cost_per_order or (
-                    supplier.cost_per_order if supplier else 0.0
-                ) or 0.0,
+                cost_per_order=rule.cost_per_order or (supplier.cost_per_order if supplier else 0.0) or 0.0,
                 dc_stock_available=None,
                 priority=rule.priority,
                 rule_id=rule.rule_id,
@@ -184,9 +175,7 @@ class SourcingEngine:
         # transfer type — handled by TransferOptimizer separately
         return None
 
-    async def _get_dc_available_stock(
-        self, dc_id: UUID, product_id: UUID
-    ) -> int | None:
+    async def _get_dc_available_stock(self, dc_id: UUID, product_id: UUID) -> int | None:
         """Get latest available quantity at a DC for a given product."""
         result = await self.db.execute(
             select(DCInventory.quantity_available)
@@ -218,9 +207,7 @@ class SourcingEngine:
 
         Falls back to a conservative default (7 days) if no sourcing rules exist.
         """
-        decision = await self.get_sourcing_strategy(
-            customer_id, store_id, product_id
-        )
+        decision = await self.get_sourcing_strategy(customer_id, store_id, product_id)
         if decision:
             return decision.lead_time
 

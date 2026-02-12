@@ -2,12 +2,13 @@
 Forecasts Router — Demand forecast endpoints.
 """
 
-from uuid import UUID
 from datetime import date, datetime
-from pydantic import BaseModel
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
 from api.deps import get_tenant_db
 from db.models import DemandForecast, ForecastAccuracy
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/api/v1/forecasts", tags=["forecasts"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class ForecastResponse(BaseModel):
     forecast_id: UUID
@@ -42,12 +44,14 @@ class AccuracySummary(BaseModel):
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
 
+
 @router.get("/", response_model=list[ForecastResponse])
 async def list_forecasts(
     store_id: UUID | None = None,
     product_id: UUID | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
+    skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_tenant_db),
 ):
@@ -61,7 +65,7 @@ async def list_forecasts(
         query = query.where(DemandForecast.forecast_date >= start_date)
     if end_date:
         query = query.where(DemandForecast.forecast_date <= end_date)
-    query = query.order_by(DemandForecast.forecast_date.desc()).limit(limit)
+    query = query.order_by(DemandForecast.forecast_date.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
 

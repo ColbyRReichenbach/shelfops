@@ -4,10 +4,14 @@ ShelfOps Security Utilities
 Encryption for OAuth tokens, JWT handling, password hashing.
 """
 
+import base64
+import hashlib
+from datetime import datetime, timedelta
+
 from cryptography.fernet import Fernet
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+
 from core.config import get_settings
 
 settings = get_settings()
@@ -16,7 +20,13 @@ settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Fernet encryption for OAuth tokens
-_fernet = Fernet(Fernet.generate_key()) if settings.encryption_key == "dev-encryption-key-change-in-production" else Fernet(settings.encryption_key.encode())
+# IMPORTANT: Dev key must be deterministic so all processes share the same key.
+# A random key per import would break cross-process decryption and survive restarts.
+if settings.encryption_key == "dev-encryption-key-change-in-production":
+    _dev_key = base64.urlsafe_b64encode(hashlib.sha256(b"shelfops-dev-key-not-for-production").digest())
+    _fernet = Fernet(_dev_key)
+else:
+    _fernet = Fernet(settings.encryption_key.encode())
 
 
 def encrypt(plaintext: str) -> str:

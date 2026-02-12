@@ -5,17 +5,26 @@ Run: python scripts/seed_test_data.py
 """
 
 import asyncio
+import random
 import uuid
 from datetime import datetime, timedelta
-import random
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from db.session import Base
-from db.models import (
-    Customer, Store, Product, Supplier, Transaction,
-    InventoryLevel, DemandForecast, ReorderPoint, Alert, Promotion,
-)
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
 from core.config import get_settings
+from db.models import (
+    Alert,
+    Customer,
+    DemandForecast,
+    InventoryLevel,
+    Product,
+    Promotion,
+    ReorderPoint,
+    Store,
+    Supplier,
+    Transaction,
+)
+from db.session import Base
 
 settings = get_settings()
 
@@ -23,8 +32,10 @@ settings = get_settings()
 CATEGORIES = ["Beverages", "Snacks", "Dairy", "Produce", "Frozen", "Bakery", "Meat", "Household"]
 BRANDS = ["NatureBest", "FreshFirst", "PureChoice", "ValuePack", "GreenHarvest"]
 CITIES = [
-    ("Minneapolis", "MN", "55401"), ("Chicago", "IL", "60601"),
-    ("Milwaukee", "WI", "53202"), ("Des Moines", "IA", "50309"),
+    ("Minneapolis", "MN", "55401"),
+    ("Chicago", "IL", "60601"),
+    ("Milwaukee", "WI", "53202"),
+    ("Des Moines", "IA", "50309"),
 ]
 
 
@@ -74,8 +85,8 @@ async def seed_data():
             cat = CATEGORIES[i % len(CATEGORIES)]
             product = Product(
                 customer_id=customer.customer_id,
-                sku=f"SKU-{i+1:04d}",
-                name=f"{random.choice(BRANDS)} {cat} Item #{i+1}",
+                sku=f"SKU-{i + 1:04d}",
+                name=f"{random.choice(BRANDS)} {cat} Item #{i + 1}",
                 category=cat,
                 brand=random.choice(BRANDS),
                 unit_cost=round(random.uniform(1.0, 15.0), 2),
@@ -150,7 +161,9 @@ async def seed_data():
                 db.add(alert)
 
         await db.commit()
-        print(f"✅ Seeded: 1 customer, {len(stores)} stores, {len(products)} products, ~{90 * len(stores) * 10} transactions")
+        print(
+            f"✅ Seeded: 1 customer, {len(stores)} stores, {len(products)} products, ~{90 * len(stores) * 10} transactions"
+        )
 
 
 if __name__ == "__main__":

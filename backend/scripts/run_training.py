@@ -71,10 +71,12 @@ Examples:
     # ── Import ML modules ────────────────────────────────────────────
     try:
         import structlog
+
         logger = structlog.get_logger()
     except ImportError:
         import logging
-        logger = logging.getLogger(__name__)
+
+        logger = logging.getLogger(__name__)  # noqa: F841
         logging.basicConfig(level=logging.INFO)
 
     print("=" * 60)
@@ -110,9 +112,9 @@ Examples:
         sys.exit(1)
 
     # ── Load and prepare data ────────────────────────────────────────
-    from workers.retrain import _load_csv_data, _next_version
     from ml.features import create_features
-    from ml.train import train_ensemble, save_models
+    from ml.train import save_models, train_ensemble
+    from workers.retrain import _load_csv_data, _next_version
 
     version = args.version or _next_version()
 
@@ -128,9 +130,11 @@ Examples:
     # Step 1: Load data
     print("Step 1/4: Loading training data...")
     transactions_df = _load_csv_data(data_dir)
-    print(f"  ✓ Loaded {len(transactions_df):,} rows "
-          f"({transactions_df['store_id'].nunique()} stores, "
-          f"{transactions_df['product_id'].nunique()} products)")
+    print(
+        f"  ✓ Loaded {len(transactions_df):,} rows "
+        f"({transactions_df['store_id'].nunique()} stores, "
+        f"{transactions_df['product_id'].nunique()} products)"
+    )
 
     # Step 2: Feature engineering
     print("\nStep 2/4: Engineering features...")

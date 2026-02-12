@@ -10,13 +10,14 @@ Covers:
   - Seasonal demand weights
 """
 
-import pytest
 from datetime import date
 
-from retail.calendar import RetailCalendar, get_us_holidays, _compute_easter
+import pytest
 
+from retail.calendar import RetailCalendar, _compute_easter, get_us_holidays
 
 # ── Fixed-Date Holidays ────────────────────────────────────────────────
+
 
 class TestFixedHolidays:
     def test_christmas(self):
@@ -43,6 +44,7 @@ class TestFixedHolidays:
 
 
 # ── Floating Holidays ──────────────────────────────────────────────────
+
 
 class TestFloatingHolidays:
     def test_thanksgiving_2026(self):
@@ -88,6 +90,7 @@ class TestFloatingHolidays:
 
 # ── Easter (Anonymous Gregorian Algorithm) ─────────────────────────────
 
+
 class TestEaster:
     """Verify Easter dates against known values."""
 
@@ -111,6 +114,7 @@ class TestEaster:
 
 # ── Holiday Count ──────────────────────────────────────────────────────
 
+
 class TestHolidayCount:
     def test_at_least_16_holidays_per_year(self):
         """We define 16+ holidays (fixed + floating + retail)."""
@@ -125,6 +129,7 @@ class TestHolidayCount:
 
 
 # ── Days to Next Holiday ──────────────────────────────────────────────
+
 
 class TestDaysToNextHoliday:
     def test_on_holiday_returns_zero(self):
@@ -141,6 +146,7 @@ class TestDaysToNextHoliday:
 
 
 # ── 4-5-4 Fiscal Calendar ─────────────────────────────────────────────
+
 
 class TestFiscalYearStart:
     def test_fiscal_year_start_is_sunday(self):
@@ -182,6 +188,7 @@ class TestFiscalPeriod:
         fy_start = RetailCalendar.fiscal_year_start(2026)
         # End of fiscal month 1 (4 weeks)
         from datetime import timedelta
+
         end_m1 = fy_start + timedelta(weeks=4) - timedelta(days=1)
         period = RetailCalendar.get_fiscal_period(end_m1)
         assert period.fiscal_month == 1
@@ -193,6 +200,7 @@ class TestFiscalPeriod:
 
 
 # ── Peak Shopping Weeks ────────────────────────────────────────────────
+
 
 class TestPeakShopping:
     def test_back_to_school_is_peak(self):
@@ -206,6 +214,7 @@ class TestPeakShopping:
 
 
 # ── Seasonal Weights ──────────────────────────────────────────────────
+
 
 class TestSeasonalWeights:
     def test_holiday_season_bakery(self):

@@ -16,8 +16,8 @@ from typing import Literal
 
 import pandas as pd
 import pandera as pa
-from pandera import Check, Column, DataFrameSchema
 import structlog
+from pandera import Check, Column, DataFrameSchema
 
 from ml.features import COLD_START_FEATURE_COLS, PRODUCTION_FEATURE_COLS, FeatureTier
 
@@ -53,12 +53,10 @@ TrainingDataSchema = DataFrameSchema(
 # 2. Features Schema (output of create_features, tier-dependent)
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _build_features_schema(tier: FeatureTier) -> DataFrameSchema:
     """Build a Pandera schema for the specified feature tier."""
-    feature_cols = (
-        COLD_START_FEATURE_COLS if tier == "cold_start"
-        else PRODUCTION_FEATURE_COLS
-    )
+    feature_cols = COLD_START_FEATURE_COLS if tier == "cold_start" else PRODUCTION_FEATURE_COLS
 
     columns = {}
     for col in feature_cols:
@@ -106,6 +104,7 @@ PredictionInputSchema = DataFrameSchema(
 # Validation Functions
 # ──────────────────────────────────────────────────────────────────────
 
+
 def validate_training_data(
     df: pd.DataFrame,
     raise_on_error: bool = True,
@@ -147,28 +146,19 @@ def validate_features(
 
     Default: warn but don't fail (features may have NaN before fillna).
     """
-    schema = (
-        ColdStartFeaturesSchema if tier == "cold_start"
-        else ProductionFeaturesSchema
-    )
+    schema = ColdStartFeaturesSchema if tier == "cold_start" else ProductionFeaturesSchema
 
     logger.info(
         "validation.features",
         tier=tier,
         rows=len(df),
-        expected_features=len(
-            COLD_START_FEATURE_COLS if tier == "cold_start"
-            else PRODUCTION_FEATURE_COLS
-        ),
+        expected_features=len(COLD_START_FEATURE_COLS if tier == "cold_start" else PRODUCTION_FEATURE_COLS),
     )
 
     try:
         validated = schema.validate(df, lazy=True)
         # Check feature coverage
-        expected = set(
-            COLD_START_FEATURE_COLS if tier == "cold_start"
-            else PRODUCTION_FEATURE_COLS
-        )
+        expected = set(COLD_START_FEATURE_COLS if tier == "cold_start" else PRODUCTION_FEATURE_COLS)
         actual = set(df.columns) & expected
         coverage = len(actual) / len(expected) * 100
 

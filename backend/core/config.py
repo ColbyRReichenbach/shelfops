@@ -4,9 +4,10 @@ ShelfOps Backend Configuration
 Uses pydantic-settings for type-safe environment variable loading.
 """
 
-from pydantic_settings import BaseSettings
 from functools import lru_cache
 from pathlib import Path
+
+from pydantic_settings import BaseSettings
 
 # Find .env file: check CWD first, then parent (project root)
 _env_file = Path(".env")
@@ -88,7 +89,7 @@ class Settings(BaseSettings):
     }
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     """Cached settings instance."""
     return Settings()

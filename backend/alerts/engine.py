@@ -19,16 +19,20 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import redis.asyncio as aioredis
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
 from db.models import (
-    Alert, InventoryLevel, ReorderPoint, DemandForecast,
-    Product, ForecastAccuracy,
+    Alert,
+    DemandForecast,
+    ForecastAccuracy,
+    InventoryLevel,
+    Product,
+    ReorderPoint,
 )
-from retail.shrinkage import get_shrink_rate, apply_shrinkage_adjustment
 from retail.planogram import is_product_active_in_store
+from retail.shrinkage import apply_shrinkage_adjustment, get_shrink_rate
 
 settings = get_settings()
 
@@ -38,10 +42,10 @@ settings = get_settings()
 
 SEVERITY_THRESHOLDS = {
     "stockout_days": {
-        "critical": 1,    # Stockout in ≤ 1 day
-        "high": 3,        # Stockout in ≤ 3 days
-        "medium": 5,      # Stockout in ≤ 5 days
-        "low": 7,         # Stockout in ≤ 7 days
+        "critical": 1,  # Stockout in ≤ 1 day
+        "high": 3,  # Stockout in ≤ 3 days
+        "medium": 5,  # Stockout in ≤ 5 days
+        "low": 7,  # Stockout in ≤ 7 days
     },
     "anomaly_z_score": {
         "critical": 4.0,
@@ -81,6 +85,7 @@ def classify_anomaly_severity(z_score: float) -> str:
 # Stockout Detection
 # ──────────────────────────────────────────────────────────────────────────
 
+
 async def detect_stockouts(
     db: AsyncSession,
     customer_id: str,
@@ -102,24 +107,19 @@ async def detect_stockouts(
     )
 
     inv_result = await db.execute(
-        select(InventoryLevel)
-        .join(
+        select(InventoryLevel).join(
             inv_subq,
             (InventoryLevel.store_id == inv_subq.c.store_id)
             & (InventoryLevel.product_id == inv_subq.c.product_id)
             & (InventoryLevel.timestamp == inv_subq.c.latest_ts),
         )
     )
-    inventories = {
-        (str(inv.store_id), str(inv.product_id)): inv
-        for inv in inv_result.scalars().all()
-    }
+    inventories = {(str(inv.store_id), str(inv.product_id)): inv for inv in inv_result.scalars().all()}
 
     # Get 7-day forecasts
     today = datetime.utcnow().date()
     forecast_result = await db.execute(
-        select(DemandForecast)
-        .where(
+        select(DemandForecast).where(
             DemandForecast.customer_id == customer_id,
             DemandForecast.forecast_date >= today,
             DemandForecast.forecast_date <= today + timedelta(days=7),
@@ -143,9 +143,7 @@ async def detect_stockouts(
         # Apply shrinkage adjustment to get realistic available inventory
         raw_available = inv.quantity_available
         days_since = (datetime.utcnow() - inv.timestamp).days if inv.timestamp else 0
-        shrink_rate = await get_shrink_rate(
-            db, uuid.UUID(key[1]), uuid.UUID(key[0]), uuid.UUID(customer_id)
-        )
+        shrink_rate = await get_shrink_rate(db, uuid.UUID(key[1]), uuid.UUID(key[0]), uuid.UUID(customer_id))
         available = apply_shrinkage_adjustment(raw_available, days_since, shrink_rate)
 
         if available < total_demand:
@@ -156,25 +154,27 @@ async def detect_stockouts(
             product = await db.get(Product, uuid.UUID(key[1]))
             product_name = product.name if product else "Unknown"
 
-            alerts.append({
-                "customer_id": customer_id,
-                "store_id": key[0],
-                "product_id": key[1],
-                "alert_type": "stockout_predicted",
-                "severity": severity,
-                "message": (
-                    f"Stockout predicted in {days_of_supply:.0f} days for {product_name}. "
-                    f"Current stock: {available}, 7-day forecast demand: {total_demand:.0f}"
-                ),
-                "metadata": {
-                    "current_stock": available,
-                    "raw_stock": raw_available,
-                    "shrinkage_adjusted": available != raw_available,
-                    "shrink_rate_pct": round(shrink_rate * 100, 2),
-                    "forecast_demand_7d": round(total_demand, 1),
-                    "days_of_supply": round(days_of_supply, 1),
-                },
-            })
+            alerts.append(
+                {
+                    "customer_id": customer_id,
+                    "store_id": key[0],
+                    "product_id": key[1],
+                    "alert_type": "stockout_predicted",
+                    "severity": severity,
+                    "message": (
+                        f"Stockout predicted in {days_of_supply:.0f} days for {product_name}. "
+                        f"Current stock: {available}, 7-day forecast demand: {total_demand:.0f}"
+                    ),
+                    "metadata": {
+                        "current_stock": available,
+                        "raw_stock": raw_available,
+                        "shrinkage_adjusted": available != raw_available,
+                        "shrink_rate_pct": round(shrink_rate * 100, 2),
+                        "forecast_demand_7d": round(total_demand, 1),
+                        "days_of_supply": round(days_of_supply, 1),
+                    },
+                }
+            )
 
     return alerts
 
@@ -182,6 +182,7 @@ async def detect_stockouts(
 # ──────────────────────────────────────────────────────────────────────────
 # Reorder Detection
 # ──────────────────────────────────────────────────────────────────────────
+
 
 async def detect_reorder_needed(
     db: AsyncSession,
@@ -192,9 +193,7 @@ async def detect_reorder_needed(
     Returns list of reorder alert dicts.
     """
     # Get reorder points
-    rp_result = await db.execute(
-        select(ReorderPoint).where(ReorderPoint.customer_id == customer_id)
-    )
+    rp_result = await db.execute(select(ReorderPoint).where(ReorderPoint.customer_id == customer_id))
     reorder_points = rp_result.scalars().all()
 
     # Latest inventory
@@ -209,18 +208,14 @@ async def detect_reorder_needed(
         .subquery()
     )
     inv_result = await db.execute(
-        select(InventoryLevel)
-        .join(
+        select(InventoryLevel).join(
             inv_subq,
             (InventoryLevel.store_id == inv_subq.c.store_id)
             & (InventoryLevel.product_id == inv_subq.c.product_id)
             & (InventoryLevel.timestamp == inv_subq.c.latest_ts),
         )
     )
-    inventories = {
-        (str(inv.store_id), str(inv.product_id)): inv
-        for inv in inv_result.scalars().all()
-    }
+    inventories = {(str(inv.store_id), str(inv.product_id)): inv for inv in inv_result.scalars().all()}
 
     alerts = []
     for rp in reorder_points:
@@ -238,24 +233,26 @@ async def detect_reorder_needed(
             product_name = product.name if product else "Unknown"
             suggested_qty = rp.economic_order_qty
 
-            alerts.append({
-                "customer_id": customer_id,
-                "store_id": key[0],
-                "product_id": key[1],
-                "alert_type": "reorder_recommended",
-                "severity": "medium" if inv.quantity_available > rp.safety_stock else "high",
-                "message": (
-                    f"Reorder recommended for {product_name}. "
-                    f"Stock: {inv.quantity_available}, reorder point: {rp.reorder_point}. "
-                    f"Suggested order qty: {suggested_qty}"
-                ),
-                "metadata": {
-                    "current_stock": inv.quantity_available,
-                    "reorder_point": rp.reorder_point,
-                    "safety_stock": rp.safety_stock,
-                    "suggested_qty": suggested_qty,
-                },
-            })
+            alerts.append(
+                {
+                    "customer_id": customer_id,
+                    "store_id": key[0],
+                    "product_id": key[1],
+                    "alert_type": "reorder_recommended",
+                    "severity": "medium" if inv.quantity_available > rp.safety_stock else "high",
+                    "message": (
+                        f"Reorder recommended for {product_name}. "
+                        f"Stock: {inv.quantity_available}, reorder point: {rp.reorder_point}. "
+                        f"Suggested order qty: {suggested_qty}"
+                    ),
+                    "metadata": {
+                        "current_stock": inv.quantity_available,
+                        "reorder_point": rp.reorder_point,
+                        "safety_stock": rp.safety_stock,
+                        "suggested_qty": suggested_qty,
+                    },
+                }
+            )
 
     return alerts
 
@@ -263,6 +260,7 @@ async def detect_reorder_needed(
 # ──────────────────────────────────────────────────────────────────────────
 # Alert Deduplication
 # ──────────────────────────────────────────────────────────────────────────
+
 
 async def deduplicate_alerts(
     db: AsyncSession,
@@ -277,23 +275,17 @@ async def deduplicate_alerts(
 
     # Fetch existing open alerts
     existing = await db.execute(
-        select(Alert.store_id, Alert.product_id, Alert.alert_type)
-        .where(Alert.status.in_(["open", "acknowledged"]))
+        select(Alert.store_id, Alert.product_id, Alert.alert_type).where(Alert.status.in_(["open", "acknowledged"]))
     )
-    existing_keys = {
-        (str(row.store_id), str(row.product_id), row.alert_type)
-        for row in existing.all()
-    }
+    existing_keys = {(str(row.store_id), str(row.product_id), row.alert_type) for row in existing.all()}
 
-    return [
-        a for a in new_alerts
-        if (a["store_id"], a["product_id"], a["alert_type"]) not in existing_keys
-    ]
+    return [a for a in new_alerts if (a["store_id"], a["product_id"], a["alert_type"]) not in existing_keys]
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # Alert Creation + Publishing
 # ──────────────────────────────────────────────────────────────────────────
+
 
 async def create_alerts(
     db: AsyncSession,
@@ -330,18 +322,20 @@ async def publish_alerts(alerts: list[Alert]) -> int:
     try:
         total_subs = 0
         for alert in alerts:
-            payload = json.dumps({
-                "type": "alert",
-                "payload": {
-                    "alert_id": str(alert.alert_id),
-                    "alert_type": alert.alert_type,
-                    "severity": alert.severity,
-                    "message": alert.message,
-                    "store_id": str(alert.store_id),
-                    "product_id": str(alert.product_id),
-                    "created_at": alert.created_at.isoformat(),
-                },
-            })
+            payload = json.dumps(
+                {
+                    "type": "alert",
+                    "payload": {
+                        "alert_id": str(alert.alert_id),
+                        "alert_type": alert.alert_type,
+                        "severity": alert.severity,
+                        "message": alert.message,
+                        "store_id": str(alert.store_id),
+                        "product_id": str(alert.product_id),
+                        "created_at": alert.created_at.isoformat(),
+                    },
+                }
+            )
             channel = f"alerts:{alert.customer_id}"
             subs = await redis.publish(channel, payload)
             total_subs += subs
@@ -353,6 +347,7 @@ async def publish_alerts(alerts: list[Alert]) -> int:
 # ──────────────────────────────────────────────────────────────────────────
 # Master Alert Pipeline (run periodically)
 # ──────────────────────────────────────────────────────────────────────────
+
 
 async def run_alert_pipeline(db: AsyncSession, customer_id: str) -> dict[str, int]:
     """

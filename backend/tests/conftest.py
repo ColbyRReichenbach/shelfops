@@ -5,16 +5,17 @@ Uses per-test transactions with SAVEPOINT/rollback so each test gets a
 clean database state while sharing the same session-level schema.
 """
 
-import pytest
 import uuid
 from datetime import date, timedelta
 
-from httpx import AsyncClient, ASGITransport
+import pytest
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from db.session import Base
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from api.deps import get_current_user, get_db, get_tenant_db
 from api.main import app
-from api.deps import get_db, get_current_user, get_tenant_db
+from db.session import Base
 
 # Use in-memory SQLite for tests (no TimescaleDB features).
 # Shared cache so session-scoped engine and function-scoped sessions
@@ -95,7 +96,7 @@ async def client(test_db, mock_user):
 @pytest.fixture
 async def seeded_db(test_db):
     """Seed the test DB with basic entities for integration tests."""
-    from db.models import Customer, Store, Product, Supplier, PurchaseOrder
+    from db.models import Customer, Product, PurchaseOrder, Store, Supplier
 
     customer_id = uuid.UUID(CUSTOMER_ID)
 

@@ -9,8 +9,8 @@ import asyncio
 import json
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
-from jose import jwt, JWTError
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 
 from core.config import get_settings
 
@@ -58,12 +58,14 @@ async def websocket_alerts(websocket: WebSocket, token: str = Query(...)):
     customer_id = user.get("customer_id", "")
     channel = f"alerts:{customer_id}"
 
-    # Subscribe to Redis channel
-    redis = aioredis.from_url(settings.redis_url)
-    pubsub = redis.pubsub()
-    await pubsub.subscribe(channel)
-
+    redis = None
+    pubsub = None
     try:
+        # Subscribe to Redis channel
+        redis = aioredis.from_url(settings.redis_url)
+        pubsub = redis.pubsub()
+        await pubsub.subscribe(channel)
+
         # Send heartbeat + listen for Redis messages
         async def listen_redis():
             async for message in pubsub.listen():
@@ -86,7 +88,13 @@ async def websocket_alerts(websocket: WebSocket, token: str = Query(...)):
 
     except WebSocketDisconnect:
         pass
+    except Exception as exc:
+        import structlog
+
+        structlog.get_logger().error("websocket.error", error=str(exc))
     finally:
-        await pubsub.unsubscribe(channel)
-        await pubsub.aclose()
-        await redis.aclose()
+        if pubsub:
+            await pubsub.unsubscribe(channel)
+            await pubsub.aclose()
+        if redis:
+            await redis.aclose()

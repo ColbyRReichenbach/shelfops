@@ -10,7 +10,6 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestPurchaseOrdersAPI:
-
     async def test_health_check(self, client: AsyncClient):
         """Sanity check that the test client works."""
         response = await client.get("/health")

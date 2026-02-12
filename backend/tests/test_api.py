@@ -37,9 +37,7 @@ class TestStoresAPI:
         assert data["status"] == "active"
 
     async def test_get_store_not_found(self, client: AsyncClient):
-        response = await client.get(
-            "/api/v1/stores/00000000-0000-0000-0000-000000000099"
-        )
+        response = await client.get("/api/v1/stores/00000000-0000-0000-0000-000000000099")
         assert response.status_code == 404
 
 

@@ -18,16 +18,17 @@ Revises: ec78d2c05126
 Create Date: 2026-02-11
 """
 
-from typing import Sequence, Union
-from alembic import op
+from collections.abc import Sequence
+from typing import Union
+
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
-
 revision: str = "002"
-down_revision: Union[str, None] = "ec78d2c05126"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = "ec78d2c05126"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -44,14 +45,15 @@ def upgrade() -> None:
     op.add_column("suppliers", sa.Column("last_delivery_date", sa.Date(), nullable=True))
 
     # --- products: lifecycle + holding cost ---
-    op.add_column("products", sa.Column(
-        "lifecycle_state", sa.String(length=30), nullable=False, server_default="active"
-    ))
+    op.add_column(
+        "products", sa.Column("lifecycle_state", sa.String(length=30), nullable=False, server_default="active")
+    )
     op.add_column("products", sa.Column("planogram_required", sa.Boolean(), nullable=True, server_default="false"))
     op.add_column("products", sa.Column("holding_cost_per_unit_per_day", sa.Float(), nullable=True))
     op.create_check_constraint(
-        "ck_product_lifecycle_state", "products",
-        "lifecycle_state IN ('active', 'seasonal_out', 'delisted', 'discontinued', 'test', 'pending_activation')"
+        "ck_product_lifecycle_state",
+        "products",
+        "lifecycle_state IN ('active', 'seasonal_out', 'delisted', 'discontinued', 'test', 'pending_activation')",
     )
 
     # --- purchase_orders: sourcing + receiving ---
@@ -66,11 +68,12 @@ def upgrade() -> None:
     # --- alerts: expand alert_type enum ---
     op.drop_constraint("ck_alert_type", "alerts", type_="check")
     op.create_check_constraint(
-        "ck_alert_type", "alerts",
+        "ck_alert_type",
+        "alerts",
         "alert_type IN ("
         "'stockout_predicted', 'anomaly_detected', 'reorder_recommended', "
         "'forecast_accuracy_low', 'model_drift_detected', 'data_stale', "
-        "'receiving_discrepancy', 'vendor_reliability_low', 'reorder_point_changed')"
+        "'receiving_discrepancy', 'vendor_reliability_low', 'reorder_point_changed')",
     )
 
     # ═══════════════════════════════════════════════════════════════════
@@ -122,8 +125,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["store_id"], ["stores.store_id"]),
         sa.PrimaryKeyConstraint("rule_id"),
         sa.CheckConstraint(
-            "source_type IN ('vendor_direct', 'dc', 'regional_dc', 'transfer')",
-            name="ck_sourcing_source_type"
+            "source_type IN ('vendor_direct', 'dc', 'regional_dc', 'transfer')", name="ck_sourcing_source_type"
         ),
         sa.CheckConstraint("priority >= 1 AND priority <= 5", name="ck_sourcing_priority_range"),
         sa.CheckConstraint("lead_time_days > 0", name="ck_sourcing_lead_time_positive"),
@@ -172,8 +174,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("transfer_id"),
         sa.CheckConstraint("quantity > 0", name="ck_transfer_quantity_positive"),
         sa.CheckConstraint(
-            "status IN ('requested', 'approved', 'in_transit', 'received', 'cancelled')",
-            name="ck_transfer_status"
+            "status IN ('requested', 'approved', 'in_transit', 'received', 'cancelled')", name="ck_transfer_status"
         ),
         sa.CheckConstraint("from_location_type IN ('store', 'dc')", name="ck_transfer_from_type"),
         sa.CheckConstraint("to_location_type IN ('store', 'dc')", name="ck_transfer_to_type"),
@@ -199,8 +200,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.CheckConstraint("shrink_rate_pct >= 0 AND shrink_rate_pct <= 1", name="ck_shrink_rate_range"),
         sa.CheckConstraint(
-            "shrink_type IN ('theft', 'spoilage', 'damage', 'admin_error', 'combined')",
-            name="ck_shrink_type"
+            "shrink_type IN ('theft', 'spoilage', 'damage', 'admin_error', 'combined')", name="ck_shrink_type"
         ),
     )
     op.create_index("ix_shrinkage_customer_category", "shrinkage_rates", ["customer_id", "category"])
@@ -226,8 +226,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("planogram_id"),
         sa.UniqueConstraint("store_id", "product_id", "effective_date", name="uq_planogram_store_product"),
         sa.CheckConstraint(
-            "status IN ('active', 'seasonal_out', 'discontinued', 'pending_reset')",
-            name="ck_planogram_status"
+            "status IN ('active', 'seasonal_out', 'discontinued', 'pending_reset')", name="ck_planogram_status"
         ),
         sa.CheckConstraint("facings > 0", name="ck_planogram_facings_positive"),
     )
@@ -274,12 +273,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["product_id"], ["products.product_id"]),
         sa.PrimaryKeyConstraint("discrepancy_id"),
         sa.CheckConstraint(
-            "discrepancy_type IN ('shortage', 'overage', 'damaged', 'wrong_item')",
-            name="ck_discrepancy_type"
+            "discrepancy_type IN ('shortage', 'overage', 'damaged', 'wrong_item')", name="ck_discrepancy_type"
         ),
         sa.CheckConstraint(
-            "resolution_status IN ('pending', 'credited', 'restocked', 'written_off')",
-            name="ck_discrepancy_resolution"
+            "resolution_status IN ('pending', 'credited', 'restocked', 'written_off')", name="ck_discrepancy_resolution"
         ),
     )
     op.create_index("ix_discrepancies_po", "receiving_discrepancies", ["po_id"])
@@ -326,10 +323,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["customer_id"], ["customers.customer_id"]),
         sa.ForeignKeyConstraint(["po_id"], ["purchase_orders.po_id"]),
         sa.PrimaryKeyConstraint("decision_id"),
-        sa.CheckConstraint(
-            "decision_type IN ('approved', 'rejected', 'edited')",
-            name="ck_decision_type"
-        ),
+        sa.CheckConstraint("decision_type IN ('approved', 'rejected', 'edited')", name="ck_decision_type"),
     )
     op.create_index("ix_po_decisions_po", "po_decisions", ["po_id"])
     op.create_index("ix_po_decisions_customer", "po_decisions", ["customer_id"])
@@ -381,8 +375,9 @@ def downgrade() -> None:
     # Revert alert_type constraint
     op.drop_constraint("ck_alert_type", "alerts", type_="check")
     op.create_check_constraint(
-        "ck_alert_type", "alerts",
-        "alert_type IN ('stockout_predicted', 'anomaly_detected', 'reorder_recommended', 'forecast_accuracy_low')"
+        "ck_alert_type",
+        "alerts",
+        "alert_type IN ('stockout_predicted', 'anomaly_detected', 'reorder_recommended', 'forecast_accuracy_low')",
     )
 
     # Revert purchase_orders extensions

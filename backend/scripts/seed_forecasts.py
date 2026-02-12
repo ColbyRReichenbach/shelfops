@@ -13,15 +13,19 @@ Run: PYTHONPATH=backend python backend/scripts/seed_forecasts.py
 
 import asyncio
 import random
-from datetime import datetime, timedelta, date, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from db.models import (
-    Store, Product, DemandForecast, ForecastAccuracy, Promotion,
-)
 from core.config import get_settings
+from db.models import (
+    DemandForecast,
+    ForecastAccuracy,
+    Product,
+    Promotion,
+    Store,
+)
 
 settings = get_settings()
 
@@ -36,21 +40,16 @@ async def seed_forecasts():
 
     async with SessionLocal() as db:
         # Fetch existing stores and products
-        stores_result = await db.execute(
-            select(Store).where(Store.customer_id == DEV_CUSTOMER_ID)
-        )
+        stores_result = await db.execute(select(Store).where(Store.customer_id == DEV_CUSTOMER_ID))
         stores = stores_result.scalars().all()
 
-        products_result = await db.execute(
-            select(Product).where(Product.customer_id == DEV_CUSTOMER_ID)
-        )
+        products_result = await db.execute(select(Product).where(Product.customer_id == DEV_CUSTOMER_ID))
         products = products_result.scalars().all()
 
         if not stores or not products:
             print("No stores/products found. Run seed_test_data.py first.")
             return
 
-        now = datetime.now(timezone.utc)
         today = date.today()
         forecast_count = 0
         accuracy_count = 0
@@ -61,9 +60,14 @@ async def seed_forecasts():
             for product in products:
                 # Base demand varies by category
                 base_demand = {
-                    "Beverages": 25, "Snacks": 18, "Dairy": 15,
-                    "Produce": 12, "Frozen": 10, "Bakery": 8,
-                    "Meat": 7, "Household": 5,
+                    "Beverages": 25,
+                    "Snacks": 18,
+                    "Dairy": 15,
+                    "Produce": 12,
+                    "Frozen": 10,
+                    "Bakery": 8,
+                    "Meat": 7,
+                    "Household": 5,
                 }.get(product.category, 10)
 
                 for day_offset in range(14):
@@ -72,9 +76,7 @@ async def seed_forecasts():
                     dow = forecast_date.weekday()
                     weekend_mult = 1.3 if dow >= 5 else 1.0
                     # Add some noise
-                    demand = max(1, int(
-                        base_demand * weekend_mult * random.uniform(0.7, 1.4)
-                    ))
+                    demand = max(1, int(base_demand * weekend_mult * random.uniform(0.7, 1.4)))
                     # Confidence decreases with distance
                     confidence = max(0.5, 0.95 - day_offset * 0.03)
                     margin = demand * (1 - confidence) * 2
@@ -97,9 +99,14 @@ async def seed_forecasts():
         for store in stores:
             for product in products:
                 base_demand = {
-                    "Beverages": 25, "Snacks": 18, "Dairy": 15,
-                    "Produce": 12, "Frozen": 10, "Bakery": 8,
-                    "Meat": 7, "Household": 5,
+                    "Beverages": 25,
+                    "Snacks": 18,
+                    "Dairy": 15,
+                    "Produce": 12,
+                    "Frozen": 10,
+                    "Bakery": 8,
+                    "Meat": 7,
+                    "Household": 5,
                 }.get(product.category, 10)
 
                 for day_offset in range(1, 31):
@@ -107,12 +114,8 @@ async def seed_forecasts():
                     dow = eval_date.weekday()
                     weekend_mult = 1.3 if dow >= 5 else 1.0
 
-                    actual = max(1, int(
-                        base_demand * weekend_mult * random.uniform(0.6, 1.5)
-                    ))
-                    forecasted = max(1, int(
-                        base_demand * weekend_mult * random.uniform(0.75, 1.35)
-                    ))
+                    actual = max(1, int(base_demand * weekend_mult * random.uniform(0.6, 1.5)))
+                    forecasted = max(1, int(base_demand * weekend_mult * random.uniform(0.75, 1.35)))
 
                     mae = abs(actual - forecasted)
                     mape = mae / actual if actual > 0 else 0

@@ -4,14 +4,16 @@ ShelfOps API Dependencies
 Dependency injection for DB sessions, auth, and tenant context.
 """
 
-from typing import AsyncGenerator, Optional
-from fastapi import Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from collections.abc import AsyncGenerator
+from typing import Optional
 
-from db.session import AsyncSessionLocal
+from fastapi import Depends, HTTPException, Request, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.config import get_settings
+from db.session import AsyncSessionLocal
 
 settings = get_settings()
 security = HTTPBearer(auto_error=not settings.debug)
@@ -30,7 +32,7 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 async def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> dict:
     """Decode JWT and return user payload. Bypassed in debug mode."""
     if settings.debug:
@@ -47,6 +49,7 @@ async def get_current_user(
         )
 
     from core.security import decode_access_token
+
     payload = decode_access_token(credentials.credentials)
     if payload is None:
         raise HTTPException(
@@ -75,4 +78,3 @@ async def get_tenant_db(
         {"cid": str(customer_id)},
     )
     return db
-

@@ -16,11 +16,14 @@ import uuid
 from datetime import date, datetime, timedelta
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    InventoryLevel, DemandForecast, Product, OpportunityCostLog,
+    DemandForecast,
+    InventoryLevel,
+    OpportunityCostLog,
+    Product,
 )
 
 logger = structlog.get_logger()
@@ -64,18 +67,14 @@ async def analyze_daily_opportunity_cost(
     )
 
     inv_result = await db.execute(
-        select(InventoryLevel)
-        .join(
+        select(InventoryLevel).join(
             inv_subq,
             (InventoryLevel.store_id == inv_subq.c.store_id)
             & (InventoryLevel.product_id == inv_subq.c.product_id)
             & (InventoryLevel.timestamp == inv_subq.c.latest_ts),
         )
     )
-    inventories = {
-        (inv.store_id, inv.product_id): inv
-        for inv in inv_result.scalars().all()
-    }
+    inventories = {(inv.store_id, inv.product_id): inv for inv in inv_result.scalars().all()}
 
     # Get forecasts for the analysis date
     forecast_result = await db.execute(
@@ -84,10 +83,7 @@ async def analyze_daily_opportunity_cost(
             DemandForecast.forecast_date == analysis_date,
         )
     )
-    forecasts = {
-        (fc.store_id, fc.product_id): fc
-        for fc in forecast_result.scalars().all()
-    }
+    forecasts = {(fc.store_id, fc.product_id): fc for fc in forecast_result.scalars().all()}
 
     # Pre-load products for cost data
     product_ids = set(pid for _, pid in list(inventories.keys()) + list(forecasts.keys()))
@@ -148,17 +144,23 @@ async def analyze_daily_opportunity_cost(
             total_overstock_cost += cost_amount
 
         if cost_type and cost_amount > 0.01:
-            db.add(OpportunityCostLog(
-                customer_id=customer_id,
-                store_id=store_id,
-                product_id=product_id,
-                date=analysis_date,
-                cost_type=cost_type,
-                lost_units=lost_units,
-                estimated_cost=round(cost_amount, 2),
-                forecasted_demand=round(forecasted, 1),
-                actual_inventory=available,
-            ))
+            holding = round(cost_amount, 2) if cost_type == "overstock" else 0.0
+            opportunity = round(cost_amount, 2) if cost_type == "stockout" else 0.0
+            db.add(
+                OpportunityCostLog(
+                    customer_id=customer_id,
+                    store_id=store_id,
+                    product_id=product_id,
+                    date=analysis_date,
+                    cost_type=cost_type,
+                    lost_sales_qty=lost_units,
+                    opportunity_cost=opportunity,
+                    holding_cost=holding,
+                    forecasted_demand=round(forecasted, 1),
+                    actual_stock=available,
+                    actual_sales=0,
+                )
+            )
             records_created += 1
 
     await db.commit()

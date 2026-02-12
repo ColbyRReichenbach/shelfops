@@ -2,20 +2,22 @@
 Products Router — CRUD for product catalog.
 """
 
-from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from uuid import UUID
 
-from api.deps import get_tenant_db, get_current_user
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.deps import get_current_user, get_tenant_db
 from db.models import Product
 
 router = APIRouter(prefix="/api/v1/products", tags=["products"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class ProductCreate(BaseModel):
     sku: str = Field(..., min_length=1, max_length=100)
@@ -70,6 +72,7 @@ class ProductResponse(BaseModel):
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[ProductResponse])
 async def list_products(

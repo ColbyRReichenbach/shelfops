@@ -51,6 +51,7 @@ REPORTS_DIR = Path(__file__).parent.parent / "reports"
 # Registry Helpers
 # ──────────────────────────────────────────────────────────────────────
 
+
 def _load_registry() -> dict[str, Any]:
     """Load model registry JSON."""
     registry_path = MODEL_DIR / "registry.json"
@@ -63,9 +64,7 @@ def _save_registry(registry: dict[str, Any]) -> None:
     """Save model registry JSON."""
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     registry["updated_at"] = datetime.now(timezone.utc).isoformat()
-    (MODEL_DIR / "registry.json").write_text(
-        json.dumps(registry, indent=2, default=str)
-    )
+    (MODEL_DIR / "registry.json").write_text(json.dumps(registry, indent=2, default=str))
 
 
 def register_model(
@@ -109,6 +108,7 @@ def register_model(
 # ──────────────────────────────────────────────────────────────────────
 # Experiment Tracker
 # ──────────────────────────────────────────────────────────────────────
+
 
 class ExperimentTracker:
     """
@@ -208,24 +208,18 @@ class ExperimentTracker:
             except Exception as e:
                 logger.warning("mlflow.log_model_failed", error=str(e))
 
-    def log_feature_importance(
-        self, model: Any, feature_cols: list[str]
-    ) -> Path | None:
+    def log_feature_importance(self, model: Any, feature_cols: list[str]) -> Path | None:
         """Log feature importance as JSON artifact."""
         try:
             if hasattr(model, "feature_importances_"):
-                importance = dict(
-                    zip(feature_cols, model.feature_importances_.tolist())
-                )
+                importance = dict(zip(feature_cols, model.feature_importances_.tolist()))
             elif hasattr(model, "get_score"):
                 importance = model.get_score(importance_type="gain")
             else:
                 return None
 
             # Sort descending
-            importance = dict(
-                sorted(importance.items(), key=lambda x: x[1], reverse=True)
-            )
+            importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
 
             REPORTS_DIR.mkdir(parents=True, exist_ok=True)
             out_path = REPORTS_DIR / "feature_importance.json"

@@ -9,14 +9,15 @@ Skill: ml-forecasting
 Workflow: train-forecast-model.md
 """
 
-import numpy as np
-import pandas as pd
-import joblib
 import os
 from typing import Any
 
-from ml.train import TARGET_COL, MODEL_DIR, ENSEMBLE_WEIGHTS
+import joblib
+import numpy as np
+import pandas as pd
+
 from ml.features import FEATURE_COLS, get_feature_cols
+from ml.train import ENSEMBLE_WEIGHTS, MODEL_DIR, TARGET_COL
 
 # Confidence interval z-scores
 Z_SCORES = {0.80: 1.28, 0.85: 1.44, 0.90: 1.645, 0.95: 1.96}
@@ -40,6 +41,7 @@ def load_models(version: str) -> dict[str, Any]:
     if os.path.exists(lstm_path):
         try:
             import tensorflow as tf
+
             result["lstm"] = tf.keras.models.load_model(lstm_path)
         except ImportError:
             result["lstm"] = None
@@ -94,10 +96,7 @@ def predict_demand(
 
     # Weighted ensemble
     weights = models.get("metadata", {}).get("weights", ENSEMBLE_WEIGHTS)
-    ensemble_preds = (
-        weights.get("xgboost", 0.65) * xgb_preds
-        + weights.get("lstm", 0.35) * lstm_preds
-    )
+    ensemble_preds = weights.get("xgboost", 0.65) * xgb_preds + weights.get("lstm", 0.35) * lstm_preds
     ensemble_preds = np.maximum(ensemble_preds, 0)
 
     # Prediction intervals using residual-based approach
@@ -132,9 +131,7 @@ def apply_business_rules(
     df = forecast_df.copy()
 
     # Merge product info
-    prod_info = products_df[
-        ["product_id", "is_seasonal", "is_perishable", "shelf_life_days", "category"]
-    ]
+    prod_info = products_df[["product_id", "is_seasonal", "is_perishable", "shelf_life_days", "category"]]
     df = df.merge(prod_info, on="product_id", how="left")
 
     # Rule 1: New items — boost confidence interval
@@ -147,9 +144,7 @@ def apply_business_rules(
 
     # Rule 2: Active promotion lift
     if promotions_df is not None and not promotions_df.empty:
-        active_promos = promotions_df[promotions_df["status"] == "active"][
-            ["product_id", "store_id", "expected_lift"]
-        ]
+        active_promos = promotions_df[promotions_df["status"] == "active"][["product_id", "store_id", "expected_lift"]]
         if not active_promos.empty:
             df = df.merge(active_promos, on=["product_id", "store_id"], how="left")
             lift_mask = df["expected_lift"].notna()
@@ -161,17 +156,17 @@ def apply_business_rules(
     peak_months = {11, 12, 6, 7}  # Nov, Dec, Jun, Jul
     if "date" in df.columns:
         month = pd.to_datetime(df["date"]).dt.month
-        seasonal_mask = (df["is_seasonal"] == True) & (month.isin(peak_months))
+        seasonal_mask = df["is_seasonal"].astype(bool) & month.isin(peak_months)
         df.loc[seasonal_mask, "forecasted_demand"] *= 1.2
         df.loc[seasonal_mask, "upper_bound"] *= 1.2
 
     # Rule 4: Perishable cap
-    perishable_mask = (df["is_perishable"] == True) & (df["shelf_life_days"].notna())
+    perishable_mask = df["is_perishable"].astype(bool) & df["shelf_life_days"].notna()
     if perishable_mask.any():
         max_demand = df.loc[perishable_mask, "shelf_life_days"] * 0.8  # 80% of shelf life
-        df.loc[perishable_mask, "forecasted_demand"] = df.loc[
-            perishable_mask, "forecasted_demand"
-        ].clip(upper=max_demand)
+        df.loc[perishable_mask, "forecasted_demand"] = df.loc[perishable_mask, "forecasted_demand"].clip(
+            upper=max_demand
+        )
 
     # Clean up
     df = df.drop(columns=["is_seasonal", "is_perishable", "shelf_life_days", "category"], errors="ignore")

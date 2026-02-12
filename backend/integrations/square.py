@@ -7,6 +7,7 @@ Uses OAuth tokens stored in the integrations table.
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 from core.config import get_settings
 from core.security import decrypt
 
@@ -69,9 +70,7 @@ class SquareClient:
             return response.json().get("counts", [])
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    async def get_orders(
-        self, location_ids: list[str], cursor: str | None = None
-    ) -> dict:
+    async def get_orders(self, location_ids: list[str], cursor: str | None = None) -> dict:
         """Fetch orders (transactions) from Square."""
         body = {"location_ids": location_ids}
         if cursor:

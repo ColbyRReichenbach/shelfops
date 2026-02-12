@@ -27,13 +27,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+import structlog
+
 from integrations.base import (
     IntegrationType,
     RetailIntegrationAdapter,
     SyncResult,
     SyncStatus,
 )
-import structlog
 
 logger = structlog.get_logger()
 
@@ -45,21 +46,24 @@ ELEMENT_SEPARATOR = "*"
 
 # ── Parsed document containers ────────────────────────────────────────────
 
+
 @dataclass
 class EDI846Item:
     """Single inventory line from an EDI 846 document."""
-    gtin: str                       # GS1 Global Trade Item Number
-    upc: str = ""                   # Universal Product Code (subset of GTIN)
+
+    gtin: str  # GS1 Global Trade Item Number
+    upc: str = ""  # Universal Product Code (subset of GTIN)
     quantity_on_hand: int = 0
     quantity_on_order: int = 0
-    warehouse_id: str = ""          # Retailer's internal location code
-    unit_of_measure: str = "EA"     # EA=each, CS=case, PL=pallet
+    warehouse_id: str = ""  # Retailer's internal location code
+    unit_of_measure: str = "EA"  # EA=each, CS=case, PL=pallet
     as_of_date: datetime | None = None
 
 
 @dataclass
 class EDI856Shipment:
     """Parsed ASN (Advance Ship Notice) from EDI 856."""
+
     shipment_id: str
     ship_date: datetime | None = None
     expected_delivery: datetime | None = None
@@ -72,6 +76,7 @@ class EDI856Shipment:
 @dataclass
 class EDI810Invoice:
     """Parsed invoice from EDI 810."""
+
     invoice_number: str
     invoice_date: datetime | None = None
     po_number: str = ""
@@ -81,6 +86,7 @@ class EDI810Invoice:
 
 
 # ── EDI X12 Parser ────────────────────────────────────────────────────────
+
 
 class EDIX12Parser:
     """
@@ -316,20 +322,14 @@ class EDIX12Parser:
         segments = [
             f"ISA*00*          *00*          *ZZ*SHELFOPS       *ZZ*{vendor_id:<15}*{now.strftime('%y%m%d')}*{time_str}*U*00401*000000001*0*P*>",
             f"GS*PO*SHELFOPS*{vendor_id}*{date_str}*{time_str}*1*X*004010",
-            f"ST*850*0001",
+            "ST*850*0001",
             f"BEG*00*NE*{po_number}**{date_str}",
         ]
 
         if ship_to:
-            segments.append(
-                f"N1*ST*{ship_to.get('name', '')}*92*{ship_to.get('id', '')}"
-            )
-            segments.append(
-                f"N3*{ship_to.get('address', '')}"
-            )
-            segments.append(
-                f"N4*{ship_to.get('city', '')}*{ship_to.get('state', '')}*{ship_to.get('zip', '')}"
-            )
+            segments.append(f"N1*ST*{ship_to.get('name', '')}*92*{ship_to.get('id', '')}")
+            segments.append(f"N3*{ship_to.get('address', '')}")
+            segments.append(f"N4*{ship_to.get('city', '')}*{ship_to.get('state', '')}*{ship_to.get('zip', '')}")
 
         seg_count = len(segments)
         for i, item in enumerate(items, start=1):
@@ -337,15 +337,13 @@ class EDIX12Parser:
             qty = item.get("quantity", 0)
             price = item.get("unit_price", 0.0)
             uom = item.get("uom", "EA")
-            segments.append(
-                f"PO1*{i}*{qty}*{uom}*{price:.2f}*PE*IN*{gtin}"
-            )
+            segments.append(f"PO1*{i}*{qty}*{uom}*{price:.2f}*PE*IN*{gtin}")
             seg_count += 1
 
         seg_count += 4  # ST + SE + GE + IEA
         segments.append(f"SE*{seg_count}*0001")
-        segments.append(f"GE*1*1")
-        segments.append(f"IEA*1*000000001")
+        segments.append("GE*1*1")
+        segments.append("IEA*1*000000001")
 
         return SEGMENT_TERMINATOR.join(segments) + SEGMENT_TERMINATOR
 
@@ -359,6 +357,7 @@ class EDIX12Parser:
 
 
 # ── EDI Adapter (implements RetailIntegrationAdapter) ──────────────────────
+
 
 class EDIAdapter(RetailIntegrationAdapter):
     """
@@ -389,6 +388,7 @@ class EDIAdapter(RetailIntegrationAdapter):
     async def test_connection(self) -> bool:
         """Verify EDI directories are accessible."""
         import os
+
         return os.path.isdir(self.input_dir)
 
     async def sync_stores(self) -> SyncResult:
@@ -493,6 +493,7 @@ class EDIAdapter(RetailIntegrationAdapter):
     def _list_files(self, edi_type: str) -> list[str]:
         """List unprocessed EDI files of a given type in the input dir."""
         import os
+
         if not os.path.isdir(self.input_dir):
             return []
         return [
@@ -503,12 +504,13 @@ class EDIAdapter(RetailIntegrationAdapter):
 
     @staticmethod
     def _read_file(filepath: str) -> str:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             return f.read()
 
     def _archive_file(self, filepath: str) -> None:
         """Move processed file to the archive directory."""
         import os
         import shutil
+
         os.makedirs(self.archive_dir, exist_ok=True)
         shutil.move(filepath, os.path.join(self.archive_dir, os.path.basename(filepath)))

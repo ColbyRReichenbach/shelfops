@@ -6,15 +6,17 @@ Revises: None
 Create Date: 2026-02-09
 """
 
-from typing import Sequence, Union
-from alembic import op
+from collections.abc import Sequence
+from typing import Union
+
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
 revision: str = "001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -233,9 +235,7 @@ def upgrade() -> None:
     op.create_index("ix_alerts_customer_status", "alerts", ["customer_id", "status"])
     op.create_index("ix_alerts_store", "alerts", ["store_id"])
     # Partial index for open alerts
-    op.execute(
-        "CREATE INDEX ix_alerts_open ON alerts(customer_id, store_id, alert_type) WHERE status = 'open'"
-    )
+    op.execute("CREATE INDEX ix_alerts_open ON alerts(customer_id, store_id, alert_type) WHERE status = 'open'")
 
     # 11. Actions
     op.create_table(
@@ -351,17 +351,29 @@ def upgrade() -> None:
             name="ck_anomaly_type",
         ),
         sa.CheckConstraint("severity IN ('low', 'medium', 'high', 'critical')", name="ck_anomaly_severity"),
-        sa.CheckConstraint("status IN ('detected', 'investigating', 'resolved', 'false_positive')", name="ck_anomaly_status"),
+        sa.CheckConstraint(
+            "status IN ('detected', 'investigating', 'resolved', 'false_positive')", name="ck_anomaly_status"
+        ),
     )
     op.create_index("ix_anomalies_customer_status", "anomalies", ["customer_id", "status"])
     op.create_index("ix_anomalies_store_product", "anomalies", ["store_id", "product_id"])
 
     # ─── Row Level Security ──────────────────────────────────────────────
     tables_with_rls = [
-        "stores", "products", "suppliers", "transactions",
-        "inventory_levels", "demand_forecasts", "forecast_accuracy",
-        "reorder_points", "alerts", "actions", "purchase_orders",
-        "promotions", "integrations", "anomalies",
+        "stores",
+        "products",
+        "suppliers",
+        "transactions",
+        "inventory_levels",
+        "demand_forecasts",
+        "forecast_accuracy",
+        "reorder_points",
+        "alerts",
+        "actions",
+        "purchase_orders",
+        "promotions",
+        "integrations",
+        "anomalies",
     ]
     for table in tables_with_rls:
         op.execute(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY")
@@ -373,10 +385,21 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     tables = [
-        "anomalies", "integrations", "promotions", "purchase_orders",
-        "actions", "alerts", "reorder_points", "forecast_accuracy",
-        "demand_forecasts", "inventory_levels", "transactions",
-        "products", "suppliers", "stores", "customers",
+        "anomalies",
+        "integrations",
+        "promotions",
+        "purchase_orders",
+        "actions",
+        "alerts",
+        "reorder_points",
+        "forecast_accuracy",
+        "demand_forecasts",
+        "inventory_levels",
+        "transactions",
+        "products",
+        "suppliers",
+        "stores",
+        "customers",
     ]
     for table in tables:
         op.drop_table(table)

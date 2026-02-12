@@ -18,26 +18,27 @@ Standards Integration:
 """
 
 import json
-import numpy as np
-import pandas as pd
+import os
 from datetime import datetime, timezone
 from typing import Any
-import xgboost as xgb
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
-import joblib
-import os
-import structlog
 
+import joblib
+import numpy as np
+import pandas as pd
+import structlog
+import xgboost as xgb
+from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
+from sklearn.model_selection import TimeSeriesSplit
+
+from ml.experiment import ExperimentTracker, register_model
 from ml.features import (
     COLD_START_FEATURE_COLS,
-    PRODUCTION_FEATURE_COLS,
     FEATURE_COLS,  # legacy alias = PRODUCTION_FEATURE_COLS
+    PRODUCTION_FEATURE_COLS,
     FeatureTier,
     detect_feature_tier,
     get_feature_cols,
 )
-from ml.experiment import ExperimentTracker, register_model
 from ml.validate import validate_features
 
 logger = structlog.get_logger()
@@ -49,6 +50,7 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 # ──────────────────────────────────────────────────────────────────────────
 # XGBoost
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def train_xgboost(
     features_df: pd.DataFrame,
@@ -98,7 +100,8 @@ def train_xgboost(
 
         model = xgb.XGBRegressor(**default_params)
         model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_val, y_val)],
             verbose=False,
         )
@@ -133,6 +136,7 @@ def train_xgboost(
 # LSTM (simplified Keras implementation)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def train_lstm(
     features_df: pd.DataFrame,
     target_col: str = TARGET_COL,
@@ -150,7 +154,7 @@ def train_lstm(
     """
     try:
         import tensorflow as tf
-        from tensorflow.keras import layers, models, callbacks
+        from tensorflow.keras import callbacks, layers, models
     except ImportError:
         raise ImportError("TensorFlow required for LSTM. Install: pip install tensorflow")
 
@@ -195,20 +199,23 @@ def train_lstm(
 
     # Build LSTM model
     n_features = len(cols)
-    model = models.Sequential([
-        layers.LSTM(64, return_sequences=True, input_shape=(sequence_length, n_features)),
-        layers.Dropout(0.2),
-        layers.LSTM(32),
-        layers.Dropout(0.2),
-        layers.Dense(16, activation="relu"),
-        layers.Dense(1),
-    ])
+    model = models.Sequential(
+        [
+            layers.LSTM(64, return_sequences=True, input_shape=(sequence_length, n_features)),
+            layers.Dropout(0.2),
+            layers.LSTM(32),
+            layers.Dropout(0.2),
+            layers.Dense(16, activation="relu"),
+            layers.Dense(1),
+        ]
+    )
     model.compile(optimizer="adam", loss="mse", metrics=["mae"])
 
     early_stop = callbacks.EarlyStopping(patience=5, restore_best_weights=True)
 
     model.fit(
-        X_train, y_train,
+        X_train,
+        y_train,
         validation_data=(X_val, y_val),
         epochs=epochs,
         batch_size=batch_size,
@@ -280,73 +287,84 @@ def train_ensemble(
 
     # ── Experiment tracking ────────────────────────────────────────
     with ExperimentTracker() as tracker:
-        tracker.log_params({
-            "feature_tier": tier,
-            "n_features": len(feature_cols),
-            "dataset": dataset_name,
-            "n_rows": len(features_df),
-            "ensemble_weight_xgb": ENSEMBLE_WEIGHTS["xgboost"],
-            "ensemble_weight_lstm": ENSEMBLE_WEIGHTS["lstm"],
-        })
-        tracker.log_tags({
-            "tier": tier,
-            "dataset": dataset_name,
-        })
+        tracker.log_params(
+            {
+                "feature_tier": tier,
+                "n_features": len(feature_cols),
+                "dataset": dataset_name,
+                "n_rows": len(features_df),
+                "ensemble_weight_xgb": ENSEMBLE_WEIGHTS["xgboost"],
+                "ensemble_weight_lstm": ENSEMBLE_WEIGHTS["lstm"],
+            }
+        )
+        tracker.log_tags(
+            {
+                "tier": tier,
+                "dataset": dataset_name,
+            }
+        )
 
         # ── Train XGBoost ──────────────────────────────────────────
         xgb_model, xgb_metrics = train_xgboost(
-            features_df, target_col, feature_cols=feature_cols,
+            features_df,
+            target_col,
+            feature_cols=feature_cols,
         )
-        tracker.log_metrics({
-            f"xgb_{k}": v for k, v in xgb_metrics.items()
-            if isinstance(v, (int, float))
-        })
+        tracker.log_metrics({f"xgb_{k}": v for k, v in xgb_metrics.items() if isinstance(v, (int, float))})
         tracker.log_model(xgb_model, "xgboost")
         tracker.log_feature_importance(xgb_model, feature_cols)
 
         # ── Train LSTM ─────────────────────────────────────────────
         try:
             lstm_model, lstm_metrics = train_lstm(
-                features_df, target_col, feature_cols=feature_cols,
+                features_df,
+                target_col,
+                feature_cols=feature_cols,
             )
             lstm_available = True
-            tracker.log_metrics({
-                f"lstm_{k}": v for k, v in lstm_metrics.items()
-                if isinstance(v, (int, float))
-            })
+            tracker.log_metrics({f"lstm_{k}": v for k, v in lstm_metrics.items() if isinstance(v, (int, float))})
         except ImportError:
-            lstm_model, lstm_metrics = None, {
-                "mae": float("inf"), "mape": float("inf"),
-                "model_type": "lstm", "feature_tier": tier,
-            }
+            lstm_model, lstm_metrics = (
+                None,
+                {
+                    "mae": float("inf"),
+                    "mape": float("inf"),
+                    "model_type": "lstm",
+                    "feature_tier": tier,
+                },
+            )
             lstm_available = False
             logger.warning("train.lstm_unavailable")
 
         # ── Ensemble metrics ───────────────────────────────────────
         if lstm_available:
             ensemble_mae = (
-                ENSEMBLE_WEIGHTS["xgboost"] * xgb_metrics["mae"]
-                + ENSEMBLE_WEIGHTS["lstm"] * lstm_metrics["mae"]
+                ENSEMBLE_WEIGHTS["xgboost"] * xgb_metrics["mae"] + ENSEMBLE_WEIGHTS["lstm"] * lstm_metrics["mae"]
             )
         else:
             ensemble_mae = xgb_metrics["mae"]
 
-        tracker.log_metrics({
-            "ensemble_mae": ensemble_mae,
-            "ensemble_mape": xgb_metrics.get("mape", 0),
-        })
+        tracker.log_metrics(
+            {
+                "ensemble_mae": ensemble_mae,
+                "ensemble_mape": xgb_metrics.get("mape", 0),
+            }
+        )
 
         # ── SHAP explanations ──────────────────────────────────────
         try:
             from ml.explain import generate_explanations
 
-            X_test = features_df[
-                [c for c in feature_cols if c in features_df.columns]
-            ].fillna(0).values[-1000:]  # Last 1000 rows as test
+            X_test = (
+                features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0).values[-1000:]
+            )  # Last 1000 rows as test
 
             ver = version or datetime.now(timezone.utc).strftime("v%Y%m%d")
             shap_artifacts = generate_explanations(
-                xgb_model, X_test, feature_cols, version=ver,
+                xgb_model,
+                X_test,
+                feature_cols,
+                version=ver,
             )
             for path in shap_artifacts.values():
                 if isinstance(path, list):
@@ -366,9 +384,7 @@ def train_ensemble(
             )
 
             # Error distribution
-            X_full = features_df[
-                [c for c in feature_cols if c in features_df.columns]
-            ].fillna(0)
+            X_full = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0)
             preds = xgb_model.predict(X_full)
             residuals = (features_df[target_col].values - preds).tolist()
             plot_error_distribution(residuals)
@@ -421,9 +437,7 @@ def save_models(
 
     # LSTM
     if ensemble_result["lstm"]["available"]:
-        ensemble_result["lstm"]["model"].save(
-            os.path.join(version_dir, "lstm.keras")
-        )
+        ensemble_result["lstm"]["model"].save(os.path.join(version_dir, "lstm.keras"))
 
     # ── Human-readable JSON metadata (was .joblib) ─────────────────
     tier = ensemble_result["ensemble"].get("feature_tier", "production")

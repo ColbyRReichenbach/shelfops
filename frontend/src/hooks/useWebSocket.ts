@@ -16,6 +16,13 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
     const wsRef = useRef<WebSocket | null>(null)
     const [connected, setConnected] = useState(false)
     const reconnectTimeout = useRef<ReturnType<typeof setTimeout>>()
+    const retryCount = useRef(0)
+    const onMessageRef = useRef(onMessage)
+
+    // Keep callback ref current without triggering reconnects
+    useEffect(() => {
+        onMessageRef.current = onMessage
+    }, [onMessage])
 
     const connect = useCallback(async () => {
         try {
@@ -25,12 +32,15 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
             const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
             const ws = new WebSocket(`${protocol}://${window.location.host}/ws/alerts?token=${token}`)
 
-            ws.onopen = () => setConnected(true)
+            ws.onopen = () => {
+                setConnected(true)
+                retryCount.current = 0
+            }
 
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data) as WsMessage
-                    onMessage(data)
+                    onMessageRef.current(data)
                 } catch {
                     console.warn('Invalid WebSocket message:', event.data)
                 }
@@ -38,16 +48,20 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
 
             ws.onclose = () => {
                 setConnected(false)
-                reconnectTimeout.current = setTimeout(connect, 3000)
+                const delay = Math.min(3000 * Math.pow(2, retryCount.current), 60000)
+                retryCount.current += 1
+                reconnectTimeout.current = setTimeout(connect, delay)
             }
 
             ws.onerror = () => ws.close()
 
             wsRef.current = ws
         } catch {
-            reconnectTimeout.current = setTimeout(connect, 5000)
+            const delay = Math.min(3000 * Math.pow(2, retryCount.current), 60000)
+            retryCount.current += 1
+            reconnectTimeout.current = setTimeout(connect, delay)
         }
-    }, [getAccessTokenSilently, onMessage])
+    }, [getAccessTokenSilently])
 
     useEffect(() => {
         connect()

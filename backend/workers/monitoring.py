@@ -13,8 +13,8 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
 
@@ -40,78 +40,77 @@ def detect_model_drift(self, customer_id: str):
 
     async def _detect():
         from core.config import get_settings
-        from db.models import ForecastAccuracy, Alert
+        from db.models import Alert, ForecastAccuracy
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            cutoff = datetime.utcnow() - timedelta(days=7)
+            async with async_session() as db:
+                cutoff = datetime.utcnow() - timedelta(days=7)
 
-            # Get recent MAE
-            result = await db.execute(
-                select(
-                    func.avg(func.abs(
-                        ForecastAccuracy.forecasted_demand - ForecastAccuracy.actual_demand
-                    )).label("recent_mae"),
-                    func.avg(ForecastAccuracy.mape).label("recent_mape"),
-                    func.count(ForecastAccuracy.id).label("sample_count"),
-                ).where(
-                    ForecastAccuracy.customer_id == customer_id,
-                    ForecastAccuracy.evaluated_at >= cutoff,
+                # Get recent MAE
+                result = await db.execute(
+                    select(
+                        func.avg(func.abs(ForecastAccuracy.forecasted_demand - ForecastAccuracy.actual_demand)).label(
+                            "recent_mae"
+                        ),
+                        func.avg(ForecastAccuracy.mape).label("recent_mape"),
+                        func.count(ForecastAccuracy.id).label("sample_count"),
+                    ).where(
+                        ForecastAccuracy.customer_id == customer_id,
+                        ForecastAccuracy.evaluated_at >= cutoff,
+                    )
                 )
-            )
-            row = result.one()
-            recent_mae = float(row.recent_mae) if row.recent_mae else None
-            recent_mape = float(row.recent_mape) if row.recent_mape else None
-            sample_count = row.sample_count
+                row = result.one()
+                recent_mae = float(row.recent_mae) if row.recent_mae else None
+                sample_count = row.sample_count
 
-            if sample_count == 0 or recent_mae is None:
-                logger.warning("drift.no_data", customer_id=customer_id)
-                await engine.dispose()
-                return {"status": "skipped", "reason": "no_recent_accuracy_data"}
+                if sample_count == 0 or recent_mae is None:
+                    logger.warning("drift.no_data", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_recent_accuracy_data"}
 
-            # Get baseline MAE (all-time average for comparison)
-            baseline_result = await db.execute(
-                select(
-                    func.avg(func.abs(
-                        ForecastAccuracy.forecasted_demand - ForecastAccuracy.actual_demand
-                    )).label("baseline_mae"),
-                ).where(
-                    ForecastAccuracy.customer_id == customer_id,
-                    ForecastAccuracy.evaluated_at < cutoff,
+                # Get baseline MAE (all-time average for comparison)
+                baseline_result = await db.execute(
+                    select(
+                        func.avg(func.abs(ForecastAccuracy.forecasted_demand - ForecastAccuracy.actual_demand)).label(
+                            "baseline_mae"
+                        ),
+                    ).where(
+                        ForecastAccuracy.customer_id == customer_id,
+                        ForecastAccuracy.evaluated_at < cutoff,
+                    )
                 )
-            )
-            baseline_row = baseline_result.one()
-            baseline_mae = float(baseline_row.baseline_mae) if baseline_row.baseline_mae else recent_mae
+                baseline_row = baseline_result.one()
+                baseline_mae = float(baseline_row.baseline_mae) if baseline_row.baseline_mae else recent_mae
 
-            # Check for drift: >15% degradation
-            drift_pct = (recent_mae - baseline_mae) / max(baseline_mae, 0.01)
-            is_drifting = drift_pct > 0.15
+                # Check for drift: >15% degradation
+                drift_pct = (recent_mae - baseline_mae) / max(baseline_mae, 0.01)
+                is_drifting = drift_pct > 0.15
 
-            if is_drifting:
-                logger.warning(
-                    "drift.detected",
-                    customer_id=customer_id,
-                    recent_mae=round(recent_mae, 2),
-                    baseline_mae=round(baseline_mae, 2),
-                    drift_pct=round(drift_pct * 100, 1),
-                )
+                if is_drifting:
+                    logger.warning(
+                        "drift.detected",
+                        customer_id=customer_id,
+                        recent_mae=round(recent_mae, 2),
+                        baseline_mae=round(baseline_mae, 2),
+                        drift_pct=round(drift_pct * 100, 1),
+                    )
 
-            await db.commit()
+                await db.commit()
 
-        await engine.dispose()
-
-        return {
-            "status": "drift_detected" if is_drifting else "healthy",
-            "customer_id": customer_id,
-            "recent_mae": round(recent_mae, 2),
-            "baseline_mae": round(baseline_mae, 2),
-            "drift_pct": round(drift_pct * 100, 1),
-            "sample_count": sample_count,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        }
+            return {
+                "status": "drift_detected" if is_drifting else "healthy",
+                "customer_id": customer_id,
+                "recent_mae": round(recent_mae, 2),
+                "baseline_mae": round(baseline_mae, 2),
+                "drift_pct": round(drift_pct * 100, 1),
+                "sample_count": sample_count,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        finally:
+            await engine.dispose()
 
     try:
         return asyncio.run(_detect())
@@ -140,61 +139,66 @@ def check_data_freshness(self, customer_id: str):
 
     async def _check():
         from core.config import get_settings
-        from db.models import Integration, Transaction, Store
+        from db.models import Integration, Store, Transaction
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        stale_integrations = []
-        stale_stores = []
+            stale_integrations = []
+            stale_stores = []
 
-        async with async_session() as db:
-            now = datetime.utcnow()
+            async with async_session() as db:
+                now = datetime.utcnow()
 
-            # Check integrations freshness
-            result = await db.execute(
-                select(Integration).where(
-                    Integration.customer_id == customer_id,
-                    Integration.status == "connected",
+                # Check integrations freshness
+                result = await db.execute(
+                    select(Integration).where(
+                        Integration.customer_id == customer_id,
+                        Integration.status == "connected",
+                    )
                 )
-            )
-            integrations = result.scalars().all()
+                integrations = result.scalars().all()
 
-            for integ in integrations:
-                threshold_hours = 168 if integ.integration_type == "edi" else 24  # 7 days for EDI
-                if integ.last_sync_at and (now - integ.last_sync_at).total_seconds() > threshold_hours * 3600:
-                    stale_integrations.append({
-                        "provider": integ.provider,
-                        "last_sync": integ.last_sync_at.isoformat() if integ.last_sync_at else None,
-                        "hours_stale": round((now - integ.last_sync_at).total_seconds() / 3600, 1),
-                    })
+                for integ in integrations:
+                    threshold_hours = 168 if integ.integration_type == "edi" else 24  # 7 days for EDI
+                    if integ.last_sync_at and (now - integ.last_sync_at).total_seconds() > threshold_hours * 3600:
+                        stale_integrations.append(
+                            {
+                                "provider": integ.provider,
+                                "last_sync": integ.last_sync_at.isoformat() if integ.last_sync_at else None,
+                                "hours_stale": round((now - integ.last_sync_at).total_seconds() / 3600, 1),
+                            }
+                        )
 
-            # Check for stores with no recent transactions
-            result = await db.execute(
-                select(
-                    Store.store_id,
-                    Store.name,
-                    func.max(Transaction.timestamp).label("last_txn"),
+                # Check for stores with no recent transactions
+                result = await db.execute(
+                    select(
+                        Store.store_id,
+                        Store.name,
+                        func.max(Transaction.timestamp).label("last_txn"),
+                    )
+                    .outerjoin(Transaction, Store.store_id == Transaction.store_id)
+                    .where(
+                        Store.customer_id == customer_id,
+                        Store.status == "active",
+                    )
+                    .group_by(Store.store_id, Store.name)
                 )
-                .outerjoin(Transaction, Store.store_id == Transaction.store_id)
-                .where(
-                    Store.customer_id == customer_id,
-                    Store.status == "active",
-                )
-                .group_by(Store.store_id, Store.name)
-            )
-            stores = result.all()
+                stores = result.all()
 
-            for store in stores:
-                if store.last_txn and (now - store.last_txn).total_seconds() > 24 * 3600:
-                    stale_stores.append({
-                        "store_id": str(store.store_id),
-                        "store_name": store.name,
-                        "hours_since_last_txn": round((now - store.last_txn).total_seconds() / 3600, 1),
-                    })
-
-        await engine.dispose()
+                for store in stores:
+                    if store.last_txn and (now - store.last_txn).total_seconds() > 24 * 3600:
+                        stale_stores.append(
+                            {
+                                "store_id": str(store.store_id),
+                                "store_name": store.name,
+                                "hours_since_last_txn": round((now - store.last_txn).total_seconds() / 3600, 1),
+                            }
+                        )
+        finally:
+            await engine.dispose()
 
         summary = {
             "status": "warning" if (stale_integrations or stale_stores) else "healthy",
@@ -234,125 +238,129 @@ def calculate_opportunity_cost(self, customer_id: str, date: str | None = None):
     """
     from datetime import date as date_type
 
-    run_id = self.request.id or "manual"
-    analysis_date = (
-        date_type.fromisoformat(date) if date
-        else (datetime.utcnow() - timedelta(days=1)).date()
-    )
+    analysis_date = date_type.fromisoformat(date) if date else (datetime.utcnow() - timedelta(days=1)).date()
     logger.info("opportunity_cost.started", customer_id=customer_id, date=str(analysis_date))
 
     async def _analyze():
         from core.config import get_settings
         from db.models import (
-            DemandForecast, InventoryLevel, Transaction, Product,
+            DemandForecast,
+            InventoryLevel,
             OpportunityCostLog,
+            Product,
+            Transaction,
         )
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        records_created = 0
-        total_stockout_cost = 0.0
-        total_overstock_cost = 0.0
+            records_created = 0
+            total_stockout_cost = 0.0
+            total_overstock_cost = 0.0
 
-        async with async_session() as db:
-            # Get forecasts for the analysis date
-            forecasts_result = await db.execute(
-                select(DemandForecast).where(
-                    DemandForecast.customer_id == customer_id,
-                    DemandForecast.forecast_date == analysis_date,
-                )
-            )
-            forecasts = forecasts_result.scalars().all()
-
-            for forecast in forecasts:
-                # Get actual sales for (store, product) on that date
-                sales_result = await db.execute(
-                    select(func.coalesce(func.sum(Transaction.quantity), 0)).where(
-                        Transaction.customer_id == customer_id,
-                        Transaction.store_id == forecast.store_id,
-                        Transaction.product_id == forecast.product_id,
-                        func.date(Transaction.timestamp) == analysis_date,
-                        Transaction.transaction_type == "sale",
+            async with async_session() as db:
+                # Get forecasts for the analysis date
+                forecasts_result = await db.execute(
+                    select(DemandForecast).where(
+                        DemandForecast.customer_id == customer_id,
+                        DemandForecast.forecast_date == analysis_date,
                     )
                 )
-                actual_sales = int(sales_result.scalar())
+                forecasts = forecasts_result.scalars().all()
 
-                # Get inventory at start of day
-                inv_result = await db.execute(
-                    select(InventoryLevel.quantity_available)
-                    .where(
-                        InventoryLevel.store_id == forecast.store_id,
-                        InventoryLevel.product_id == forecast.product_id,
-                        func.date(InventoryLevel.timestamp) <= analysis_date,
+                for forecast in forecasts:
+                    # Get actual sales for (store, product) on that date
+                    sales_result = await db.execute(
+                        select(func.coalesce(func.sum(Transaction.quantity), 0)).where(
+                            Transaction.customer_id == customer_id,
+                            Transaction.store_id == forecast.store_id,
+                            Transaction.product_id == forecast.product_id,
+                            func.date(Transaction.timestamp) == analysis_date,
+                            Transaction.transaction_type == "sale",
+                        )
                     )
-                    .order_by(InventoryLevel.timestamp.desc())
-                    .limit(1)
-                )
-                actual_stock = inv_result.scalar() or 0
+                    actual_sales = int(sales_result.scalar())
 
-                # Get product pricing
-                product = await db.get(Product, forecast.product_id)
-                if not product or not product.unit_price:
-                    continue
+                    # Get inventory at start of day
+                    inv_result = await db.execute(
+                        select(InventoryLevel.quantity_available)
+                        .where(
+                            InventoryLevel.store_id == forecast.store_id,
+                            InventoryLevel.product_id == forecast.product_id,
+                            func.date(InventoryLevel.timestamp) <= analysis_date,
+                        )
+                        .order_by(InventoryLevel.timestamp.desc())
+                        .limit(1)
+                    )
+                    actual_stock = inv_result.scalar() or 0
 
-                margin = (
-                    (product.unit_price - product.unit_cost) / product.unit_price
-                    if product.unit_cost and product.unit_price > 0
-                    else 0.30  # Default 30% margin
-                )
+                    # Get product pricing
+                    product = await db.get(Product, forecast.product_id)
+                    if not product or not product.unit_price:
+                        continue
 
-                forecasted_demand = forecast.forecasted_demand
-
-                # Detect stockout: forecast > actual sales AND low/zero stock
-                if actual_stock <= 0 and forecasted_demand > actual_sales:
-                    lost_qty = max(0, int(forecasted_demand - actual_sales))
-                    opp_cost = lost_qty * product.unit_price * margin
-
-                    db.add(OpportunityCostLog(
-                        customer_id=customer_id,
-                        store_id=forecast.store_id,
-                        product_id=forecast.product_id,
-                        date=analysis_date,
-                        forecasted_demand=forecasted_demand,
-                        actual_stock=actual_stock,
-                        actual_sales=actual_sales,
-                        lost_sales_qty=lost_qty,
-                        opportunity_cost=round(opp_cost, 2),
-                        cost_type="stockout",
-                    ))
-                    total_stockout_cost += opp_cost
-                    records_created += 1
-
-                # Detect overstock: inventory > 2x forecast
-                elif actual_stock > forecasted_demand * 2 and forecasted_demand > 0:
-                    excess = int(actual_stock - forecasted_demand)
-                    holding = (
-                        product.holding_cost_per_unit_per_day * excess
-                        if product.holding_cost_per_unit_per_day
-                        else excess * (product.unit_cost or 1) * 0.25 / 365
+                    margin = (
+                        (product.unit_price - product.unit_cost) / product.unit_price
+                        if product.unit_cost and product.unit_price > 0
+                        else 0.30  # Default 30% margin
                     )
 
-                    db.add(OpportunityCostLog(
-                        customer_id=customer_id,
-                        store_id=forecast.store_id,
-                        product_id=forecast.product_id,
-                        date=analysis_date,
-                        forecasted_demand=forecasted_demand,
-                        actual_stock=actual_stock,
-                        actual_sales=actual_sales,
-                        lost_sales_qty=0,
-                        opportunity_cost=0.0,
-                        holding_cost=round(holding, 2),
-                        cost_type="overstock",
-                    ))
-                    total_overstock_cost += holding
-                    records_created += 1
+                    forecasted_demand = forecast.forecasted_demand
 
-            await db.commit()
+                    # Detect stockout: forecast > actual sales AND low/zero stock
+                    if actual_stock <= 0 and forecasted_demand > actual_sales:
+                        lost_qty = max(0, int(forecasted_demand - actual_sales))
+                        opp_cost = lost_qty * product.unit_price * margin
 
-        await engine.dispose()
+                        db.add(
+                            OpportunityCostLog(
+                                customer_id=customer_id,
+                                store_id=forecast.store_id,
+                                product_id=forecast.product_id,
+                                date=analysis_date,
+                                forecasted_demand=forecasted_demand,
+                                actual_stock=actual_stock,
+                                actual_sales=actual_sales,
+                                lost_sales_qty=lost_qty,
+                                opportunity_cost=round(opp_cost, 2),
+                                cost_type="stockout",
+                            )
+                        )
+                        total_stockout_cost += opp_cost
+                        records_created += 1
+
+                    # Detect overstock: inventory > 2x forecast
+                    elif actual_stock > forecasted_demand * 2 and forecasted_demand > 0:
+                        excess = int(actual_stock - forecasted_demand)
+                        holding = (
+                            product.holding_cost_per_unit_per_day * excess
+                            if product.holding_cost_per_unit_per_day
+                            else excess * (product.unit_cost or 1) * 0.25 / 365
+                        )
+
+                        db.add(
+                            OpportunityCostLog(
+                                customer_id=customer_id,
+                                store_id=forecast.store_id,
+                                product_id=forecast.product_id,
+                                date=analysis_date,
+                                forecasted_demand=forecasted_demand,
+                                actual_stock=actual_stock,
+                                actual_sales=actual_sales,
+                                lost_sales_qty=0,
+                                opportunity_cost=0.0,
+                                holding_cost=round(holding, 2),
+                                cost_type="overstock",
+                            )
+                        )
+                        total_overstock_cost += holding
+                        records_created += 1
+
+                await db.commit()
+        finally:
+            await engine.dispose()
 
         summary = {
             "status": "success",

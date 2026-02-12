@@ -37,8 +37,9 @@ def sync_square_inventory(self, customer_id: str):
       5. Update last_sync_at
     """
     import asyncio
+
     from sqlalchemy import select, update
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     run_id = self.request.id or "manual"
     logger.info("sync.inventory.started", customer_id=customer_id, run_id=run_id)
@@ -50,95 +51,94 @@ def sync_square_inventory(self, customer_id: str):
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            # Fetch integration record
-            result = await db.execute(
-                select(Integration).where(
-                    Integration.customer_id == customer_id,
-                    Integration.provider == "square",
-                    Integration.status == "connected",
+            async with async_session() as db:
+                # Fetch integration record
+                result = await db.execute(
+                    select(Integration).where(
+                        Integration.customer_id == customer_id,
+                        Integration.provider == "square",
+                        Integration.status == "connected",
+                    )
                 )
-            )
-            integration = result.scalar_one_or_none()
+                integration = result.scalar_one_or_none()
 
-            if not integration:
-                logger.warning("sync.inventory.no_integration", customer_id=customer_id)
-                return {"status": "skipped", "reason": "no_square_integration"}
+                if not integration:
+                    logger.warning("sync.inventory.no_integration", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_square_integration"}
 
-            # Fetch store mappings (location_id → store_id)
-            stores_result = await db.execute(
-                select(Store).where(Store.customer_id == customer_id)
-            )
-            stores = {str(s.store_id): s for s in stores_result.scalars().all()}
+                # Fetch store mappings (location_id → store_id)
+                stores_result = await db.execute(select(Store).where(Store.customer_id == customer_id))
+                stores = {str(s.store_id): s for s in stores_result.scalars().all()}
 
-            if not stores:
-                logger.warning("sync.inventory.no_stores", customer_id=customer_id)
-                return {"status": "skipped", "reason": "no_stores"}
+                if not stores:
+                    logger.warning("sync.inventory.no_stores", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_stores"}
 
-            # Init Square client and fetch counts
-            client = SquareClient(integration.access_token_encrypted)
-            location_ids = list(stores.keys())
+                # Init Square client and fetch counts
+                client = SquareClient(integration.access_token_encrypted)
+                location_ids = list(stores.keys())
 
-            try:
-                counts = await client.get_inventory_counts(location_ids)
-            except Exception as exc:
-                logger.error(
-                    "sync.inventory.api_error",
+                try:
+                    counts = await client.get_inventory_counts(location_ids)
+                except Exception as exc:
+                    logger.error(
+                        "sync.inventory.api_error",
+                        customer_id=customer_id,
+                        error=str(exc),
+                    )
+                    raise self.retry(exc=exc)
+
+                # Upsert inventory levels
+                upserted = 0
+                now = datetime.now(timezone.utc)
+
+                for count in counts:
+                    location_id = count.get("location_id")
+                    catalog_id = count.get("catalog_object_id", "unknown")
+                    quantity = int(float(count.get("quantity", 0)))
+
+                    if location_id not in stores:
+                        continue
+
+                    level = InventoryLevel(
+                        id=uuid.uuid4(),
+                        customer_id=customer_id,
+                        store_id=location_id,
+                        product_id=catalog_id,
+                        timestamp=now,
+                        quantity_on_hand=quantity,
+                        quantity_available=quantity,
+                        source="square_sync",
+                    )
+                    db.add(level)
+                    upserted += 1
+
+                # Update last_sync_at
+                await db.execute(
+                    update(Integration)
+                    .where(Integration.integration_id == integration.integration_id)
+                    .values(last_sync_at=now, updated_at=now)
+                )
+
+                await db.commit()
+
+                logger.info(
+                    "sync.inventory.completed",
                     customer_id=customer_id,
-                    error=str(exc),
+                    records_upserted=upserted,
                 )
-                raise self.retry(exc=exc)
 
-            # Upsert inventory levels
-            upserted = 0
-            now = datetime.now(timezone.utc)
-
-            for count in counts:
-                location_id = count.get("location_id")
-                catalog_id = count.get("catalog_object_id", "unknown")
-                quantity = int(float(count.get("quantity", 0)))
-
-                if location_id not in stores:
-                    continue
-
-                level = InventoryLevel(
-                    id=uuid.uuid4(),
-                    customer_id=customer_id,
-                    store_id=location_id,
-                    product_id=catalog_id,
-                    timestamp=now,
-                    quantity_on_hand=quantity,
-                    quantity_available=quantity,
-                    source="square_sync",
-                )
-                db.add(level)
-                upserted += 1
-
-            # Update last_sync_at
-            await db.execute(
-                update(Integration)
-                .where(Integration.integration_id == integration.integration_id)
-                .values(last_sync_at=now, updated_at=now)
-            )
-
-            await db.commit()
-
-            logger.info(
-                "sync.inventory.completed",
-                customer_id=customer_id,
-                records_upserted=upserted,
-            )
-
-            return {
-                "status": "success",
-                "customer_id": customer_id,
-                "records_upserted": upserted,
-                "synced_at": now.isoformat(),
-            }
-
-        await engine.dispose()
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "records_upserted": upserted,
+                    "synced_at": now.isoformat(),
+                }
+        finally:
+            await engine.dispose()
 
     try:
         return asyncio.run(_sync())
@@ -166,8 +166,9 @@ def sync_square_transactions(self, customer_id: str):
       4. Update last_sync_at
     """
     import asyncio
+
     from sqlalchemy import select, update
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     run_id = self.request.id or "manual"
     logger.info("sync.transactions.started", customer_id=customer_id, run_id=run_id)
@@ -179,109 +180,104 @@ def sync_square_transactions(self, customer_id: str):
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            # Fetch integration
-            result = await db.execute(
-                select(Integration).where(
-                    Integration.customer_id == customer_id,
-                    Integration.provider == "square",
-                    Integration.status == "connected",
-                )
-            )
-            integration = result.scalar_one_or_none()
-
-            if not integration:
-                logger.warning("sync.transactions.no_integration", customer_id=customer_id)
-                return {"status": "skipped", "reason": "no_square_integration"}
-
-            client = SquareClient(integration.access_token_encrypted)
-
-            try:
-                orders = await client.get_orders(location_ids=[])
-            except Exception as exc:
-                logger.error(
-                    "sync.transactions.api_error",
-                    customer_id=customer_id,
-                    error=str(exc),
-                )
-                raise self.retry(exc=exc)
-
-            # Dedup: find existing external_ids
-            existing_ids_result = await db.execute(
-                select(Transaction.external_id).where(
-                    Transaction.customer_id == customer_id,
-                    Transaction.external_id.isnot(None),
-                )
-            )
-            existing_ids = {row[0] for row in existing_ids_result.all()}
-
-            # Insert new transactions
-            inserted = 0
-            now = datetime.now(timezone.utc)
-
-            for order in orders:
-                order_id = order.get("id", "")
-                location_id = order.get("location_id", "")
-
-                for item in order.get("line_items", []):
-                    external_id = f"{order_id}:{item.get('uid', '')}"
-                    if external_id in existing_ids:
-                        continue
-
-                    catalog_id = item.get("catalog_object_id", "unknown")
-                    quantity = int(item.get("quantity", "1"))
-                    unit_price = (
-                        int(item.get("base_price_money", {}).get("amount", 0)) / 100
+            async with async_session() as db:
+                # Fetch integration
+                result = await db.execute(
+                    select(Integration).where(
+                        Integration.customer_id == customer_id,
+                        Integration.provider == "square",
+                        Integration.status == "connected",
                     )
-                    total = (
-                        int(item.get("total_money", {}).get("amount", 0)) / 100
-                    )
-                    discount = (
-                        int(item.get("total_discount_money", {}).get("amount", 0)) / 100
-                    )
+                )
+                integration = result.scalar_one_or_none()
 
-                    txn = Transaction(
-                        transaction_id=uuid.uuid4(),
+                if not integration:
+                    logger.warning("sync.transactions.no_integration", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_square_integration"}
+
+                client = SquareClient(integration.access_token_encrypted)
+
+                try:
+                    orders = await client.get_orders(location_ids=[])
+                except Exception as exc:
+                    logger.error(
+                        "sync.transactions.api_error",
                         customer_id=customer_id,
-                        store_id=location_id,
-                        product_id=catalog_id,
-                        timestamp=now,
-                        quantity=quantity,
-                        unit_price=unit_price,
-                        total_amount=total,
-                        discount_amount=discount,
-                        transaction_type="sale",
-                        external_id=external_id,
+                        error=str(exc),
                     )
-                    db.add(txn)
-                    inserted += 1
+                    raise self.retry(exc=exc)
 
-            # Update last_sync_at
-            await db.execute(
-                update(Integration)
-                .where(Integration.integration_id == integration.integration_id)
-                .values(last_sync_at=now, updated_at=now)
-            )
+                # Dedup: find existing external_ids
+                existing_ids_result = await db.execute(
+                    select(Transaction.external_id).where(
+                        Transaction.customer_id == customer_id,
+                        Transaction.external_id.isnot(None),
+                    )
+                )
+                existing_ids = {row[0] for row in existing_ids_result.all()}
 
-            await db.commit()
+                # Insert new transactions
+                inserted = 0
+                now = datetime.now(timezone.utc)
 
-            logger.info(
-                "sync.transactions.completed",
-                customer_id=customer_id,
-                transactions_inserted=inserted,
-                duplicates_skipped=len(existing_ids),
-            )
+                for order in orders:
+                    order_id = order.get("id", "")
+                    location_id = order.get("location_id", "")
 
-            return {
-                "status": "success",
-                "customer_id": customer_id,
-                "transactions_inserted": inserted,
-                "synced_at": now.isoformat(),
-            }
+                    for item in order.get("line_items", []):
+                        external_id = f"{order_id}:{item.get('uid', '')}"
+                        if external_id in existing_ids:
+                            continue
 
-        await engine.dispose()
+                        catalog_id = item.get("catalog_object_id", "unknown")
+                        quantity = int(item.get("quantity", "1"))
+                        unit_price = int(item.get("base_price_money", {}).get("amount", 0)) / 100
+                        total = int(item.get("total_money", {}).get("amount", 0)) / 100
+                        discount = int(item.get("total_discount_money", {}).get("amount", 0)) / 100
+
+                        txn = Transaction(
+                            transaction_id=uuid.uuid4(),
+                            customer_id=customer_id,
+                            store_id=location_id,
+                            product_id=catalog_id,
+                            timestamp=now,
+                            quantity=quantity,
+                            unit_price=unit_price,
+                            total_amount=total,
+                            discount_amount=discount,
+                            transaction_type="sale",
+                            external_id=external_id,
+                        )
+                        db.add(txn)
+                        inserted += 1
+
+                # Update last_sync_at
+                await db.execute(
+                    update(Integration)
+                    .where(Integration.integration_id == integration.integration_id)
+                    .values(last_sync_at=now, updated_at=now)
+                )
+
+                await db.commit()
+
+                logger.info(
+                    "sync.transactions.completed",
+                    customer_id=customer_id,
+                    transactions_inserted=inserted,
+                    duplicates_skipped=len(existing_ids),
+                )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "transactions_inserted": inserted,
+                    "synced_at": now.isoformat(),
+                }
+        finally:
+            await engine.dispose()
 
     try:
         return asyncio.run(_sync())
@@ -302,24 +298,26 @@ def run_alert_check(self, customer_id: str):
     Called automatically after sync tasks complete.
     """
     import asyncio
-    from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     logger.info("alerts.check.started", customer_id=customer_id)
 
     async def _check():
-        from core.config import get_settings
         from alerts.engine import run_alert_pipeline
+        from core.config import get_settings
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            result = await run_alert_pipeline(db, customer_id)
-            logger.info("alerts.check.completed", customer_id=customer_id, **result)
-            return result
-
-        await engine.dispose()
+            async with async_session() as db:
+                result = await run_alert_pipeline(db, customer_id)
+                logger.info("alerts.check.completed", customer_id=customer_id, **result)
+                return result
+        finally:
+            await engine.dispose()
 
     try:
         return asyncio.run(_check())

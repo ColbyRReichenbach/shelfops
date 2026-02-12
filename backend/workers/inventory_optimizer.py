@@ -13,8 +13,8 @@ import asyncio
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
 
@@ -46,68 +46,69 @@ def optimize_reorder_points(self, customer_id: str):
 
     async def _optimize():
         from core.config import get_settings
-        from db.models import ReorderPoint, Product
+        from db.models import Product, ReorderPoint
         from inventory.optimizer import InventoryOptimizer
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            optimizer = InventoryOptimizer(db)
+            async with async_session() as db:
+                optimizer = InventoryOptimizer(db)
 
-            # Get all active (store, product) pairs with existing reorder points
-            result = await db.execute(
-                select(
-                    ReorderPoint.store_id,
-                    ReorderPoint.product_id,
-                ).where(
-                    ReorderPoint.customer_id == customer_id,
+                # Get all active (store, product) pairs with existing reorder points
+                result = await db.execute(
+                    select(
+                        ReorderPoint.store_id,
+                        ReorderPoint.product_id,
+                    ).where(
+                        ReorderPoint.customer_id == customer_id,
+                    )
                 )
-            )
-            pairs = result.all()
+                pairs = result.all()
 
-            updated = 0
-            created = 0
-            skipped = 0
-            errors = 0
-            changes = []
+                updated = 0
+                created = 0
+                skipped = 0
+                errors = 0
+                changes = []
 
-            for store_id, product_id in pairs:
-                try:
-                    # Skip products that are not active
-                    product = await db.get(Product, product_id)
-                    if product and product.lifecycle_state not in ("active", "test"):
-                        skipped += 1
-                        continue
+                for store_id, product_id in pairs:
+                    try:
+                        # Skip products that are not active
+                        product = await db.get(Product, product_id)
+                        if product and product.lifecycle_state not in ("active", "test"):
+                            skipped += 1
+                            continue
 
-                    change = await optimizer.optimize_store_product(
-                        customer_id=customer_id,
-                        store_id=store_id,
-                        product_id=product_id,
-                    )
+                        change = await optimizer.optimize_store_product(
+                            customer_id=customer_id,
+                            store_id=store_id,
+                            product_id=product_id,
+                        )
 
-                    if change is None:
-                        skipped += 1
-                    elif change["action"] == "created":
-                        created += 1
-                        changes.append(change)
-                    else:
-                        updated += 1
-                        changes.append(change)
+                        if change is None:
+                            skipped += 1
+                        elif change["action"] == "created":
+                            created += 1
+                            changes.append(change)
+                        else:
+                            updated += 1
+                            changes.append(change)
 
-                except Exception as exc:
-                    errors += 1
-                    logger.error(
-                        "optimizer.pair_failed",
-                        store_id=str(store_id),
-                        product_id=str(product_id),
-                        error=str(exc),
-                    )
+                    except Exception as exc:
+                        errors += 1
+                        logger.error(
+                            "optimizer.pair_failed",
+                            store_id=str(store_id),
+                            product_id=str(product_id),
+                            error=str(exc),
+                        )
 
-            await db.commit()
-
-        await engine.dispose()
+                await db.commit()
+        finally:
+            await engine.dispose()
 
         summary = {
             "status": "success",

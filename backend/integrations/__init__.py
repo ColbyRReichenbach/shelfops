@@ -20,15 +20,15 @@ Usage:
 
 from integrations.base import (
     IntegrationType,
+    RetailIntegrationAdapter,
     SyncResult,
     SyncStatus,
-    RetailIntegrationAdapter,
     get_adapter,
     register_adapter,
 )
 from integrations.edi_adapter import EDIAdapter, EDIX12Parser
-from integrations.sftp_adapter import SFTPAdapter, FlatFileParser
 from integrations.event_adapter import EventStreamAdapter
+from integrations.sftp_adapter import FlatFileParser, SFTPAdapter
 
 __all__ = [
     "IntegrationType",

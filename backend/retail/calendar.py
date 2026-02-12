@@ -24,11 +24,12 @@ from typing import NamedTuple
 class FiscalPeriod(NamedTuple):
     fiscal_year: int
     fiscal_quarter: int  # 1-4
-    fiscal_month: int    # 1-12
-    fiscal_week: int     # 1-52 (or 53)
+    fiscal_month: int  # 1-12
+    fiscal_week: int  # 1-52 (or 53)
 
 
 # ── US Federal + Retail Holidays ─────────────────────────────────────────
+
 
 def _nth_weekday_of_month(year: int, month: int, weekday: int, n: int) -> date:
     """Find the nth occurrence of a weekday in a given month.
@@ -67,12 +68,12 @@ def get_us_holidays(year: int) -> dict[date, str]:
     holidays[date(year, 12, 31)] = "New Year's Eve"
 
     # Floating holidays
-    holidays[_nth_weekday_of_month(year, 1, 0, 3)] = "MLK Day"           # 3rd Monday Jan
-    holidays[_nth_weekday_of_month(year, 2, 0, 3)] = "Presidents' Day"   # 3rd Monday Feb
-    holidays[_nth_weekday_of_month(year, 5, 0, -1)] = "Memorial Day"     # Last Monday May
-    holidays[_nth_weekday_of_month(year, 9, 0, 1)] = "Labor Day"         # 1st Monday Sep
-    holidays[_nth_weekday_of_month(year, 10, 0, 2)] = "Columbus Day"     # 2nd Monday Oct
-    holidays[_nth_weekday_of_month(year, 11, 3, 4)] = "Thanksgiving"     # 4th Thursday Nov
+    holidays[_nth_weekday_of_month(year, 1, 0, 3)] = "MLK Day"  # 3rd Monday Jan
+    holidays[_nth_weekday_of_month(year, 2, 0, 3)] = "Presidents' Day"  # 3rd Monday Feb
+    holidays[_nth_weekday_of_month(year, 5, 0, -1)] = "Memorial Day"  # Last Monday May
+    holidays[_nth_weekday_of_month(year, 9, 0, 1)] = "Labor Day"  # 1st Monday Sep
+    holidays[_nth_weekday_of_month(year, 10, 0, 2)] = "Columbus Day"  # 2nd Monday Oct
+    holidays[_nth_weekday_of_month(year, 11, 3, 4)] = "Thanksgiving"  # 4th Thursday Nov
 
     # Retail-specific derived holidays
     thanksgiving = _nth_weekday_of_month(year, 11, 3, 4)
@@ -118,6 +119,7 @@ def _compute_easter(year: int) -> date:
 
 
 # ── Holiday Detection ────────────────────────────────────────────────────
+
 
 class RetailCalendar:
     """US Retail 4-5-4 fiscal calendar + holidays."""

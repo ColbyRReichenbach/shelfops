@@ -32,11 +32,11 @@ DATASETS = {
         "kaggle_id": "c/store-sales-time-series-forecasting",
         "description": "Corporación Favorita Grocery Sales (Ecuador, 3.5M+ rows)",
         "files": [
-            "train.csv",          # 3.5M rows of daily store-product sales
-            "stores.csv",          # 54 stores with city, state, type, cluster
-            "oil.csv",             # Oil prices (macroeconomic feature)
-            "transactions.csv",    # Daily transaction counts per store
-            "holidays_events.csv", # Holidays and events
+            "train.csv",  # 3.5M rows of daily store-product sales
+            "stores.csv",  # 54 stores with city, state, type, cluster
+            "oil.csv",  # Oil prices (macroeconomic feature)
+            "transactions.csv",  # Daily transaction counts per store
+            "holidays_events.csv",  # Holidays and events
         ],
         "columns_map": {
             "store_nbr": "store_code",
@@ -119,6 +119,7 @@ def download_dataset(dataset_key: str, output_dir: Path) -> bool:
 
     try:
         import kaggle
+
         kaggle.api.authenticate()
 
         target_dir.mkdir(parents=True, exist_ok=True)

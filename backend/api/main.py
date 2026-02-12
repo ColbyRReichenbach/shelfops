@@ -3,10 +3,12 @@ ShelfOps API — FastAPI Application Entry Point
 """
 
 from contextlib import asynccontextmanager
+
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from core.config import get_settings
-import structlog
 
 settings = get_settings()
 logger = structlog.get_logger()
@@ -37,8 +39,8 @@ app.add_middleware(
 )
 
 # Import and register routers
-from api.v1.routers import stores, products, forecasts, alerts, integrations, inventory, purchase_orders
 from alerts.websocket import router as ws_router
+from api.v1.routers import alerts, forecasts, integrations, inventory, products, purchase_orders, stores
 
 app.include_router(stores.router)
 app.include_router(products.router)

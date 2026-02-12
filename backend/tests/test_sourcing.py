@@ -10,8 +10,8 @@ import pytest
 
 from supply_chain.sourcing import haversine_miles
 
-
 # ── Haversine Distance ─────────────────────────────────────────────────
+
 
 class TestHaversineDistance:
     def test_same_point_is_zero(self):

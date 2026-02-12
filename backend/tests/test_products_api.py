@@ -8,7 +8,6 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 class TestProductsIntegration:
-
     async def test_list_products_with_data(self, client: AsyncClient, seeded_db):
         """Seeded DB returns products."""
         resp = await client.get("/api/v1/products/")

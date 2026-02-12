@@ -17,7 +17,7 @@ import uuid
 from datetime import date, datetime
 
 import structlog
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Planogram, Product
@@ -25,12 +25,14 @@ from db.models import Planogram, Product
 logger = structlog.get_logger()
 
 # Product lifecycle states that should NOT trigger reorder alerts
-NON_ORDERABLE_STATES = frozenset({
-    "delisted",
-    "discontinued",
-    "seasonal_out",
-    "pending_activation",
-})
+NON_ORDERABLE_STATES = frozenset(
+    {
+        "delisted",
+        "discontinued",
+        "seasonal_out",
+        "pending_activation",
+    }
+)
 
 
 async def is_product_active_in_store(

@@ -9,7 +9,7 @@ import asyncio
 from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
 
@@ -30,6 +30,7 @@ def measure_completed_promotions(self, customer_id: str):
     Measures actual lift vs expected lift and flags outliers (>30% variance).
     """
     import uuid
+
     run_id = self.request.id or "manual"
     logger.info("promo_tracking.started", customer_id=customer_id, run_id=run_id)
 
@@ -39,14 +40,13 @@ def measure_completed_promotions(self, customer_id: str):
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
-        async_session = async_sessionmaker(engine, class_=AsyncSession)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
 
-        async with async_session() as db:
-            result = await measure_promotion_effectiveness(
-                db, uuid.UUID(customer_id), lookback_days=14
-            )
-
-        await engine.dispose()
+            async with async_session() as db:
+                result = await measure_promotion_effectiveness(db, uuid.UUID(customer_id), lookback_days=14)
+        finally:
+            await engine.dispose()
 
         summary = {
             "status": "success",

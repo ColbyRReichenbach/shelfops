@@ -2,20 +2,22 @@
 Alerts Router — Alert management endpoints.
 """
 
-from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from uuid import UUID
 
-from api.deps import get_tenant_db, get_current_user
-from db.models import Alert, Action
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.deps import get_current_user, get_tenant_db
+from db.models import Action, Alert
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class AlertResponse(BaseModel):
     alert_id: UUID
@@ -49,6 +51,7 @@ class AlertSummary(BaseModel):
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[AlertResponse])
 async def list_alerts(
@@ -100,8 +103,12 @@ async def get_alert_summary(
     high = (await db.execute(high_q)).scalar() or 0
 
     return AlertSummary(
-        total=total, open=open_count, acknowledged=ack,
-        resolved=resolved, critical=critical, high=high,
+        total=total,
+        open=open_count,
+        acknowledged=ack,
+        resolved=resolved,
+        critical=critical,
+        high=high,
     )
 
 
@@ -116,6 +123,11 @@ async def acknowledge_alert(
     alert = result.scalar_one_or_none()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status != "open":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot acknowledge alert in '{alert.status}' status. Must be 'open'.",
+        )
 
     alert.status = "acknowledged"
     alert.acknowledged_at = datetime.utcnow()
@@ -144,6 +156,11 @@ async def resolve_alert(
     alert = result.scalar_one_or_none()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status not in ("open", "acknowledged"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resolve alert in '{alert.status}' status. Must be 'open' or 'acknowledged'.",
+        )
 
     alert.status = "resolved"
     alert.resolved_at = datetime.utcnow()
@@ -172,6 +189,11 @@ async def dismiss_alert(
     alert = result.scalar_one_or_none()
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status not in ("open", "acknowledged"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot dismiss alert in '{alert.status}' status. Must be 'open' or 'acknowledged'.",
+        )
 
     alert.status = "dismissed"
 

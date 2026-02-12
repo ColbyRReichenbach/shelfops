@@ -10,13 +10,13 @@ Covers:
 import pytest
 
 from retail.shrinkage import (
-    apply_shrinkage_adjustment,
-    DEFAULT_SHRINK_RATES,
     DEFAULT_OVERALL_RATE,
+    DEFAULT_SHRINK_RATES,
+    apply_shrinkage_adjustment,
 )
 
-
 # ── Core Adjustment Calculation ────────────────────────────────────────
+
 
 class TestShrinkageAdjustment:
     def test_basic_adjustment(self):
@@ -45,6 +45,7 @@ class TestShrinkageAdjustment:
 
 
 # ── Edge Cases ────────────────────────────────────────────────────────
+
 
 class TestShrinkageEdgeCases:
     def test_zero_inventory(self):
@@ -87,6 +88,7 @@ class TestShrinkageEdgeCases:
 
 
 # ── Default Rate Benchmarks ───────────────────────────────────────────
+
 
 class TestDefaultRates:
     def test_bakery_highest_shrink(self):

@@ -9,9 +9,9 @@ Runs the full ML pipeline:
   5. Refresh alerts with updated forecasts
 """
 
-import os
 import glob
 import json
+import os
 from datetime import datetime, timezone
 
 import pandas as pd
@@ -148,7 +148,7 @@ def retrain_forecast_model(
         promote: If True, promote this version to champion
     """
     from ml.features import create_features
-    from ml.train import train_ensemble, save_models
+    from ml.train import save_models, train_ensemble
 
     run_id = self.request.id or "manual"
     ver = version or _next_version()

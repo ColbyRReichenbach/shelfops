@@ -8,10 +8,10 @@ Covers:
 
 import pytest
 
-from alerts.engine import classify_severity, classify_anomaly_severity
-
+from alerts.engine import classify_anomaly_severity, classify_severity
 
 # ── Stockout Severity ──────────────────────────────────────────────────
+
 
 class TestStockoutSeverity:
     def test_critical_one_day(self):
@@ -43,6 +43,7 @@ class TestStockoutSeverity:
 
 
 # ── Anomaly Severity ──────────────────────────────────────────────────
+
 
 class TestAnomalySeverity:
     def test_critical_high_z(self):

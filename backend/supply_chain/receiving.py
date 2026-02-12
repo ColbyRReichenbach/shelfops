@@ -17,11 +17,13 @@ import uuid
 from datetime import date, datetime
 
 import structlog
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    PurchaseOrder, InventoryLevel, ReceivingDiscrepancy,
+    InventoryLevel,
+    PurchaseOrder,
+    ReceivingDiscrepancy,
 )
 
 logger = structlog.get_logger()
@@ -98,8 +100,7 @@ async def process_receiving(
             quantity_on_hand=latest_inv.quantity_on_hand + received_qty,
             quantity_on_order=max(0, latest_inv.quantity_on_order - ordered_qty),
             quantity_in_transit=max(0, (latest_inv.quantity_in_transit or 0) - ordered_qty),
-            quantity_available=(latest_inv.quantity_on_hand + received_qty)
-                - latest_inv.quantity_reserved,
+            quantity_available=(latest_inv.quantity_on_hand + received_qty) - latest_inv.quantity_reserved,
             quantity_reserved=latest_inv.quantity_reserved,
             timestamp=datetime.utcnow(),
         )

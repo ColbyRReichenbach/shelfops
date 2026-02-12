@@ -19,27 +19,27 @@ import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import ShrinkageRate, Product
+from db.models import Product, ShrinkageRate
 
 logger = structlog.get_logger()
 
 # NRF 2022-24 benchmarks — annual shrink rate by category
 DEFAULT_SHRINK_RATES: dict[str, float] = {
-    "Bakery": 0.080,            # 8.0% (spoilage dominates)
-    "Produce": 0.048,           # 4.8% (spoilage)
-    "Dairy": 0.025,             # 2.5% (expiration)
-    "Meat & Seafood": 0.040,    # 4.0% (spoilage + markdowns)
-    "Deli": 0.055,              # 5.5% (prepared food waste)
-    "Frozen": 0.015,            # 1.5% (low spoilage)
-    "Center Store": 0.010,      # 1.0% (shelf-stable)
-    "Beverages": 0.012,         # 1.2%
-    "Health & Beauty": 0.020,   # 2.0% (ORC theft target)
-    "Electronics": 0.015,       # 1.5% (high-value theft)
-    "Apparel": 0.025,           # 2.5% (ORC + damage)
-    "Home & Garden": 0.018,     # 1.8%
-    "Hardware": 0.012,          # 1.2%
-    "Toys": 0.020,              # 2.0%
-    "Seasonal": 0.030,          # 3.0% (markdowns + damage)
+    "Bakery": 0.080,  # 8.0% (spoilage dominates)
+    "Produce": 0.048,  # 4.8% (spoilage)
+    "Dairy": 0.025,  # 2.5% (expiration)
+    "Meat & Seafood": 0.040,  # 4.0% (spoilage + markdowns)
+    "Deli": 0.055,  # 5.5% (prepared food waste)
+    "Frozen": 0.015,  # 1.5% (low spoilage)
+    "Center Store": 0.010,  # 1.0% (shelf-stable)
+    "Beverages": 0.012,  # 1.2%
+    "Health & Beauty": 0.020,  # 2.0% (ORC theft target)
+    "Electronics": 0.015,  # 1.5% (high-value theft)
+    "Apparel": 0.025,  # 2.5% (ORC + damage)
+    "Home & Garden": 0.018,  # 1.8%
+    "Hardware": 0.012,  # 1.2%
+    "Toys": 0.020,  # 2.0%
+    "Seasonal": 0.030,  # 3.0% (markdowns + damage)
 }
 
 # Overall retail average when category is unknown

@@ -8,18 +8,26 @@ Run: PYTHONPATH=backend python backend/scripts/seed_commercial_data.py
 """
 
 import asyncio
-import uuid
 import random
+import uuid
 from datetime import date, datetime, timedelta
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from db.models import (
-    DistributionCenter, ProductSourcingRule, DCInventory, ShrinkageRate,
-    Planogram, Supplier, Store, Product, PurchaseOrder, StoreTransfer,
-)
 from core.config import get_settings
+from db.models import (
+    DCInventory,
+    DistributionCenter,
+    Planogram,
+    Product,
+    ProductSourcingRule,
+    PurchaseOrder,
+    ShrinkageRate,
+    Store,
+    StoreTransfer,
+    Supplier,
+)
 
 settings = get_settings()
 
@@ -60,19 +68,13 @@ async def seed_commercial_data():
 
     async with SessionLocal() as db:
         # Load existing entities
-        stores_result = await db.execute(
-            select(Store).where(Store.customer_id == CUSTOMER_ID)
-        )
+        stores_result = await db.execute(select(Store).where(Store.customer_id == CUSTOMER_ID))
         stores = stores_result.scalars().all()
 
-        products_result = await db.execute(
-            select(Product).where(Product.customer_id == CUSTOMER_ID)
-        )
+        products_result = await db.execute(select(Product).where(Product.customer_id == CUSTOMER_ID))
         products = products_result.scalars().all()
 
-        suppliers_result = await db.execute(
-            select(Supplier).where(Supplier.customer_id == CUSTOMER_ID)
-        )
+        suppliers_result = await db.execute(select(Supplier).where(Supplier.customer_id == CUSTOMER_ID))
         suppliers = suppliers_result.scalars().all()
 
         if not stores or not products:
@@ -130,48 +132,54 @@ async def seed_commercial_data():
         for i, product in enumerate(products):
             if i % 5 < 3:
                 # DC sourcing (priority 1) with vendor fallback (priority 2)
-                db.add(ProductSourcingRule(
-                    customer_id=CUSTOMER_ID,
-                    product_id=product.product_id,
-                    source_type="dc",
-                    source_id=dc.dc_id,
-                    lead_time_days=2,
-                    lead_time_variance_days=1,
-                    min_order_qty=12,
-                    cost_per_order=50.0,
-                    priority=1,
-                    active=True,
-                ))
-                if supplier:
-                    db.add(ProductSourcingRule(
+                db.add(
+                    ProductSourcingRule(
                         customer_id=CUSTOMER_ID,
                         product_id=product.product_id,
-                        source_type="vendor_direct",
-                        source_id=supplier.supplier_id,
-                        lead_time_days=supplier.lead_time_days,
-                        lead_time_variance_days=2,
-                        min_order_qty=supplier.min_order_quantity or 24,
-                        cost_per_order=200.0,
-                        priority=2,
+                        source_type="dc",
+                        source_id=dc.dc_id,
+                        lead_time_days=2,
+                        lead_time_variance_days=1,
+                        min_order_qty=12,
+                        cost_per_order=50.0,
+                        priority=1,
                         active=True,
-                    ))
+                    )
+                )
+                if supplier:
+                    db.add(
+                        ProductSourcingRule(
+                            customer_id=CUSTOMER_ID,
+                            product_id=product.product_id,
+                            source_type="vendor_direct",
+                            source_id=supplier.supplier_id,
+                            lead_time_days=supplier.lead_time_days,
+                            lead_time_variance_days=2,
+                            min_order_qty=supplier.min_order_quantity or 24,
+                            cost_per_order=200.0,
+                            priority=2,
+                            active=True,
+                        )
+                    )
                 sourcing_rules_created += 2
             else:
                 # Vendor direct only
                 target_supplier = supplier2 if i % 2 == 0 and supplier2 else supplier
                 if target_supplier:
-                    db.add(ProductSourcingRule(
-                        customer_id=CUSTOMER_ID,
-                        product_id=product.product_id,
-                        source_type="vendor_direct",
-                        source_id=target_supplier.supplier_id,
-                        lead_time_days=target_supplier.lead_time_days,
-                        lead_time_variance_days=3,
-                        min_order_qty=target_supplier.min_order_quantity or 24,
-                        cost_per_order=target_supplier.cost_per_order or 200.0,
-                        priority=1,
-                        active=True,
-                    ))
+                    db.add(
+                        ProductSourcingRule(
+                            customer_id=CUSTOMER_ID,
+                            product_id=product.product_id,
+                            source_type="vendor_direct",
+                            source_id=target_supplier.supplier_id,
+                            lead_time_days=target_supplier.lead_time_days,
+                            lead_time_variance_days=3,
+                            min_order_qty=target_supplier.min_order_quantity or 24,
+                            cost_per_order=target_supplier.cost_per_order or 200.0,
+                            priority=1,
+                            active=True,
+                        )
+                    )
                     sourcing_rules_created += 1
 
         await db.flush()
@@ -182,15 +190,17 @@ async def seed_commercial_data():
         for product in products:
             qty = random.randint(200, 2000)
             allocated = random.randint(0, min(50, qty))
-            db.add(DCInventory(
-                customer_id=CUSTOMER_ID,
-                dc_id=dc.dc_id,
-                product_id=product.product_id,
-                quantity_on_hand=qty,
-                quantity_allocated=allocated,
-                quantity_in_transit=random.randint(0, 100),
-                quantity_available=qty - allocated,
-            ))
+            db.add(
+                DCInventory(
+                    customer_id=CUSTOMER_ID,
+                    dc_id=dc.dc_id,
+                    product_id=product.product_id,
+                    quantity_on_hand=qty,
+                    quantity_allocated=allocated,
+                    quantity_in_transit=random.randint(0, 100),
+                    quantity_available=qty - allocated,
+                )
+            )
             dc_inv_count += 1
         await db.flush()
         print(f"  Created {dc_inv_count} DC inventory records")
@@ -198,13 +208,15 @@ async def seed_commercial_data():
         # ── Shrinkage Rates ─────────────────────────────────────
         shrink_count = 0
         for category, (shrink_type, rate) in SHRINK_RATES.items():
-            db.add(ShrinkageRate(
-                customer_id=CUSTOMER_ID,
-                category=category,
-                shrink_rate_pct=rate,
-                shrink_type=shrink_type,
-                measurement_period_days=365,
-            ))
+            db.add(
+                ShrinkageRate(
+                    customer_id=CUSTOMER_ID,
+                    category=category,
+                    shrink_rate_pct=rate,
+                    shrink_type=shrink_type,
+                    measurement_period_days=365,
+                )
+            )
             shrink_count += 1
         await db.flush()
         print(f"  Created {shrink_count} shrinkage rates")
@@ -219,19 +231,21 @@ async def seed_commercial_data():
                 shelf = str(random.randint(1, 5))
                 facings = random.randint(1, 4)
 
-                db.add(Planogram(
-                    customer_id=CUSTOMER_ID,
-                    store_id=store.store_id,
-                    product_id=product.product_id,
-                    aisle=aisle,
-                    bay=bay,
-                    shelf=shelf,
-                    facings=facings,
-                    min_presentation_qty=facings * 2,
-                    max_capacity=facings * 8,
-                    status="active",
-                    effective_date=date(2025, 1, 1),
-                ))
+                db.add(
+                    Planogram(
+                        customer_id=CUSTOMER_ID,
+                        store_id=store.store_id,
+                        product_id=product.product_id,
+                        aisle=aisle,
+                        bay=bay,
+                        shelf=shelf,
+                        facings=facings,
+                        min_presentation_qty=facings * 2,
+                        max_capacity=facings * 8,
+                        status="active",
+                        effective_date=date(2025, 1, 1),
+                    )
+                )
                 planogram_count += 1
         await db.flush()
         print(f"  Created {planogram_count} planograms")
@@ -240,9 +254,7 @@ async def seed_commercial_data():
         for product in products:
             product.lifecycle_state = "active"
             product.planogram_required = True
-            product.holding_cost_per_unit_per_day = round(
-                (product.unit_cost or 5.0) * 0.25 / 365, 4
-            )
+            product.holding_cost_per_unit_per_day = round((product.unit_cost or 5.0) * 0.25 / 365, 4)
 
         # Set 2 products as seasonal_out for demo
         if len(products) > 15:

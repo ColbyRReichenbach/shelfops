@@ -21,11 +21,14 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import structlog
-from sqlalchemy import select, func, and_
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
-    InventoryLevel, ReorderPoint, Store, StoreTransfer,
+    InventoryLevel,
+    ReorderPoint,
+    Store,
+    StoreTransfer,
 )
 from supply_chain.sourcing import haversine_miles
 
@@ -40,6 +43,7 @@ MAX_SEARCH_RADIUS_MILES = 75  # Don't look beyond 75 miles
 @dataclass
 class TransferOption:
     """A potential store-to-store transfer opportunity."""
+
     from_store_id: uuid.UUID
     from_store_name: str
     distance_miles: float
@@ -110,17 +114,14 @@ async def find_transfer_opportunities(
         .subquery()
     )
     inv_result = await db.execute(
-        select(InventoryLevel)
-        .join(
+        select(InventoryLevel).join(
             inv_subq,
             (InventoryLevel.store_id == inv_subq.c.store_id)
             & (InventoryLevel.timestamp == inv_subq.c.latest_ts)
             & (InventoryLevel.product_id == product_id),
         )
     )
-    inventory_map = {
-        inv.store_id: inv for inv in inv_result.scalars().all()
-    }
+    inventory_map = {inv.store_id: inv for inv in inv_result.scalars().all()}
 
     # Get reorder points for safety stock reference
     rp_result = await db.execute(
@@ -151,15 +152,17 @@ async def find_transfer_opportunities(
         recommended_qty = min(excess, needed_qty) if needed_qty > 0 else excess
         lead_days = DEFAULT_TRANSFER_LEAD_DAYS if distance <= 30 else DEFAULT_TRANSFER_LEAD_DAYS + 1
 
-        options.append(TransferOption(
-            from_store_id=store.store_id,
-            from_store_name=store.name,
-            distance_miles=round(distance, 1),
-            transfer_cost=transfer_cost,
-            excess_quantity=excess,
-            recommended_transfer_qty=recommended_qty,
-            estimated_lead_days=lead_days,
-        ))
+        options.append(
+            TransferOption(
+                from_store_id=store.store_id,
+                from_store_name=store.name,
+                distance_miles=round(distance, 1),
+                transfer_cost=transfer_cost,
+                excess_quantity=excess,
+                recommended_transfer_qty=recommended_qty,
+                estimated_lead_days=lead_days,
+            )
+        )
 
     # Rank by score: excess × (1 / distance) — more stock closer is better
     options.sort(key=lambda o: o.excess_quantity / max(o.distance_miles, 1), reverse=True)

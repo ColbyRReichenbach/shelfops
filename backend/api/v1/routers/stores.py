@@ -2,21 +2,23 @@
 Stores Router — CRUD for store locations.
 """
 
-from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.deps import get_tenant_db, get_current_user
+from api.deps import get_current_user, get_tenant_db
 from db.models import Store
 
 router = APIRouter(prefix="/api/v1/stores", tags=["stores"])
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
+
 
 class StoreCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -60,6 +62,7 @@ class StoreResponse(BaseModel):
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=list[StoreResponse])
 async def list_stores(

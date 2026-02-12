@@ -26,13 +26,14 @@ import json
 from datetime import datetime
 from typing import Any
 
+import structlog
+
 from integrations.base import (
     IntegrationType,
     RetailIntegrationAdapter,
     SyncResult,
     SyncStatus,
 )
-import structlog
 
 logger = structlog.get_logger()
 
@@ -82,16 +83,18 @@ def normalize_transaction_event(event: dict[str, Any]) -> list[dict[str, Any]]:
     """
     records = []
     for item in event.get("items", []):
-        records.append({
-            "external_id": event.get("event_id", ""),
-            "store_code": event.get("store_id", ""),
-            "sku": item.get("sku", ""),
-            "quantity": item.get("quantity", 0),
-            "unit_price": item.get("unit_price", 0.0),
-            "total_amount": item.get("total", 0.0),
-            "transaction_type": "sale",
-            "timestamp": event.get("timestamp", datetime.utcnow().isoformat()),
-        })
+        records.append(
+            {
+                "external_id": event.get("event_id", ""),
+                "store_code": event.get("store_id", ""),
+                "sku": item.get("sku", ""),
+                "quantity": item.get("quantity", 0),
+                "unit_price": item.get("unit_price", 0.0),
+                "total_amount": item.get("total", 0.0),
+                "transaction_type": "sale",
+                "timestamp": event.get("timestamp", datetime.utcnow().isoformat()),
+            }
+        )
     return records
 
 
@@ -113,18 +116,21 @@ def normalize_inventory_event(event: dict[str, Any]) -> list[dict[str, Any]]:
     """
     records = []
     for item in event.get("items", []):
-        records.append({
-            "store_code": event.get("store_id", ""),
-            "sku": item.get("sku", ""),
-            "quantity_on_hand": item.get("quantity_on_hand", 0),
-            "quantity_on_order": item.get("quantity_on_order", 0),
-            "source": f"event_{event.get('reason', 'unknown')}",
-            "timestamp": event.get("timestamp", datetime.utcnow().isoformat()),
-        })
+        records.append(
+            {
+                "store_code": event.get("store_id", ""),
+                "sku": item.get("sku", ""),
+                "quantity_on_hand": item.get("quantity_on_hand", 0),
+                "quantity_on_order": item.get("quantity_on_order", 0),
+                "source": f"event_{event.get('reason', 'unknown')}",
+                "timestamp": event.get("timestamp", datetime.utcnow().isoformat()),
+            }
+        )
     return records
 
 
 # ── Event Stream Adapter ──────────────────────────────────────────────────
+
 
 class EventStreamAdapter(RetailIntegrationAdapter):
     """
@@ -176,6 +182,7 @@ class EventStreamAdapter(RetailIntegrationAdapter):
     async def _test_kafka(self) -> bool:
         try:
             from aiokafka import AIOKafkaConsumer
+
             consumer = AIOKafkaConsumer(
                 bootstrap_servers=self.bootstrap_servers,
                 group_id=f"{self.consumer_group}-healthcheck",
@@ -192,6 +199,7 @@ class EventStreamAdapter(RetailIntegrationAdapter):
     async def _test_pubsub(self) -> bool:
         try:
             from google.cloud import pubsub_v1
+
             subscriber = pubsub_v1.SubscriberClient()
             project_id = self.config.get("gcp_project_id", "")
             # Just test that we can list subscriptions
@@ -280,9 +288,7 @@ class EventStreamAdapter(RetailIntegrationAdapter):
                                 result.metadata.setdefault(label, []).extend(records)
                             except Exception as e:
                                 result.records_failed += 1
-                                result.errors.append(
-                                    f"offset={msg.offset}: {str(e)}"
-                                )
+                                result.errors.append(f"offset={msg.offset}: {str(e)}")
                 finally:
                     await consumer.stop()
 
@@ -296,6 +302,7 @@ class EventStreamAdapter(RetailIntegrationAdapter):
         elif self.broker_type == "pubsub":
             try:
                 from google.cloud import pubsub_v1
+
                 subscriber = pubsub_v1.SubscriberClient()
                 subscription = self.config.get("subscriptions", {}).get(label)
                 if not subscription:
@@ -321,9 +328,7 @@ class EventStreamAdapter(RetailIntegrationAdapter):
                         result.errors.append(str(e))
 
                 if ack_ids:
-                    subscriber.acknowledge(
-                        request={"subscription": sub_path, "ack_ids": ack_ids}
-                    )
+                    subscriber.acknowledge(request={"subscription": sub_path, "ack_ids": ack_ids})
 
             except ImportError:
                 result.status = SyncStatus.FAILED

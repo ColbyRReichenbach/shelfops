@@ -23,13 +23,13 @@ Skill: ml-forecasting
 Workflow: train-forecast-model.md
 """
 
-import pandas as pd
-import numpy as np
 from datetime import timedelta
 from typing import Literal
 
-from retail.calendar import RetailCalendar
+import numpy as np
+import pandas as pd
 
+from retail.calendar import RetailCalendar
 
 # ══════════════════════════════════════════════════════════════════════════
 # Feature Tier Definitions
@@ -42,37 +42,65 @@ FeatureTier = Literal["cold_start", "production"]
 # (date, store_id, product_id/category, quantity_sold).
 COLD_START_FEATURE_COLS = [
     # Temporal (10) — derived from date column
-    "day_of_week", "month", "quarter", "is_weekend", "is_holiday",
-    "week_of_year", "day_of_month", "is_month_start", "is_month_end",
+    "day_of_week",
+    "month",
+    "quarter",
+    "is_weekend",
+    "is_holiday",
+    "week_of_year",
+    "day_of_month",
+    "is_month_start",
+    "is_month_end",
     "days_since_last_sale",
     # Sales History (12) — computed from quantity
-    "sales_7d", "sales_14d", "sales_30d", "sales_90d",
-    "avg_daily_sales_7d", "avg_daily_sales_30d",
-    "sales_trend_7d", "sales_trend_30d",
-    "sales_volatility_7d", "sales_volatility_30d",
-    "max_daily_sales_30d", "min_daily_sales_30d",
+    "sales_7d",
+    "sales_14d",
+    "sales_30d",
+    "sales_90d",
+    "avg_daily_sales_7d",
+    "avg_daily_sales_30d",
+    "sales_trend_7d",
+    "sales_trend_30d",
+    "sales_volatility_7d",
+    "sales_volatility_30d",
+    "max_daily_sales_30d",
+    "min_daily_sales_30d",
     # Category (1) — label-encoded from category/family/dept
     "category_encoded",
     # Promotions (1) — Favorita has onpromotion, Walmart has IsHoliday
     "is_promotion_active",
     # External (3) — Walmart: temperature, fuel; Favorita: oil price
-    "temperature", "precipitation", "oil_price",
+    "temperature",
+    "precipitation",
+    "oil_price",
 ]  # 27 total
 
 # Phase 2 — Production (full 45 features)
 # Requires real retailer data flowing through adapters.
 PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     # Product (7) — from product catalog via EDI/ERP
-    "unit_cost", "unit_price", "margin_pct", "weight",
-    "shelf_life_days", "is_seasonal", "is_perishable",
+    "unit_cost",
+    "unit_price",
+    "margin_pct",
+    "weight",
+    "shelf_life_days",
+    "is_seasonal",
+    "is_perishable",
     # Store (5) — computed from real store performance data
-    "store_avg_daily_sales", "store_product_count",
-    "store_inventory_turnover", "lat", "lon",
+    "store_avg_daily_sales",
+    "store_product_count",
+    "store_inventory_turnover",
+    "lat",
+    "lon",
     # Inventory (5) — from real inventory snapshots/WMS
-    "current_stock", "days_of_supply", "stock_velocity",
-    "quantity_on_order", "stockout_count_30d",
+    "current_stock",
+    "days_of_supply",
+    "stock_velocity",
+    "quantity_on_order",
+    "stockout_count_30d",
     # Promotions extended (2) — from real promo calendar
-    "promotion_discount_pct", "promotion_days_remaining",
+    "promotion_discount_pct",
+    "promotion_days_remaining",
 ]  # 45 total
 
 # Legacy alias (backward compat with existing saved models)
@@ -87,12 +115,14 @@ def detect_feature_tier(df: pd.DataFrame) -> FeatureTier:
     If they're missing or all-zero, falls back to cold_start.
     """
     production_signals = [
-        "current_stock", "unit_cost", "unit_price",
-        "store_inventory_turnover", "days_of_supply",
+        "current_stock",
+        "unit_cost",
+        "unit_price",
+        "store_inventory_turnover",
+        "days_of_supply",
     ]
     has_production = all(
-        col in df.columns and df[col].notna().any() and (df[col] != 0).any()
-        for col in production_signals
+        col in df.columns and df[col].notna().any() and (df[col] != 0).any() for col in production_signals
     )
     return "production" if has_production else "cold_start"
 
@@ -108,10 +138,11 @@ def get_feature_cols(tier: FeatureTier) -> list[str]:
 # 1. Temporal Features (10)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
     """Extract 10 temporal features from a date column."""
     dt = pd.to_datetime(df[date_col], errors="coerce")
-    
+
     # Fill NaT with a default (e.g. first date) to prevent crash, though upstream should filter
     if dt.isna().any():
         dt = dt.fillna(dt.min())
@@ -133,6 +164,7 @@ def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame
 # ──────────────────────────────────────────────────────────────────────────
 # 2. Sales History Features (12)
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _sales_history_features(
     txn_df: pd.DataFrame,
@@ -159,12 +191,8 @@ def _sales_history_features(
     txn_df["avg_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).mean())
 
     # Trend: slope proxy via diff of rolling means
-    txn_df["sales_trend_7d"] = grp.transform(
-        lambda x: x.rolling(7, min_periods=2).mean().diff()
-    )
-    txn_df["sales_trend_30d"] = grp.transform(
-        lambda x: x.rolling(30, min_periods=2).mean().diff()
-    )
+    txn_df["sales_trend_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).mean().diff())
+    txn_df["sales_trend_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).mean().diff())
 
     txn_df["sales_volatility_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).std())
     txn_df["sales_volatility_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).std())
@@ -178,6 +206,7 @@ def _sales_history_features(
 # ──────────────────────────────────────────────────────────────────────────
 # 3. Product Features (8)
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _product_features(products_df: pd.DataFrame) -> pd.DataFrame:
     """Add 8 product-level features. category_encoded via label encoding."""
@@ -195,8 +224,14 @@ def _product_features(products_df: pd.DataFrame) -> pd.DataFrame:
 
     return df[
         [
-            "product_id", "unit_cost", "unit_price", "margin_pct",
-            "weight", "shelf_life_days", "is_seasonal", "is_perishable",
+            "product_id",
+            "unit_cost",
+            "unit_price",
+            "margin_pct",
+            "weight",
+            "shelf_life_days",
+            "is_seasonal",
+            "is_perishable",
             "category_encoded",
         ]
     ]
@@ -205,6 +240,7 @@ def _product_features(products_df: pd.DataFrame) -> pd.DataFrame:
 # ──────────────────────────────────────────────────────────────────────────
 # 4. Store Features (5)
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def _store_features(
     stores_df: pd.DataFrame,
@@ -216,16 +252,8 @@ def _store_features(
       store_avg_daily_sales, store_product_count,
       store_inventory_turnover, lat, lon
     """
-    store_sales = (
-        txn_agg_df.groupby("store_id")["quantity"]
-        .mean()
-        .rename("store_avg_daily_sales")
-    )
-    store_product_count = (
-        txn_agg_df.groupby("store_id")["product_id"]
-        .nunique()
-        .rename("store_product_count")
-    )
+    store_sales = txn_agg_df.groupby("store_id")["quantity"].mean().rename("store_avg_daily_sales")
+    store_product_count = txn_agg_df.groupby("store_id")["product_id"].nunique().rename("store_product_count")
 
     # Inventory turnover = sales / avg inventory
     inv_avg = inv_df.groupby("store_id")["quantity_on_hand"].mean().rename("avg_inv")
@@ -242,6 +270,7 @@ def _store_features(
 # 5. Inventory Features (5)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _inventory_features(
     inv_df: pd.DataFrame,
     txn_agg_df: pd.DataFrame,
@@ -252,20 +281,10 @@ def _inventory_features(
       quantity_on_order, stockout_count_30d
     """
     # Latest inventory per store-product
-    latest = (
-        inv_df.sort_values("timestamp")
-        .groupby(["store_id", "product_id"])
-        .last()
-        .reset_index()
-    )
+    latest = inv_df.sort_values("timestamp").groupby(["store_id", "product_id"]).last().reset_index()
 
     # Average daily sales for days_of_supply
-    avg_sales = (
-        txn_agg_df.groupby(["store_id", "product_id"])["quantity"]
-        .mean()
-        .rename("avg_daily")
-        .reset_index()
-    )
+    avg_sales = txn_agg_df.groupby(["store_id", "product_id"])["quantity"].mean().rename("avg_daily").reset_index()
 
     result = latest[["store_id", "product_id", "quantity_on_hand", "quantity_on_order"]].copy()
     result = result.rename(columns={"quantity_on_hand": "current_stock"})
@@ -295,6 +314,7 @@ def _inventory_features(
 # 6. Promotion Features (3)
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _promotion_features(
     promotions_df: pd.DataFrame | None,
     target_date: str,
@@ -304,31 +324,32 @@ def _promotion_features(
       is_promotion_active, promotion_discount_pct, promotion_days_remaining
     """
     if promotions_df is None or promotions_df.empty:
-        return pd.DataFrame(columns=[
-            "store_id", "product_id",
-            "is_promotion_active", "promotion_discount_pct", "promotion_days_remaining",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "store_id",
+                "product_id",
+                "is_promotion_active",
+                "promotion_discount_pct",
+                "promotion_days_remaining",
+            ]
+        )
 
     dt = pd.Timestamp(target_date)
-    active = promotions_df[
-        (promotions_df["start_date"] <= dt) & (promotions_df["end_date"] >= dt)
-    ].copy()
+    active = promotions_df[(promotions_df["start_date"] <= dt) & (promotions_df["end_date"] >= dt)].copy()
 
     active["is_promotion_active"] = 1
     active["promotion_discount_pct"] = active["discount_pct"]
-    active["promotion_days_remaining"] = (
-        pd.to_datetime(active["end_date"]) - dt
-    ).dt.days
+    active["promotion_days_remaining"] = (pd.to_datetime(active["end_date"]) - dt).dt.days
 
     return active[
-        ["store_id", "product_id", "is_promotion_active",
-         "promotion_discount_pct", "promotion_days_remaining"]
+        ["store_id", "product_id", "is_promotion_active", "promotion_discount_pct", "promotion_days_remaining"]
     ]
 
 
 # ──────────────────────────────────────────────────────────────────────────
 # Master Pipeline
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def create_features(
     transactions_df: pd.DataFrame,
@@ -391,7 +412,8 @@ def create_features(
         if not promo_feats.empty:
             features = features.merge(
                 promo_feats[["store_id", "product_id", "is_promotion_active"]],
-                on=["store_id", "product_id"], how="left",
+                on=["store_id", "product_id"],
+                how="left",
             )
         features["is_promotion_active"] = features.get("is_promotion_active", 0).fillna(0).astype(int)
     else:
@@ -405,7 +427,9 @@ def create_features(
         if "precipitation" in weather_df.columns:
             weather_cols.append("precipitation")
         features = features.merge(
-            weather_df[weather_cols], on=["date", "store_id"], how="left",
+            weather_df[weather_cols],
+            on=["date", "store_id"],
+            how="left",
         )
     if "temperature" not in features.columns:
         features["temperature"] = np.nan
@@ -415,7 +439,9 @@ def create_features(
     # External — macro (oil price from Favorita, etc.)
     if macro_df is not None and not macro_df.empty and "oil_price" in macro_df.columns:
         features = features.merge(
-            macro_df[["date", "oil_price"]], on="date", how="left",
+            macro_df[["date", "oil_price"]],
+            on="date",
+            how="left",
         )
     if "oil_price" not in features.columns:
         features["oil_price"] = np.nan
@@ -423,9 +449,12 @@ def create_features(
     # ── Determine tier ──────────────────────────────────────────────
 
     has_production_data = (
-        inventory_df is not None and not inventory_df.empty
-        and products_df is not None and not products_df.empty
-        and stores_df is not None and not stores_df.empty
+        inventory_df is not None
+        and not inventory_df.empty
+        and products_df is not None
+        and not products_df.empty
+        and stores_df is not None
+        and not stores_df.empty
     )
     tier = force_tier or ("production" if has_production_data else "cold_start")
 
@@ -449,9 +478,9 @@ def create_features(
             promo_feats = _promotion_features(promotions_df, str(target_date))
             if not promo_feats.empty:
                 features = features.merge(
-                    promo_feats[["store_id", "product_id",
-                                 "promotion_discount_pct", "promotion_days_remaining"]],
-                    on=["store_id", "product_id"], how="left",
+                    promo_feats[["store_id", "product_id", "promotion_discount_pct", "promotion_days_remaining"]],
+                    on=["store_id", "product_id"],
+                    how="left",
                 )
         if "promotion_discount_pct" not in features.columns:
             features["promotion_discount_pct"] = 0.0

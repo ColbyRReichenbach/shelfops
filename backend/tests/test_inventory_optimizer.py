@@ -11,15 +11,15 @@ Covers:
 import pytest
 
 from inventory.optimizer import (
+    RELIABILITY_MULTIPLIERS,
+    Z_SCORES,
+    InventoryOptimizer,
     get_reliability_multiplier,
     get_z_score,
-    InventoryOptimizer,
-    Z_SCORES,
-    RELIABILITY_MULTIPLIERS,
 )
 
-
 # ── Reliability Multiplier ─────────────────────────────────────────────
+
 
 class TestReliabilityMultiplier:
     def test_excellent_reliability(self):
@@ -54,6 +54,7 @@ class TestReliabilityMultiplier:
 
 # ── Z-Score Lookup ─────────────────────────────────────────────────────
 
+
 class TestZScore:
     def test_95_service_level(self):
         assert get_z_score(0.95) == 1.645
@@ -73,6 +74,7 @@ class TestZScore:
 
 
 # ── Economic Order Quantity ────────────────────────────────────────────
+
 
 class TestEOQ:
     def test_standard_eoq(self):
@@ -135,6 +137,7 @@ class TestEOQ:
 
 
 # ── Multiplier Table Coverage ──────────────────────────────────────────
+
 
 class TestMultiplierCoverage:
     def test_all_ranges_covered(self):

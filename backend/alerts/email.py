@@ -7,6 +7,7 @@ Skill: alert-systems (email delivery pattern)
 
 import sendgrid
 from sendgrid.helpers.mail import Mail
+
 from core.config import get_settings
 
 settings = get_settings()
@@ -38,16 +39,16 @@ async def send_alert_email(
         <h1 style="margin: 0; font-size: 20px;">ShelfOps Alert</h1>
       </div>
       <div style="background: #f8fafc; padding: 24px; border: 1px solid #e2e8f0;">
-        <div style="background: {'#fef2f2' if severity == 'critical' else '#fff7ed'};
-                    border-left: 4px solid {'#dc2626' if severity == 'critical' else '#f59e0b'};
+        <div style="background: {"#fef2f2" if severity == "critical" else "#fff7ed"};
+                    border-left: 4px solid {"#dc2626" if severity == "critical" else "#f59e0b"};
                     padding: 16px; border-radius: 0 8px 8px 0; margin-bottom: 16px;">
           <p style="margin: 0; font-weight: 600; color: #1e293b;">
-            {severity.upper()} — {alert_type.replace('_', ' ').title()}
+            {severity.upper()} — {alert_type.replace("_", " ").title()}
           </p>
         </div>
         <p style="color: #334155; line-height: 1.6;">{message}</p>
-        {'<p style="color: #64748b;"><strong>Store:</strong> ' + store_name + '</p>' if store_name else ''}
-        {'<p style="color: #64748b;"><strong>Product:</strong> ' + product_name + '</p>' if product_name else ''}
+        {'<p style="color: #64748b;"><strong>Store:</strong> ' + store_name + "</p>" if store_name else ""}
+        {'<p style="color: #64748b;"><strong>Product:</strong> ' + product_name + "</p>" if product_name else ""}
         <a href="https://app.shelfops.com/alerts"
            style="display: inline-block; background: #4f46e5; color: white;
                   padding: 10px 20px; border-radius: 8px; text-decoration: none;
