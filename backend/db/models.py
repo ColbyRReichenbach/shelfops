@@ -47,9 +47,43 @@ from datetime import datetime
 from sqlalchemy import (
     Column, String, Float, Integer, Boolean, DateTime, Date,
     ForeignKey, Text, Enum, CheckConstraint, UniqueConstraint,
-    Index, JSON,
+    Index, JSON, TypeDecorator,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy import types
+
+
+class GUID(TypeDecorator):
+    """Platform-independent UUID type.
+
+    Uses PostgreSQL UUID when available, stores as CHAR(36) on SQLite.
+    """
+    impl = types.String(36)
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_UUID(as_uuid=True))
+        return dialect.type_descriptor(types.String(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name == "postgresql":
+            return value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        return str(value) if isinstance(value, uuid.UUID) else value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if isinstance(value, uuid.UUID):
+            return value
+        return uuid.UUID(str(value))
+
+
+# Alias so existing Column(UUID(as_uuid=True)) calls still work
+def UUID(as_uuid=True):
+    return GUID()
 from sqlalchemy.orm import relationship
 from db.session import Base
 
@@ -584,7 +618,8 @@ class DistributionCenter(Base):
         CheckConstraint("status IN ('active', 'inactive', 'planned')", name="ck_dc_status"),
     )
 
-    sourcing_rules = relationship("ProductSourcingRule", back_populates="distribution_center", foreign_keys="ProductSourcingRule.source_id")
+    # Note: sourcing_rules not mapped here because source_id is polymorphic
+    # (can reference supplier_id OR dc_id). Use explicit queries instead.
 
 
 # ─── 18. Product Sourcing Rules ───────────────────────────────────────────
@@ -624,7 +659,7 @@ class ProductSourcingRule(Base):
         CheckConstraint("lead_time_days > 0", name="ck_sourcing_lead_time_positive"),
     )
 
-    distribution_center = relationship("DistributionCenter", back_populates="sourcing_rules", foreign_keys=[source_id])
+    # Note: source_id is polymorphic (supplier_id or dc_id) — no ORM relationship.
 
 
 # ─── 19. DC Inventory ─────────────────────────────────────────────────────
