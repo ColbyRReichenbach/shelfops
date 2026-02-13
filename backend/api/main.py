@@ -40,7 +40,19 @@ app.add_middleware(
 
 # Import and register routers
 from alerts.websocket import router as ws_router
-from api.v1.routers import alerts, forecasts, integrations, inventory, products, purchase_orders, stores
+from api.v1.routers import (
+    alerts,
+    anomalies,
+    experiments,
+    forecasts,
+    integrations,
+    inventory,
+    ml_alerts,
+    models,
+    products,
+    purchase_orders,
+    stores,
+)
 
 app.include_router(stores.router)
 app.include_router(products.router)
@@ -49,6 +61,10 @@ app.include_router(alerts.router)
 app.include_router(integrations.router)
 app.include_router(inventory.router)
 app.include_router(purchase_orders.router)
+app.include_router(models.router)
+app.include_router(ml_alerts.router)
+app.include_router(experiments.router)
+app.include_router(anomalies.router)
 app.include_router(ws_router)
 
 

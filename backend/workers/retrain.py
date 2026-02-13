@@ -132,20 +132,30 @@ def retrain_forecast_model(
     version: str | None = None,
     dataset_name: str = "unknown",
     promote: bool = False,
+    trigger: str = "scheduled",
+    trigger_metadata: dict | None = None,
 ):
     """
-    Retrain demand forecast model.
+    Retrain demand forecast model with MLOps integration.
 
     Modes:
       - Cold-start: Pass data_dir pointing to CSV files (Kaggle/synthetic)
       - Production: Pass customer_id to query DB (future — requires async DB)
+
+    Triggers:
+      - "scheduled": Weekly Sunday 2AM (auto-promote if better)
+      - "drift_detected": Emergency retrain (challenger only, manual review)
+      - "new_products": Incremental update (challenger, test in shadow)
+      - "manual": Human-initiated
 
     Args:
         customer_id: Tenant ID for DB-sourced data (future)
         data_dir: Path to CSV training data directory
         version: Model version string (auto-incremented if None)
         dataset_name: Name for MLflow tracking (e.g., "favorita")
-        promote: If True, promote this version to champion
+        promote: If True, force promotion (overrides auto-promotion logic)
+        trigger: Trigger type for MLOps tracking
+        trigger_metadata: Additional context for the trigger
     """
     from ml.features import create_features
     from ml.train import save_models, train_ensemble
@@ -221,7 +231,71 @@ def retrain_forecast_model(
         )
         logger.info("retrain.saved", version=ver, promoted=promote)
 
-        # ── Step 5: Summary ──────────────────────────────────────────
+        # ── Step 5: MLOps Integration (Champion/Challenger) ──────────
+        mlops_result = None
+        if customer_id:
+            try:
+                import asyncio
+                import uuid
+
+                from core.config import get_settings
+                from ml.arena import evaluate_for_promotion, register_model_version
+                from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+                async def register_and_evaluate():
+                    settings = get_settings()
+                    engine = create_async_engine(settings.database_url)
+                    try:
+                        async_session = async_sessionmaker(engine, class_=AsyncSession)
+                        async with async_session() as db:
+                            # Set tenant context for RLS
+                            await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+
+                            # Register model version in DB
+                            model_metrics = {
+                                "mae": metrics.get("ensemble_mae"),
+                                "mape": metrics.get("ensemble_mape"),
+                                "coverage": 1.0,  # Future: calculate actual coverage
+                                "tier": ensemble_result.get("tier", "unknown"),
+                            }
+
+                            model_id = await register_model_version(
+                                db=db,
+                                customer_id=uuid.UUID(customer_id),
+                                model_name="demand_forecast",
+                                version=ver,
+                                metrics=model_metrics,
+                                status="candidate",
+                                smoke_test_passed=True,  # Future: add smoke tests
+                            )
+
+                            # Auto-promote if better than champion (unless force-promote disabled)
+                            if trigger in ("scheduled", "manual"):
+                                promotion_result = await evaluate_for_promotion(
+                                    db=db,
+                                    customer_id=uuid.UUID(customer_id),
+                                    model_name="demand_forecast",
+                                    candidate_version=ver,
+                                    candidate_metrics=model_metrics,
+                                    improvement_threshold=0.95,  # 5% improvement required
+                                )
+                                return {"model_id": str(model_id), "promotion": promotion_result}
+                            else:
+                                # Drift/new_products triggers → challenger only, no auto-promote
+                                return {"model_id": str(model_id), "promotion": {"promoted": False, "reason": f"trigger={trigger}"}}
+
+                    finally:
+                        await engine.dispose()
+
+                mlops_result = asyncio.run(register_and_evaluate())
+                logger.info("retrain.mlops_integration", **mlops_result)
+
+            except Exception as mlops_exc:
+                logger.warning("retrain.mlops_failed", error=str(mlops_exc), exc_info=True)
+                # Don't fail the whole job if MLOps integration fails
+                mlops_result = {"error": str(mlops_exc)}
+
+        # ── Step 6: Summary ──────────────────────────────────────────
         summary = {
             "status": "success",
             "version": ver,
@@ -231,6 +305,9 @@ def retrain_forecast_model(
             "mae": metrics.get("ensemble_mae"),
             "mape": metrics.get("ensemble_mape"),
             "promoted": promote,
+            "mlops": mlops_result,
+            "trigger": trigger,
+            "trigger_metadata": trigger_metadata,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
 

@@ -91,6 +91,19 @@ celery_app.conf.update(
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
             "options": {"queue": "sync"},
         },
+        # ── MLOps - Backtesting ────────────────────────────────────
+        "backtest-daily": {
+            "task": "workers.monitoring.run_daily_backtest",
+            "schedule": crontab(hour=6, minute=0),  # After opportunity cost
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "backtest-weekly": {
+            "task": "workers.monitoring.run_weekly_backtest",
+            "schedule": crontab(hour=4, minute=0, day_of_week="sunday"),  # After retrain
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID, "lookback_days": 90},
+            "options": {"queue": "sync"},
+        },
         # ── Vendor & Promotions ────────────────────────────────────
         "update-vendor-scorecards-daily": {
             "task": "workers.vendor_metrics.update_vendor_scorecards",
@@ -101,6 +114,19 @@ celery_app.conf.update(
         "promo-effectiveness-weekly": {
             "task": "workers.promo_tracking.measure_completed_promotions",
             "schedule": crontab(hour=5, minute=0, day_of_week="monday"),
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        # ── Phase 1 - Quick Wins (Anomaly Detection) ──────────────────
+        "detect-anomalies-ml-6h": {
+            "task": "workers.monitoring.detect_anomalies_ml",
+            "schedule": crontab(minute=0, hour="*/6"),  # Every 6 hours
+            "kwargs": {"customer_id": DEV_CUSTOMER_ID},
+            "options": {"queue": "sync"},
+        },
+        "detect-ghost-stock-daily": {
+            "task": "workers.monitoring.detect_ghost_stock",
+            "schedule": crontab(hour=4, minute=30),  # After opportunity cost
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
             "options": {"queue": "sync"},
         },

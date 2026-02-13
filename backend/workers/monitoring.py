@@ -10,6 +10,7 @@ Schedule: See celery_app.py beat_schedule
 """
 
 import asyncio
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
@@ -96,6 +97,43 @@ def detect_model_drift(self, customer_id: str):
                         recent_mae=round(recent_mae, 2),
                         baseline_mae=round(baseline_mae, 2),
                         drift_pct=round(drift_pct * 100, 1),
+                    )
+
+                    # Create ML Alert
+                    from db.models import MLAlert
+
+                    alert = MLAlert(
+                        ml_alert_id=uuid.uuid4(),
+                        customer_id=customer_id,
+                        alert_type="drift_detected",
+                        severity="critical",
+                        title=f"🚨 Model Drift Detected — {round(drift_pct * 100, 1)}% MAE Degradation",
+                        message=f"Champion model performance degraded from {round(baseline_mae, 2)} to {round(recent_mae, 2)} MAE. Emergency retrain triggered. Review required.",
+                        alert_metadata={
+                            "baseline_mae": round(baseline_mae, 2),
+                            "recent_mae": round(recent_mae, 2),
+                            "drift_pct": round(drift_pct * 100, 1),
+                            "sample_count": sample_count,
+                        },
+                        status="unread",
+                        action_url="/models/review",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    db.add(alert)
+
+                    # Trigger emergency retrain
+                    from workers.retrain import retrain_forecast_model
+
+                    retrain_forecast_model.apply_async(
+                        args=[customer_id],
+                        kwargs={
+                            "trigger": "drift_detected",
+                            "trigger_metadata": {
+                                "drift_pct": round(drift_pct * 100, 1),
+                                "baseline_mae": round(baseline_mae, 2),
+                                "recent_mae": round(recent_mae, 2),
+                            },
+                        },
                     )
 
                 await db.commit()
@@ -219,6 +257,165 @@ def check_data_freshness(self, customer_id: str):
         return asyncio.run(_check())
     except Exception as exc:
         logger.error("freshness.failed", error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.monitoring.run_daily_backtest",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=180,
+    acks_late=True,
+)
+def run_daily_backtest(self, customer_id: str):
+    """
+    Daily job: Backtest champion model on yesterday's data (T-1 validation).
+
+    This is the fastest feedback loop: "Did yesterday's forecasts work?"
+    Runs at 6:00 AM daily, after opportunity cost analysis completes.
+    """
+    import uuid
+
+    run_id = self.request.id or "manual"
+    logger.info("backtest.daily.started", customer_id=customer_id, run_id=run_id)
+
+    async def _backtest():
+        from core.config import get_settings
+        from ml.arena import get_champion_model
+        from ml.backtest import backtest_yesterday
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+
+            async with async_session() as db:
+                # Set tenant context for RLS
+                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+
+                # Get champion model
+                champion = await get_champion_model(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    model_name="demand_forecast",
+                )
+
+                if not champion:
+                    logger.warning("backtest.daily.no_champion", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_champion_model"}
+
+                # Run T-1 backtest
+                result = await backtest_yesterday(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    model_id=champion["model_id"],
+                    model_version=champion["version"],
+                )
+
+                logger.info(
+                    "backtest.daily.completed",
+                    customer_id=customer_id,
+                    model_version=champion["version"],
+                    mae=result.get("mae"),
+                    mape=result.get("mape"),
+                    samples=result.get("samples"),
+                )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "model_version": champion["version"],
+                    "result": result,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_backtest())
+    except Exception as exc:
+        logger.error("backtest.daily.failed", error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.monitoring.run_weekly_backtest",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=300,
+    acks_late=True,
+)
+def run_weekly_backtest(self, customer_id: str, lookback_days: int = 90):
+    """
+    Weekly job: Full 90-day walk-forward backtest on champion model.
+
+    Runs every Sunday after retraining completes (4:00 AM).
+    Provides trend analysis for model health dashboard.
+    """
+    import uuid
+
+    run_id = self.request.id or "manual"
+    logger.info("backtest.weekly.started", customer_id=customer_id, run_id=run_id, lookback_days=lookback_days)
+
+    async def _backtest():
+        from core.config import get_settings
+        from ml.arena import get_champion_model
+        from ml.backtest import run_continuous_backtest
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+
+            async with async_session() as db:
+                # Set tenant context for RLS
+                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+
+                # Get champion model
+                champion = await get_champion_model(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    model_name="demand_forecast",
+                )
+
+                if not champion:
+                    logger.warning("backtest.weekly.no_champion", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_champion_model"}
+
+                # Run full backtest
+                result = await run_continuous_backtest(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    model_id=champion["model_id"],
+                    model_version=champion["version"],
+                    window_size_days=30,
+                    step_size_days=7,
+                    lookback_days=lookback_days,
+                )
+
+                logger.info(
+                    "backtest.weekly.completed",
+                    customer_id=customer_id,
+                    model_version=champion["version"],
+                    windows_tested=result.get("windows_tested"),
+                    avg_mae=result.get("avg_mae"),
+                    avg_mape=result.get("avg_mape"),
+                )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "model_version": champion["version"],
+                    "result": result,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_backtest())
+    except Exception as exc:
+        logger.error("backtest.weekly.failed", error=str(exc), exc_info=True)
         raise self.retry(exc=exc)
 
 
@@ -379,4 +576,140 @@ def calculate_opportunity_cost(self, customer_id: str, date: str | None = None):
         return asyncio.run(_analyze())
     except Exception as exc:
         logger.error("opportunity_cost.failed", error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.monitoring.detect_anomalies_ml",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=180,
+    acks_late=True,
+)
+def detect_anomalies_ml(self, customer_id: str):
+    """
+    Anomaly Detection Job (ML-powered with Isolation Forest).
+
+    Runs every 6 hours to detect:
+      - Demand spikes/drops
+      - Inventory discrepancies
+      - Price anomalies
+      - Velocity anomalies
+
+    Schedule: Every 6 hours (0:00, 6:00, 12:00, 18:00)
+    """
+    import uuid
+
+    run_id = self.request.id or "manual"
+    logger.info("anomaly.ml.started", customer_id=customer_id, run_id=run_id)
+
+    async def _detect():
+        from core.config import get_settings
+        from ml.anomaly import detect_anomalies_ml as detect_func
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+
+            async with async_session() as db:
+                # Set tenant context for RLS
+                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+
+                # Run anomaly detection
+                result = await detect_func(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    contamination=0.05,  # 5% outliers expected
+                    severity_threshold=2.0,
+                )
+
+                logger.info(
+                    "anomaly.ml.completed",
+                    customer_id=customer_id,
+                    anomalies_detected=result["anomalies_detected"],
+                    critical=result["critical_count"],
+                    warning=result["warning_count"],
+                )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "result": result,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_detect())
+    except Exception as exc:
+        logger.error("anomaly.ml.failed", error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.monitoring.detect_ghost_stock",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=180,
+    acks_late=True,
+)
+def detect_ghost_stock(self, customer_id: str):
+    """
+    Ghost Stock Detection Job.
+
+    Runs daily after opportunity cost analysis to detect phantom inventory:
+      - Products with stock but consistently low sales vs forecast
+      - Likely causes: theft, damage, miscounts
+
+    Schedule: Daily 4:30 AM (30 min after opportunity cost)
+    """
+    import uuid
+
+    run_id = self.request.id or "manual"
+    logger.info("ghost_stock.started", customer_id=customer_id, run_id=run_id)
+
+    async def _detect():
+        from core.config import get_settings
+        from ml.ghost_stock import detect_ghost_stock as detect_func
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+
+            async with async_session() as db:
+                # Set tenant context for RLS
+                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+
+                # Run ghost stock detection
+                result = await detect_func(
+                    db=db,
+                    customer_id=uuid.UUID(customer_id),
+                    lookback_days=7,
+                    forecast_sales_ratio_threshold=0.3,
+                    consecutive_days_threshold=3,
+                )
+
+                logger.info(
+                    "ghost_stock.completed",
+                    customer_id=customer_id,
+                    ghost_stock_detected=result["ghost_stock_detected"],
+                    total_value=result["total_value"],
+                )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "result": result,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_detect())
+    except Exception as exc:
+        logger.error("ghost_stock.failed", error=str(exc), exc_info=True)
         raise self.retry(exc=exc)

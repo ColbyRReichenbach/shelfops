@@ -63,7 +63,7 @@ from sqlalchemy import (
     UniqueConstraint,
     types,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 
 
 class GUID(TypeDecorator):
@@ -982,3 +982,206 @@ class OpportunityCostLog(Base):
         CheckConstraint("cost_type IN ('stockout', 'overstock')", name="ck_opp_cost_type"),
         CheckConstraint("opportunity_cost >= 0", name="ck_opp_cost_positive"),
     )
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# MLOPS INFRASTRUCTURE (Phase 4)
+# ════════════════════════════════════════════════════════════════════════════
+
+
+# ─── 28. Model Versions (Champion/Challenger Registry) ────────────────────
+
+
+class ModelVersion(Base):
+    """
+    Track ML model versions with champion/challenger/shadow/archived status.
+
+    Production model lifecycle:
+      1. Train new model → status='candidate'
+      2. Evaluate against champion → auto-promote if >5% better
+      3. Shadow mode: run in background, log predictions
+      4. Canary: route % of traffic to challenger
+      5. Archive old champions (never delete)
+    """
+
+    __tablename__ = "model_versions"
+
+    model_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
+    version = Column(String(20), nullable=False)  # 'v1', 'v2', etc.
+    status = Column(
+        String(20), nullable=False, default="candidate"
+    )  # 'champion', 'challenger', 'shadow', 'archived'
+    routing_weight = Column(Float, default=0.0)  # For canary: 0.05 = 5% traffic
+    promoted_at = Column(DateTime, nullable=True)
+    archived_at = Column(DateTime, nullable=True)
+    metrics = Column(JSONB, nullable=True)  # {mae, mape, coverage, ...}
+    smoke_test_passed = Column(Boolean, default=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_model_versions_customer_status", "customer_id", "model_name", "status"),
+        Index("ix_model_versions_customer_name_version", "customer_id", "model_name", "version", unique=True),
+    )
+
+
+# ─── 29. Backtest Results (Continuous Validation) ─────────────────────────
+
+
+class BacktestResult(Base):
+    """
+    Walk-forward validation results for continuous model monitoring.
+
+    Daily/weekly backtests answer:
+      - "How would this model have performed last month?"
+      - "Is our champion getting worse over time?"
+      - "Did that data drift event actually hurt predictions?"
+    """
+
+    __tablename__ = "backtest_results"
+
+    backtest_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    model_id = Column(UUID(as_uuid=True), ForeignKey("model_versions.model_id"), nullable=False)
+    forecast_date = Column(Date, nullable=False)  # Date forecasted
+    actual_date = Column(Date, nullable=False)  # When actual data arrived
+    mae = Column(Float, nullable=True)
+    mape = Column(Float, nullable=True)
+    stockout_miss_rate = Column(Float, nullable=True)  # % of stockouts we failed to predict
+    overstock_rate = Column(Float, nullable=True)  # % of forecasts that caused overordering
+    evaluated_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_backtest_customer_model_date", "customer_id", "model_id", "forecast_date"),)
+
+
+# ─── 30. Shadow Predictions (A/B Testing) ──────────────────────────────────
+
+
+class ShadowPrediction(Base):
+    """
+    Side-by-side champion vs challenger predictions for A/B comparison.
+
+    Shadow mode workflow:
+      1. Generate predictions from both champion and challenger
+      2. Serve champion prediction (production safe)
+      3. Log both predictions for later comparison
+      4. T+1: Fill in actual_demand, compute errors
+      5. Auto-promote if challenger consistently better
+    """
+
+    __tablename__ = "shadow_predictions"
+
+    shadow_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    forecast_date = Column(Date, nullable=False)
+    champion_prediction = Column(Float, nullable=False)
+    challenger_prediction = Column(Float, nullable=False)
+    actual_demand = Column(Float, nullable=True)  # Filled in T+1
+    champion_error = Column(Float, nullable=True)  # |champion - actual|
+    challenger_error = Column(Float, nullable=True)  # |challenger - actual|
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (Index("ix_shadow_predictions_customer_date", "customer_id", "forecast_date"),)
+
+
+# ─── 31. Model Retraining Log (Event Tracking) ────────────────────────────
+
+
+class ModelRetrainingLog(Base):
+    """
+    Audit trail for all model retraining events.
+
+    Tracks trigger types:
+      - 'scheduled': Weekly Sunday 2AM
+      - 'drift': Emergency retrain when MAE degrades >15%
+      - 'new_data': Bulk product import or promo results
+      - 'manual': Human-initiated retrain
+    """
+
+    __tablename__ = "model_retraining_log"
+
+    retrain_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
+    trigger_type = Column(String(50), nullable=False)  # 'scheduled', 'drift', 'new_data', 'manual'
+    trigger_metadata = Column(JSONB, nullable=True)  # {drift_pct: 0.18, new_products: 73}
+    status = Column(String(20), nullable=False, default="running")  # 'running', 'completed', 'failed'
+    version_produced = Column(String(20), nullable=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_model_retraining_log_customer_model", "customer_id", "model_name"),)
+
+
+# ─── 32. ML Alerts (In-App Notifications) ──────────────────────────────────
+
+
+class MLAlert(Base):
+    """
+    In-app notifications for ML model events requiring human attention.
+
+    Alert types:
+      - 'drift_detected': MAE degraded >15%, retrain triggered
+      - 'promotion_pending': Challenger ready, needs approval
+      - 'backtest_degradation': Model performance declining
+      - 'experiment_complete': Human-led experiment finished
+    """
+
+    __tablename__ = "ml_alerts"
+
+    ml_alert_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    alert_type = Column(String(50), nullable=False)
+    severity = Column(String(20), nullable=False)  # 'info', 'warning', 'critical'
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    alert_metadata = Column(JSONB, nullable=True)  # {model_version, drift_pct, action_required}
+    status = Column(String(20), nullable=False, default="unread")  # 'unread', 'read', 'actioned', 'dismissed'
+    action_url = Column(String(500), nullable=True)  # Link to review page
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    read_at = Column(DateTime, nullable=True)
+    actioned_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_ml_alerts_customer_status", "customer_id", "status", "created_at"),)
+
+
+# ─── 33. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
+
+
+class ModelExperiment(Base):
+    """
+    Tracks human-led ML experiments with hypothesis → test → decision workflow.
+
+    Example experiments:
+      - Department-tiered forecasting models
+      - Adding "competitor pricing" feature
+      - Switching from LSTM to Transformer
+      - New data source integration (Google Trends)
+
+    Status flow:
+      proposed → approved → in_progress → shadow_testing → completed/rejected
+    """
+
+    __tablename__ = "model_experiments"
+
+    experiment_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    experiment_name = Column(String(255), nullable=False)
+    hypothesis = Column(Text, nullable=False)  # "Department-tiered models will improve MAE by 10-15%"
+    experiment_type = Column(String(50), nullable=False)  # 'feature_engineering', 'model_architecture', 'data_source', 'segmentation'
+    model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
+    baseline_version = Column(String(20), nullable=True)  # Champion version at experiment start
+    experimental_version = Column(String(20), nullable=True)  # Version produced by experiment
+    status = Column(String(20), nullable=False, default="proposed")
+    proposed_by = Column(String(255), nullable=False)  # User ID or email
+    approved_by = Column(String(255), nullable=True)
+    results = Column(JSONB, nullable=True)  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2}
+    decision_rationale = Column(Text, nullable=True)  # Why approved/rejected
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    approved_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),)
