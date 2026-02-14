@@ -49,6 +49,7 @@ from api.v1.routers import (
     inventory,
     ml_alerts,
     models,
+    outcomes,
     products,
     purchase_orders,
     stores,
@@ -65,6 +66,7 @@ app.include_router(models.router)
 app.include_router(ml_alerts.router)
 app.include_router(experiments.router)
 app.include_router(anomalies.router)
+app.include_router(outcomes.router)
 app.include_router(ws_router)
 
 
