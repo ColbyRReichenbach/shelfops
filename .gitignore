@@ -30,9 +30,11 @@ backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
 
 # Documentation (User Requested)
-docs/DATA_STRATEGY.md
-docs/ROADMAP.md
-docs/DATA_SCIENTIST_ROLE.md
+docs/
+
+# Test databases
+*.db
+test.db
 
 # IDE
 .vscode/
