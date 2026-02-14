@@ -564,16 +564,17 @@ class Anomaly(Base):
     expected_value = Column(Float)
     actual_value = Column(Float)
     z_score = Column(Float)
+    anomaly_metadata = Column(JSONB, nullable=True)  # Rich context for ML-detected anomalies
     status = Column(String(20), nullable=False, default="detected")
 
     __table_args__ = (
         Index("ix_anomalies_customer_status", "customer_id", "status"),
         Index("ix_anomalies_store_product", "store_id", "product_id"),
         CheckConstraint(
-            "anomaly_type IN ('demand_spike', 'demand_drop', 'inventory_discrepancy', 'price_anomaly', 'data_quality')",
+            "anomaly_type IN ('demand_spike', 'demand_drop', 'inventory_discrepancy', 'price_anomaly', 'data_quality', 'ml_detected')",
             name="ck_anomaly_type",
         ),
-        CheckConstraint("severity IN ('low', 'medium', 'high', 'critical')", name="ck_anomaly_severity"),
+        CheckConstraint("severity IN ('low', 'medium', 'high', 'critical', 'info', 'warning')", name="ck_anomaly_severity"),
         CheckConstraint(
             "status IN ('detected', 'investigating', 'resolved', 'false_positive')", name="ck_anomaly_status"
         ),

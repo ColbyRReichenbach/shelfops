@@ -95,14 +95,14 @@ async def detect_ghost_stock(
 
         # Get forecasts for this product-store (last 7 days)
         forecast_result = await db.execute(
-            select(DemandForecast.forecast_date, DemandForecast.predicted_demand).where(
+            select(DemandForecast.forecast_date, DemandForecast.forecasted_demand).where(
                 DemandForecast.customer_id == customer_id,
                 DemandForecast.store_id == store_id,
                 DemandForecast.product_id == product_id,
                 DemandForecast.forecast_date >= cutoff,
             )
         )
-        forecasts = {row.forecast_date: row.predicted_demand for row in forecast_result.all()}
+        forecasts = {row.forecast_date: row.forecasted_demand for row in forecast_result.all()}
 
         # Get actual sales (last 7 days)
         txn_result = await db.execute(
@@ -134,7 +134,7 @@ async def detect_ghost_stock(
         if len(low_sales_days) >= consecutive_days_threshold:
             # Get product details
             prod_result = await db.execute(
-                select(Product.product_name, Product.unit_price, Product.category).where(
+                select(Product.name, Product.unit_price, Product.category).where(
                     Product.product_id == product_id
                 )
             )
@@ -148,7 +148,7 @@ async def detect_ghost_stock(
                     {
                         "store_id": str(store_id),
                         "product_id": str(product_id),
-                        "product_name": product.product_name,
+                        "product_name": product.name,
                         "category": product.category,
                         "quantity_on_hand": quantity_on_hand,
                         "ghost_value": ghost_value,
@@ -256,10 +256,10 @@ async def recommend_cycle_counts(
 
         # Get product name
         prod_result = await db.execute(
-            select(Product.product_name).where(Product.product_id == anomaly.product_id)
+            select(Product.name).where(Product.product_id == anomaly.product_id)
         )
         product = prod_result.first()
-        product_name = product.product_name if product else "Unknown"
+        product_name = product.name if product else "Unknown"
 
         recommendations.append(
             {
