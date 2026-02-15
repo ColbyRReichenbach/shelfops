@@ -57,6 +57,8 @@ SMB/mid-market teams can adopt decision workflows faster with fewer integration 
 - **Known gaps and priorities:** `docs/KNOWN_ISSUES.md`
 - **API contract reference:** `docs/API_CONTRACTS.md`
 - **Roadmap:** `docs/ROADMAP.md`
+- **Productization execution plan:** `docs/PRODUCTIZATION_PLAN.md`
+- **Productization tracker:** `docs/PRODUCTIZATION_TRACKER.md`
 - **Production decision log:** `docs/PRODUCTION_DECISION_LOG.md`
 - **ML effectiveness report:** `docs/ML_EFFECTIVENESS_REPORT.md`
 - **Enterprise vs SMB architecture brief:** `docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md`

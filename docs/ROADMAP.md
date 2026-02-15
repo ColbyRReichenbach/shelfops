@@ -9,6 +9,8 @@ _Last updated: February 15, 2026_
 - Frontend production build: passing
 - Status: **Pre-production hardening**
 - Canonical status board: `docs/PRODUCTION_READINESS_BOARD.md`
+- Productization execution plan: `docs/PRODUCTIZATION_PLAN.md`
+- Productization tracker: `docs/PRODUCTIZATION_TRACKER.md`
 
 ## Completed Hardening (This Cycle)
 
@@ -22,6 +24,11 @@ _Last updated: February 15, 2026_
 - Cleaned backend quality gates (`ruff check`, `ruff format --check`).
 
 ## Priority Roadmap
+
+### P0: Productization Execution (Current Program)
+1. Close Week 1-6 tasks in `docs/PRODUCTIZATION_PLAN.md`.
+2. Track closure and evidence in `docs/PRODUCTIZATION_TRACKER.md`.
+3. Keep launch-candidate gates current in `docs/PRODUCTION_READINESS_BOARD.md`.
 
 ### P0: Integration Correctness
 1. Expand EDI document harness from adapter-path assertions to full worker-path assertions (`846/850/856/810`).
@@ -47,6 +54,11 @@ _Last updated: February 15, 2026_
 ### P2: Release Controls
 1. Add release checklist enforcement (tests + lint + build + migration checks).
 2. Add incident-focused runbook for sync failures and stale-data alerts.
+
+### Model Strategy (Now vs Next)
+1. **Now:** optimize current ensemble/single-model champion path with strict promotion gates.
+2. **Next:** expand to model portfolio routing only after productization gates and repeated challenger wins.
+3. Keep portfolio work in shadow/challenger mode until rollback and ops governance are validated.
 
 ### Deferred: POS Connector (Square)
 1. Revisit Square ID mapping and payload normalization when POS connector work is reactivated.

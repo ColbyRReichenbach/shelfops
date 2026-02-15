@@ -9,6 +9,11 @@ _Last updated: February 15, 2026_
 - Impact: Enterprise validation regressions can merge if checks are not required.
 - Required fix: Enforce required status checks: `enterprise-seed-validation`, `postgres-parity`, `edi-fixture-e2e`, `contract-validation-suite`.
 
+### 2) Productization Validation Still Needs Staging Evidence
+- Files: `docs/PRODUCTIZATION_PLAN.md`, `docs/PRODUCTIZATION_TRACKER.md`
+- Impact: Core runtime paths are implemented, but launch confidence is incomplete until staged execution evidence is captured.
+- Required fix: Complete staged evidence tasks (runtime loop, onboarding dry runs, incident simulation, rollback drill).
+
 ## P1
 
 ### 3) Frontend Bundle Size Warning

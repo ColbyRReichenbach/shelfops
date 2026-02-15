@@ -63,6 +63,7 @@ I see two clear paths:
 
 - Technical hiring-manager version: `docs/README_TECHNICAL.md`
 - Canonical readiness board: `docs/PRODUCTION_READINESS_BOARD.md`
+- Productization execution plan: `docs/PRODUCTIZATION_PLAN.md`
 - Readiness and launch status: `docs/RELEASE_READINESS.md`
 - Data contract and onboarding spec: `docs/DATA_CONTRACT_SPEC.md`
 - SMB onboarding runbook: `docs/SMB_ONBOARDING_RUNBOOK.md`

@@ -48,3 +48,23 @@ _Last updated: February 15, 2026_
 - `backend-lint`
 - `frontend-lint`
 - `frontend-build`
+
+## Launch-Candidate Gate Checklist
+
+| Gate | Status | Evidence | Notes |
+|---|---|---|---|
+| Branch protection checks enforced | `blocked` | GitHub settings | Manual action required. |
+| Runtime loop in staging validated | `partial` | worker run artifacts | Need staged run evidence per `docs/PRODUCTIZATION_TRACKER.md`. |
+| Multi-tenant dispatch verified | `implemented` | `backend/tests/test_scheduler_dispatch.py` | Staging validation still recommended. |
+| Onboarding artifact package generated on dry runs | `implemented` | validator + retrain outputs | Need repeated tenant dry-run evidence. |
+| Incident runbook exercised | `partial` | incident simulation notes | Run simulation and capture outcome. |
+| Recruiter evidence pack updated | `implemented` | docs package | Keep metrics snapshots current each cycle. |
+
+## Model Strategy Policy (Current)
+
+1. Current production candidate path: stable champion using the existing ensemble logic (or XGBoost-only if it wins).
+2. Portfolio expansion is deferred to challenger/shadow until productization gates are complete.
+3. Full portfolio routing is allowed only after:
+- stable multi-tenant runtime evidence,
+- repeated challenger wins on DS + business gates,
+- rollback drill success.

@@ -112,6 +112,8 @@ This project shows I can operate across the full stack and full lifecycle:
 - Root summary: `README.md`
 - Non-technical version: `docs/README_NON_TECHNICAL.md`
 - Canonical readiness board: `docs/PRODUCTION_READINESS_BOARD.md`
+- Productization execution plan: `docs/PRODUCTIZATION_PLAN.md`
+- Productization tracker: `docs/PRODUCTIZATION_TRACKER.md`
 - Known issues: `docs/KNOWN_ISSUES.md`
 - API contracts: `docs/API_CONTRACTS.md`
 - Roadmap: `docs/ROADMAP.md`

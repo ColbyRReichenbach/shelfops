@@ -115,6 +115,16 @@ Use the following parameter grid for controlled tuning experiments:
 - `subsample`: `0.7`, `0.85`, `1.0`
 - `colsample_bytree`: `0.7`, `0.85`, `1.0`
 
+Ensemble weight sweep (required before portfolio expansion):
+
+- `xgboost_weight`: `1.0`, `0.9`, `0.8`, `0.7`, `0.65`, `0.6`, `0.5`
+- `lstm_weight`: `1.0 - xgboost_weight`
+
+Policy note:
+
+- Current `65/35` (`xgboost/lstm`) is a baseline heuristic, not a retail industry standard.
+- Keep or replace this split only through measured improvement against promotion gates.
+
 Execution policy:
 
 - Keep all non-grid parameters fixed for comparability.
@@ -252,3 +262,13 @@ Current recommended language:
 
 - "Forecasting is trainable and tunable today on verified public data."
 - "Advanced production calibration remains dependent on expanded real operational telemetry."
+
+## Model Strategy (Portfolio Gate)
+
+1. Keep the current champion path stable first (ensemble or single model based on measured results).
+2. Treat any additional model family as challenger/shadow until productization gates are complete.
+3. Move to true portfolio routing only when:
+- runtime reliability gates are met,
+- at least 2-3 tenants have stable evidence windows,
+- challenger wins repeat on business + DS metrics,
+- rollback drill is verified.

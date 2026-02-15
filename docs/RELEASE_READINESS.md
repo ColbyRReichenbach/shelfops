@@ -7,6 +7,7 @@ _Last updated: February 15, 2026_
 ShelfOps is in **pre-production hardening**. Core functionality is implemented and build/test gates are stable, with SMB/mid-market as the practical launch path while enterprise validation continues.
 
 Canonical status source: `docs/PRODUCTION_READINESS_BOARD.md`.
+Execution source: `docs/PRODUCTIZATION_PLAN.md` and `docs/PRODUCTIZATION_TRACKER.md`.
 
 Status taxonomy used across docs:
 
