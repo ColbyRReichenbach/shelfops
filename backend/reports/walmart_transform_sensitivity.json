@@ -1,0 +1,23 @@
+{
+  "dataset": "walmart",
+  "rows": 421570,
+  "negative_week_share": 0.0030481296107408022,
+  "transforms": {
+    "legacy_abs_transform": {
+      "mae": 1228.934825013578,
+      "mape_nonzero": 0.7982901616585173,
+      "stockout_miss_rate": 0.0,
+      "overstock_rate": 0.5090139241407121,
+      "overstock_dollars": null,
+      "overstock_dollars_confidence": "unavailable"
+    },
+    "clipped_target_with_return_signal": {
+      "mae": 1243.3199450267393,
+      "mape_nonzero": 0.7318313458543568,
+      "stockout_miss_rate": 2.372085300187395e-05,
+      "overstock_rate": 0.5063571886045022,
+      "overstock_dollars": null,
+      "overstock_dollars_confidence": "unavailable"
+    }
+  }
+}

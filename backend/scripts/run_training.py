@@ -170,6 +170,7 @@ Examples:
         version=version,
         dataset_name=args.dataset,
         promote=args.promote,
+        rows_trained=len(features_df),
     )
 
     elapsed = time.time() - start

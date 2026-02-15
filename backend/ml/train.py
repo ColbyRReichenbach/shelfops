@@ -260,6 +260,7 @@ def train_ensemble(
     target_col: str = TARGET_COL,
     dataset_name: str = "unknown",
     version: str | None = None,
+    model_name: str = "demand_forecast",
 ) -> dict[str, Any]:
     """
     Train LSTM + XGBoost ensemble with full MLOps instrumentation.
@@ -286,7 +287,7 @@ def train_ensemble(
     logger.info("train.validated", tier=tier, rows=len(features_df))
 
     # ── Experiment tracking ────────────────────────────────────────
-    with ExperimentTracker() as tracker:
+    with ExperimentTracker(model_name=model_name) as tracker:
         tracker.log_params(
             {
                 "feature_tier": tier,
@@ -301,6 +302,7 @@ def train_ensemble(
             {
                 "tier": tier,
                 "dataset": dataset_name,
+                "model_name": model_name,
             }
         )
 
@@ -406,6 +408,7 @@ def train_ensemble(
             "estimated_mae": ensemble_mae,
             "feature_tier": tier,
             "feature_cols": feature_cols,
+            "model_name": model_name,
         },
     }
 
@@ -415,6 +418,7 @@ def save_models(
     version: str,
     dataset_name: str = "unknown",
     promote: bool = False,
+    rows_trained: int | None = None,
 ) -> str:
     """
     Save trained models, metadata (JSON), and register in model registry.
@@ -442,9 +446,11 @@ def save_models(
     # ── Human-readable JSON metadata (was .joblib) ─────────────────
     tier = ensemble_result["ensemble"].get("feature_tier", "production")
     feature_cols = ensemble_result["ensemble"].get("feature_cols", FEATURE_COLS)
+    model_name = ensemble_result["ensemble"].get("model_name", "demand_forecast")
 
     meta = {
         "version": version,
+        "model_name": model_name,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset": dataset_name,
         "weights": ensemble_result["ensemble"]["weights"],
@@ -466,12 +472,13 @@ def save_models(
             version=version,
             feature_tier=tier,
             dataset=dataset_name,
-            rows_trained=len(feature_cols),  # Approximation — caller should pass actual
+            rows_trained=int(rows_trained if rows_trained is not None else len(feature_cols)),
             metrics={
                 "mae": ensemble_result["xgboost"]["metrics"].get("mae", 0),
                 "mape": ensemble_result["xgboost"]["metrics"].get("mape", 0),
             },
             promote=promote,
+            model_name=model_name,
         )
     except Exception as e:
         logger.warning("train.registry_failed", error=str(e))

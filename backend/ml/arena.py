@@ -14,10 +14,10 @@ Skill: ml-forecasting
 
 import uuid
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger()
@@ -25,6 +25,15 @@ logger = structlog.get_logger()
 # Type aliases
 ModelStatus = Literal["champion", "challenger", "shadow", "archived"]
 RoutingStrategy = Literal["champion", "shadow", "canary", "store_segment"]
+
+
+def _as_float(value: Any) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ─── Model Version CRUD ─────────────────────────────────────────────────────
@@ -178,25 +187,29 @@ async def evaluate_for_promotion(
     improvement_threshold: float = 0.95,
 ) -> dict:
     """
-    Compare candidate against champion. Auto-promote if better.
+    Compare candidate against champion using DS + business guardrails.
 
-    Auto-promote if:
-      1. MAE < champion_mae × threshold (default 95% = 5% improvement)
-      2. MAPE < champion_mape × threshold
-      3. Coverage ≥ champion_coverage (no degradation)
-      4. Smoke tests passed
+    Promotion rules:
+      1. MAE non-regression (<= 2% degradation max)
+      2. MAPE non-regression (<= 2% degradation max)
+      3. Coverage non-regression (candidate >= champion)
+      4. Stockout miss-rate non-regression (if both present, <= +0.5pp)
+      5. Overstock-rate non-regression (if both present, <= +0.5pp)
+      6. Overstock dollars improves >=1%, OR within +0.5% when stockout improves
 
     Args:
         db: Database session
         customer_id: Tenant ID
         model_name: Model type ('demand_forecast', etc.)
         candidate_version: New model version to evaluate
-        candidate_metrics: {mae, mape, coverage}
-        improvement_threshold: Promotion threshold (0.95 = 5% improvement required)
+        candidate_metrics: Includes DS/business metrics.
+        improvement_threshold: Legacy parameter, retained for backward compatibility.
 
     Returns:
-        dict with {promoted: bool, reason: str, champion_mae: float, candidate_mae: float}
+        dict with promotion decision and gate check details.
     """
+    from db.models import ModelVersion
+
     champion = await get_champion_model(db, customer_id, model_name)
 
     # No champion exists → auto-promote first candidate
@@ -209,21 +222,147 @@ async def evaluate_for_promotion(
             "candidate_mae": candidate_metrics.get("mae"),
         }
 
-    champion_metrics = champion["metrics"]
-    champion_mae = champion_metrics.get("mae", float("inf"))
-    champion_mape = champion_metrics.get("mape", float("inf"))
-    champion_coverage = champion_metrics.get("coverage", 0.0)
+    champion_metrics = champion.get("metrics") or {}
 
-    candidate_mae = candidate_metrics.get("mae", float("inf"))
-    candidate_mape = candidate_metrics.get("mape", float("inf"))
-    candidate_coverage = candidate_metrics.get("coverage", 0.0)
+    champion_mae = _as_float(champion_metrics.get("mae"))
+    champion_mape = _as_float(champion_metrics.get("mape"))
+    champion_coverage = _as_float(champion_metrics.get("coverage"))
+    champion_stockout = _as_float(champion_metrics.get("stockout_miss_rate"))
+    champion_overstock_rate = _as_float(champion_metrics.get("overstock_rate"))
+    champion_overstock_dollars = _as_float(champion_metrics.get("overstock_dollars"))
 
-    # Promotion criteria
-    mae_improved = candidate_mae < champion_mae * improvement_threshold
-    mape_improved = candidate_mape < champion_mape * improvement_threshold
-    coverage_ok = candidate_coverage >= champion_coverage
+    candidate_mae = _as_float(candidate_metrics.get("mae"))
+    candidate_mape = _as_float(candidate_metrics.get("mape"))
+    candidate_coverage = _as_float(candidate_metrics.get("coverage"))
+    candidate_stockout = _as_float(candidate_metrics.get("stockout_miss_rate"))
+    candidate_overstock_rate = _as_float(candidate_metrics.get("overstock_rate"))
+    candidate_overstock_dollars = _as_float(candidate_metrics.get("overstock_dollars"))
 
-    should_promote = mae_improved and mape_improved and coverage_ok
+    # DS gates (strict)
+    mae_gate = candidate_mae is not None and champion_mae is not None and candidate_mae <= champion_mae * 1.02
+    mape_gate = candidate_mape is not None and champion_mape is not None and candidate_mape <= champion_mape * 1.02
+    coverage_gate = (
+        candidate_coverage is not None and champion_coverage is not None and candidate_coverage >= champion_coverage
+    )
+
+    # Business gates (fail closed if required inputs are missing).
+    stockout_gate = (
+        candidate_stockout is not None
+        and champion_stockout is not None
+        and candidate_stockout <= champion_stockout + 0.005
+    )
+
+    overstock_rate_gate = (
+        candidate_overstock_rate is not None
+        and champion_overstock_rate is not None
+        and candidate_overstock_rate <= champion_overstock_rate + 0.005
+    )
+
+    if candidate_overstock_dollars is not None and champion_overstock_dollars is not None:
+        improved = candidate_overstock_dollars <= champion_overstock_dollars * 0.99
+        near_flat_with_stockout_gain = (
+            candidate_overstock_dollars <= champion_overstock_dollars * 1.005
+            and candidate_stockout is not None
+            and champion_stockout is not None
+            and candidate_stockout < champion_stockout
+        )
+        overstock_dollars_gate = improved or near_flat_with_stockout_gain
+    else:
+        overstock_dollars_gate = False
+
+    should_promote = all(
+        [
+            mae_gate,
+            mape_gate,
+            coverage_gate,
+            stockout_gate,
+            overstock_rate_gate,
+            overstock_dollars_gate,
+        ]
+    )
+
+    gate_checks = {
+        "mae_gate": mae_gate,
+        "mape_gate": mape_gate,
+        "coverage_gate": coverage_gate,
+        "stockout_miss_gate": stockout_gate,
+        "overstock_rate_gate": overstock_rate_gate,
+        "overstock_dollars_gate": overstock_dollars_gate,
+    }
+
+    decision = {
+        "gates": gate_checks,
+        "champion_metrics": {
+            "mae": champion_mae,
+            "mape": champion_mape,
+            "coverage": champion_coverage,
+            "stockout_miss_rate": champion_stockout,
+            "overstock_rate": champion_overstock_rate,
+            "overstock_dollars": champion_overstock_dollars,
+        },
+        "candidate_metrics": {
+            "mae": candidate_mae,
+            "mape": candidate_mape,
+            "coverage": candidate_coverage,
+            "stockout_miss_rate": candidate_stockout,
+            "overstock_rate": candidate_overstock_rate,
+            "overstock_dollars": candidate_overstock_dollars,
+        },
+        "thresholds": {
+            "max_mae_regression_pct": 2.0,
+            "max_mape_regression_pct": 2.0,
+            "max_stockout_miss_pp": 0.5,
+            "max_overstock_rate_pp": 0.5,
+            "overstock_dollars_improvement_pct": 1.0,
+            "overstock_dollars_tolerance_pct": 0.5,
+        },
+    }
+
+    # Persist decision context with candidate metrics for reproducibility.
+    enriched_metrics = dict(candidate_metrics)
+    enriched_metrics["promotion_decision"] = decision
+    await db.execute(
+        update(ModelVersion)
+        .where(
+            ModelVersion.customer_id == customer_id,
+            ModelVersion.model_name == model_name,
+            ModelVersion.version == candidate_version,
+        )
+        .values(metrics=enriched_metrics)
+    )
+    await db.commit()
+
+    fail_reasons = [name for name, passed in gate_checks.items() if not passed]
+    decision_reason = (
+        "passed_business_and_ds_gates"
+        if should_promote
+        else ("failed_gates:" + ",".join(fail_reasons) if fail_reasons else "failed_unknown_gate")
+    )
+
+    # Persist to model experiment log for reproducible decision trace.
+    from db.models import ModelExperiment
+
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name=f"promotion_eval_{model_name}_{candidate_version}",
+        hypothesis="Candidate meets business + DS promotion gates.",
+        experiment_type="model_architecture",
+        model_name=model_name,
+        baseline_version=champion["version"],
+        experimental_version=candidate_version,
+        status="completed",
+        proposed_by="system:auto_promotion",
+        approved_by="system:auto_promotion",
+        results={
+            "promoted": should_promote,
+            "reason": decision_reason,
+            "decision": decision,
+        },
+        decision_rationale=decision_reason,
+        completed_at=datetime.utcnow(),
+    )
+    db.add(experiment)
+    await db.commit()
 
     if should_promote:
         await promote_to_champion(db, customer_id, model_name, candidate_version)
@@ -233,22 +372,20 @@ async def evaluate_for_promotion(
             model_name=model_name,
             new_champion=candidate_version,
             old_champion=champion["version"],
-            candidate_mae=round(candidate_mae, 2),
-            champion_mae=round(champion_mae, 2),
-            improvement_pct=round((1 - candidate_mae / champion_mae) * 100, 1),
+            candidate_mae=round(candidate_mae or 0, 2),
+            champion_mae=round(champion_mae or 0, 2),
+            gate_checks=gate_checks,
         )
         return {
             "promoted": True,
-            "reason": "better_performance",
+            "reason": decision_reason,
+            "gate_checks": gate_checks,
             "champion_mae": champion_mae,
             "candidate_mae": candidate_mae,
-            "improvement_pct": (1 - candidate_mae / champion_mae) * 100,
+            "decision": decision,
         }
     else:
         # Not promoted → set as challenger for shadow testing
-        from db.models import ModelVersion
-        from sqlalchemy import update
-
         await db.execute(
             update(ModelVersion)
             .where(
@@ -265,15 +402,18 @@ async def evaluate_for_promotion(
             customer_id=str(customer_id),
             model_name=model_name,
             challenger=candidate_version,
-            reason="insufficient_improvement",
-            candidate_mae=round(candidate_mae, 2),
-            champion_mae=round(champion_mae, 2),
+            reason="failed_business_or_ds_gates",
+            candidate_mae=round(candidate_mae or 0, 2),
+            champion_mae=round(champion_mae or 0, 2),
+            gate_checks=gate_checks,
         )
         return {
             "promoted": False,
-            "reason": f"mae_improvement={round((1 - candidate_mae/champion_mae)*100, 1)}% < 5% threshold",
+            "reason": decision_reason,
+            "gate_checks": gate_checks,
             "champion_mae": champion_mae,
             "candidate_mae": candidate_mae,
+            "decision": decision,
         }
 
 
@@ -290,8 +430,9 @@ async def promote_to_champion(
     2. Promote new version to champion
     3. Publish alert
     """
-    from db.models import ModelVersion
     from sqlalchemy import update
+
+    from db.models import ModelVersion
 
     now = datetime.utcnow()
 

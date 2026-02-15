@@ -9,6 +9,8 @@ import type {
     Product, Store, Alert, AlertSummary,
     Forecast, ForecastAccuracy, Integration,
     InventoryItem, InventorySummary,
+    MLModel, BacktestEntry, ExperimentRun,
+    SHAPFeature, MLHealth, SyncHealthResponse,
 } from '@/lib/types'
 
 // ─── Products ──────────────────────────────────────────────────────────────
@@ -200,5 +202,73 @@ export function useForecastAccuracy(storeId?: string) {
     return useQuery({
         queryKey: ['forecast-accuracy', storeId],
         queryFn: () => api.get<ForecastAccuracy[]>(`/api/v1/forecasts/accuracy${qs ? `?${qs}` : ''}`),
+    })
+}
+
+// ─── ML Ops ──────────────────────────────────────────────────────────────
+
+export function useMLModels(modelName?: string, status?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (modelName) params.set('model_name', modelName)
+    if (status) params.set('status', status)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['ml-models', modelName, status],
+        queryFn: () => api.get<MLModel[]>(`/api/v1/ml/models${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useModelSHAP(version: string) {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['ml-shap', version],
+        queryFn: () => api.get<{ version: string; features: SHAPFeature[] }>(`/api/v1/ml/models/${version}/shap`),
+        enabled: !!version,
+    })
+}
+
+export function useBacktests(days = 90, modelName?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    params.set('days', String(days))
+    if (modelName) params.set('model_name', modelName)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['ml-backtests', days, modelName],
+        queryFn: () => api.get<BacktestEntry[]>(`/api/v1/ml/backtests?${qs}`),
+    })
+}
+
+export function useExperiments(modelName?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (modelName) params.set('model_name', modelName)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['ml-experiments', modelName],
+        queryFn: () => api.get<ExperimentRun[]>(`/api/v1/ml/experiments${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useMLHealth() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['ml-health'],
+        queryFn: () => api.get<MLHealth>('/api/v1/ml/health'),
+    })
+}
+
+export function useSyncHealth() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['sync-health'],
+        queryFn: async () => {
+            const response = await api.get<SyncHealthResponse>('/api/v1/integrations/sync-health')
+            return response.sources
+        },
     })
 }

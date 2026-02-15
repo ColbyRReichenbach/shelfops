@@ -7,11 +7,19 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.requests import Request
 
 from core.config import get_settings
 
 settings = get_settings()
 logger = structlog.get_logger()
+
+LEGACY_ROUTE_MAP = {
+    "/ml": "/api/v1/ml",
+    "/models": "/api/v1/ml/models",
+    "/anomalies": "/api/v1/ml/anomalies",
+}
+DEPRECATION_SUNSET = "Wed, 30 Jun 2026 00:00:00 GMT"
 
 
 @asynccontextmanager
@@ -28,6 +36,35 @@ app = FastAPI(
     description="AI-powered retail inventory intelligence platform",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def legacy_route_alias_middleware(request: Request, call_next):
+    """
+    Temporary compatibility layer:
+      - /ml/* -> /api/v1/ml/*
+      - /models/* -> /api/v1/ml/models/*
+      - /anomalies/* -> /api/v1/ml/anomalies/*
+    Adds deprecation headers on legacy route usage.
+    """
+    original_path = request.scope.get("path", "")
+    rewritten_to: str | None = None
+
+    for legacy_prefix, canonical_prefix in LEGACY_ROUTE_MAP.items():
+        if original_path == legacy_prefix or original_path.startswith(f"{legacy_prefix}/"):
+            suffix = original_path[len(legacy_prefix) :]
+            request.scope["path"] = f"{canonical_prefix}{suffix}"
+            rewritten_to = request.scope["path"]
+            break
+
+    response = await call_next(request)
+    if rewritten_to:
+        response.headers["Deprecation"] = "true"
+        response.headers["Sunset"] = DEPRECATION_SUNSET
+        response.headers["X-API-Deprecated"] = "Use /api/v1/ml/* endpoints"
+        response.headers["Link"] = f'<{rewritten_to}>; rel="successor-version"'
+    return response
+
 
 # CORS
 app.add_middleware(
@@ -48,6 +85,7 @@ from api.v1.routers import (
     integrations,
     inventory,
     ml_alerts,
+    ml_ops,
     models,
     outcomes,
     products,
@@ -67,6 +105,7 @@ app.include_router(ml_alerts.router)
 app.include_router(experiments.router)
 app.include_router(anomalies.router)
 app.include_router(outcomes.router)
+app.include_router(ml_ops.router)
 app.include_router(ws_router)
 
 

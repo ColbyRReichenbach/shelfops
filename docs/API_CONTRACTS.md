@@ -1,0 +1,99 @@
+# API Contracts
+
+_Last updated: February 15, 2026_
+
+This document captures the currently supported response contracts relied on by the frontend.
+Example numeric values in JSON snippets are illustrative and represent shape/type expectations, not guaranteed live production metrics.
+
+## ML Ops
+
+### `GET /api/v1/ml/backtests`
+Returns an array of entries:
+
+```json
+[
+  {
+    "backtest_id": "uuid",
+    "model_name": "demand_forecast",
+    "model_version": "v12",
+    "forecast_date": "2026-02-13",
+    "mae": 11.4,
+    "mape": 17.8,
+    "stockout_miss_rate": 0.07,
+    "overstock_rate": 0.11
+  }
+]
+```
+
+Notes:
+- `forecast_date` is authoritative.
+- Deprecated fields are not returned: `backtest_date`, `coverage`, `n_predictions`.
+- Legacy aliases (`/ml/*`, `/models/*`, `/anomalies/*`) return deprecation headers and are scheduled for removal per `docs/API_DEPRECATION_SCHEDULE.md`.
+
+### `GET /api/v1/ml/health`
+Returns:
+
+```json
+{
+  "status": "healthy",
+  "model_counts": {"champion": 1, "candidate": 2},
+  "champions": [
+    {
+      "model_name": "demand_forecast",
+      "version": "v12",
+      "metrics": {"mae": 11.2, "mape": 18.1},
+      "promoted_at": "2026-02-10T02:30:00"
+    }
+  ],
+  "recent_backtests_7d": 7,
+  "registry_exists": true,
+  "checked_at": "2026-02-14T12:00:00"
+}
+```
+
+## Integrations
+
+### `GET /api/v1/integrations/sync-health`
+Returns an envelope object:
+
+```json
+{
+  "sources": [
+    {
+      "integration_type": "EDI",
+      "integration_name": "EDI 846 Inventory",
+      "last_sync": "2026-02-15T11:30:00",
+      "hours_since_sync": 4.0,
+      "sla_hours": 48,
+      "sla_status": "ok",
+      "failures_24h": 0,
+      "syncs_24h": 2,
+      "records_24h": 3200
+    }
+  ],
+  "overall_health": "healthy",
+  "checked_at": "2026-02-15T12:00:00"
+}
+```
+
+Notes:
+- Consumers should read `sources` from the envelope.
+- `sla_status` is `ok` or `breach`.
+
+## Outcomes
+
+### `POST /outcomes/anomaly/{anomaly_id}`
+Accepted `outcome` values:
+
+- `true_positive`
+- `false_positive`
+- `resolved`
+- `investigating`
+
+Internal status mapping:
+- `true_positive` -> `resolved`
+- `false_positive` -> `false_positive`
+- `resolved` -> `resolved`
+- `investigating` -> `investigating`
+
+Values outside this set are rejected.

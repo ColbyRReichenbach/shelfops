@@ -9,6 +9,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+DEFAULT_JWT_SECRET = "dev-secret-change-in-production"
+DEFAULT_ENCRYPTION_KEY = "dev-encryption-key-change-in-production"
+
 # Find .env file: check CWD first, then parent (project root)
 _env_file = Path(".env")
 if not _env_file.exists():
@@ -23,6 +26,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "ShelfOps"
     app_version: str = "1.0.0"
+    app_env: str = "local"
     debug: bool = False
 
     # Database
@@ -36,7 +40,7 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_client_id: str = ""
     auth0_audience: str = ""
-    jwt_secret: str = "dev-secret-change-in-production"
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
 
     # Square Integration
@@ -67,6 +71,7 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_consumer_group: str = "shelfops-ingest"
     kafka_schema_registry_url: str = ""
+    integration_sla_overrides: str = ""
 
     # Email
     sendgrid_api_key: str = ""
@@ -77,7 +82,7 @@ class Settings(BaseSettings):
     vertex_ai_region: str = "us-central1"
 
     # Encryption
-    encryption_key: str = "dev-encryption-key-change-in-production"
+    encryption_key: str = DEFAULT_ENCRYPTION_KEY
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -92,4 +97,20 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Cached settings instance."""
-    return Settings()
+    settings = Settings()
+    _enforce_security_guardrails(settings)
+    return settings
+
+
+def _enforce_security_guardrails(settings: Settings) -> None:
+    env = settings.app_env.strip().lower()
+    is_local = env in {"", "local", "dev", "development", "test"}
+    if is_local:
+        return
+
+    if settings.debug:
+        raise ValueError("Refusing to start with debug=true outside local/dev/test")
+    if settings.jwt_secret == DEFAULT_JWT_SECRET:
+        raise ValueError("Refusing to start with default JWT secret outside local/dev/test")
+    if settings.encryption_key == DEFAULT_ENCRYPTION_KEY:
+        raise ValueError("Refusing to start with default encryption key outside local/dev/test")

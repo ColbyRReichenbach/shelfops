@@ -22,7 +22,7 @@ from db.models import ModelVersion
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/models", tags=["models"])
+router = APIRouter(prefix="/api/v1/ml/models", tags=["models"])
 
 
 # ── Model Health Dashboard ──────────────────────────────────────────────────
@@ -60,7 +60,7 @@ async def get_model_health(
           }
         }
     """
-    from ml.arena import get_champion_model, get_challenger_model
+    from ml.arena import get_challenger_model, get_champion_model
 
     # Get current customer_id from RLS context
     result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
@@ -102,7 +102,9 @@ async def get_model_health(
             "mae_30d": round(mae_30d, 2) if mae_30d else None,
             "trend": trend,
             "promoted_at": champion["promoted_at"].isoformat() if champion.get("promoted_at") else None,
-            "next_retrain": (datetime.now(timezone.utc) + timedelta(days=7 - datetime.now(timezone.utc).weekday())).isoformat(),
+            "next_retrain": (
+                datetime.now(timezone.utc) + timedelta(days=7 - datetime.now(timezone.utc).weekday())
+            ).isoformat(),
         }
 
     # Get challenger model
@@ -120,7 +122,7 @@ async def get_model_health(
         confidence = 0.0
         if champion and mae_7d and champion_data and champion_data.get("mae_7d"):
             improvement = 1 - (mae_7d / champion_data["mae_7d"])
-            promotion_eligible = improvement >= 0.05  # 5% improvement threshold
+            promotion_eligible = improvement >= -0.02  # 2% non-regression tolerance
             confidence = min(0.99, max(0.5, improvement))
 
         challenger_data = {
@@ -187,7 +189,7 @@ async def get_backtest_time_series(
         ]
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")
@@ -231,7 +233,7 @@ async def promote_model(
     Use with caution — should only be done after manual review.
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")
@@ -299,7 +301,7 @@ async def get_model_history(
         ]
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")

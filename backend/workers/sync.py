@@ -17,6 +17,147 @@ from workers.celery_app import celery_app
 logger = structlog.get_logger()
 
 
+async def run_edi_sync_pipeline(
+    db,
+    *,
+    customer_id: uuid.UUID,
+    integration_id: uuid.UUID,
+    adapter,
+    partner_id: str = "UNKNOWN",
+) -> dict:
+    """
+    Worker-path EDI orchestration:
+      parse files -> persist EDI audit logs -> persist integration sync logs.
+    """
+    from db.models import EDITransactionLog, IntegrationSyncLog
+
+    started_at = datetime.utcnow()
+    sync_type_map = {
+        "846": "inventory",
+        "850": "purchase_orders",
+        "856": "shipments",
+        "810": "invoices",
+    }
+    summary: dict[str, dict[str, int]] = {}
+
+    for doc_type in ("846", "850", "856", "810"):
+        files = adapter._list_files(doc_type)
+        records_synced = 0
+        file_failures = 0
+
+        for filepath in files:
+            filename = filepath.split("/")[-1]
+            raw = ""
+            parsed_records = 0
+            status = "failed"
+            errors: list[str] = []
+            try:
+                raw = adapter._read_file(filepath)
+                if doc_type == "846":
+                    parsed_records = len(adapter.parser.parse_846(raw))
+                elif doc_type == "856":
+                    parsed_records = len(adapter.parser.parse_856(raw).items)
+                elif doc_type == "810":
+                    parsed_records = len(adapter.parser.parse_810(raw).line_items)
+                elif doc_type == "850":
+                    parsed_records = 1 if adapter.parser.detect_transaction_type(raw) == "850" else 0
+                status = "processed" if parsed_records > 0 else "failed"
+                if status == "processed":
+                    adapter._archive_file(filepath)
+                else:
+                    errors.append("No parsable records found")
+            except Exception as exc:
+                errors.append(str(exc))
+
+            if status != "processed":
+                file_failures += 1
+            records_synced += parsed_records
+
+            db.add(
+                EDITransactionLog(
+                    customer_id=customer_id,
+                    integration_id=integration_id,
+                    document_type=doc_type,
+                    direction="outbound" if doc_type == "850" else "inbound",
+                    trading_partner_id=partner_id,
+                    filename=filename,
+                    raw_content=raw,
+                    parsed_records=parsed_records,
+                    errors=errors,
+                    status=status,
+                    processed_at=datetime.utcnow(),
+                )
+            )
+
+        sync_status = "success"
+        if file_failures > 0 and records_synced == 0:
+            sync_status = "failed"
+        elif file_failures > 0:
+            sync_status = "partial"
+
+        db.add(
+            IntegrationSyncLog(
+                customer_id=customer_id,
+                integration_type="EDI",
+                integration_name=f"EDI {doc_type}",
+                sync_type=sync_type_map[doc_type],
+                records_synced=records_synced,
+                sync_status=sync_status,
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
+            )
+        )
+        summary[doc_type] = {
+            "files": len(files),
+            "records_synced": records_synced,
+            "file_failures": file_failures,
+        }
+
+    await db.commit()
+    return {"status": "success", "documents": summary}
+
+
+async def run_sftp_sync_pipeline(db, *, customer_id: uuid.UUID, adapter) -> dict:
+    """
+    Worker-path SFTP orchestration with persisted sync-health records.
+    """
+    from db.models import IntegrationSyncLog
+
+    started_at = datetime.utcnow()
+    steps = [
+        ("stores", adapter.sync_stores),
+        ("products", adapter.sync_products),
+        ("transactions", adapter.sync_transactions),
+        ("inventory", adapter.sync_inventory),
+    ]
+
+    summary: dict[str, dict[str, int | str]] = {}
+    for sync_type, runner in steps:
+        result = await runner()
+        db.add(
+            IntegrationSyncLog(
+                customer_id=customer_id,
+                integration_type="SFTP",
+                integration_name=f"SFTP {sync_type.title()}",
+                sync_type=sync_type,
+                records_synced=result.records_processed,
+                sync_status=result.status.value,
+                started_at=started_at,
+                completed_at=datetime.utcnow(),
+                error_message="; ".join(result.errors) if result.errors else None,
+                sync_metadata=result.metadata if result.metadata else None,
+            )
+        )
+        summary[sync_type] = {
+            "records_processed": result.records_processed,
+            "records_failed": result.records_failed,
+            "status": result.status.value,
+        }
+
+    await db.commit()
+    return {"status": "success", "sources": summary}
+
+
 @celery_app.task(
     name="workers.sync.sync_square_inventory",
     bind=True,
