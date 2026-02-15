@@ -3,6 +3,8 @@ tenant_id: demo_enterprise
 source_type: enterprise_edi
 grain: daily
 timezone: UTC
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: non_negative
 country_code: US
 id_columns:
   store: store_id

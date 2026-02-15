@@ -22,6 +22,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from db.models import (
     DCInventory,
     DistributionCenter,
@@ -29,6 +30,12 @@ from db.models import (
     Store,
     Supplier,
 )
+
+_settings = get_settings()
+VENDOR_CAPACITY_MODE = _settings.sourcing_vendor_capacity_mode.strip().lower()
+VENDOR_DEFAULT_DAILY_CAPACITY = max(1, int(_settings.sourcing_vendor_default_daily_capacity))
+VENDOR_CAPACITY_MULTIPLIER = max(1.0, float(_settings.sourcing_vendor_capacity_multiplier))
+VENDOR_CAPACITY_CONFIDENCE = _settings.sourcing_vendor_capacity_confidence.strip().lower() or "assumed"
 
 
 @dataclass
@@ -53,6 +60,9 @@ class SourcingDecision:
     dc_stock_available: int | None  # Only set for DC sources
     priority: int
     rule_id: UUID
+    assumed_capacity_qty: int | None = None
+    assumption_confidence: str = "measured"
+    assumption_notes: list[str] | None = None
 
 
 def haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -141,9 +151,11 @@ class SourcingEngine:
             return None
 
         elif rule.source_type == "vendor_direct":
-            # Vendor always assumed to have stock (infinite supply assumption)
+            # Vendor capacity is assumption-driven and configurable.
+            # This replaces unconditional infinite-supply behavior.
             supplier = await self._get_supplier(rule.source_id)
             supplier_name = supplier.name if supplier else "Unknown Vendor"
+            assumption_notes: list[str] = []
 
             # Use actual lead time if available from vendor scorecard
             actual_lead = rule.lead_time_days
@@ -152,6 +164,19 @@ class SourcingEngine:
                 actual_lead = supplier.avg_lead_time_actual
             if supplier and supplier.lead_time_variance:
                 variance = supplier.lead_time_variance
+
+            supplier_min = supplier.min_order_quantity if supplier and supplier.min_order_quantity else 1
+            assumed_capacity = max(
+                VENDOR_DEFAULT_DAILY_CAPACITY,
+                int(round(supplier_min * VENDOR_CAPACITY_MULTIPLIER)),
+            )
+            assumption_confidence = VENDOR_CAPACITY_CONFIDENCE
+            assumption_notes.append(f"capacity_mode={VENDOR_CAPACITY_MODE}")
+            assumption_notes.append(f"assumed_capacity_qty={assumed_capacity}")
+
+            if VENDOR_CAPACITY_MODE == "assumed_daily_capacity" and quantity > assumed_capacity:
+                # Fails closed so upstream can evaluate alternate sources.
+                return None
 
             return SourcingDecision(
                 source_type=rule.source_type,
@@ -170,6 +195,9 @@ class SourcingEngine:
                 dc_stock_available=None,
                 priority=rule.priority,
                 rule_id=rule.rule_id,
+                assumed_capacity_qty=assumed_capacity,
+                assumption_confidence=assumption_confidence,
+                assumption_notes=assumption_notes,
             )
 
         # transfer type — handled by TransferOptimizer separately

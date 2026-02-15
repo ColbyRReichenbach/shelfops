@@ -82,6 +82,7 @@ Implemented path:
 - `backend/ml/data_contracts.py` (`load_canonical_transactions`)
 - Canonical required fields: `date`, `store_id`, `product_id`, `quantity`
 - Canonical metadata fields: `dataset_id`, `country_code`, `frequency`
+- Canonical quantity semantics: **net demand** (sales positive, returns negative) for train/retrain/backtest comparability
 
 Supported loaders:
 
@@ -104,6 +105,7 @@ Implemented path:
 - Mapper and DQ gates: `backend/ml/contract_mapper.py`
 - Onboarding validator CLI: `backend/scripts/validate_customer_contract.py`
 - SMB onboarding flow script: `backend/scripts/run_onboarding_flow.py`
+- Contract semantic controls now include `timezone_handling` and `quantity_sign_policy`
 
 ### Layer B: Enterprise-format integration data (implemented, validation pending)
 

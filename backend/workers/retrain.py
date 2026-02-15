@@ -80,7 +80,17 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
     sample = Path(sample_path)
 
     if sample.is_dir():
-        csvs = sorted(sample.glob("*.csv"))
+        # Prefer explicit transaction/sales extracts over master/reference files.
+        preferred_names = ["transactions.csv", "sales.csv", "daily_sales.csv"]
+        preferred = [sample / name for name in preferred_names if (sample / name).exists()]
+        if preferred:
+            csvs = preferred
+        else:
+            csvs = sorted(
+                p
+                for p in sample.glob("*.csv")
+                if p.name.lower() not in {"stores.csv", "products.csv", "store_master.csv", "product_master.csv"}
+            )
         if not csvs:
             raise FileNotFoundError(f"No CSV files found in sample directory: {sample}")
         raw = pd.concat([pd.read_csv(p, low_memory=False) for p in csvs], ignore_index=True)
@@ -100,6 +110,51 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
     target_dir.mkdir(parents=True, exist_ok=True)
     canonical_path = target_dir / "canonical_transactions.csv"
     result.dataframe.to_csv(canonical_path, index=False)
+    report_json = target_dir / "contract_validation_report.json"
+    report_md = target_dir / "contract_validation_report.md"
+    report_payload = {
+        "contract_path": str(Path(contract_path).resolve()),
+        "sample_path": str(sample.resolve()),
+        "rows_mapped": int(len(result.dataframe)),
+        "report": result.report.to_dict(),
+        "cost_field_coverage": {
+            "unit_cost_non_null_rate": (
+                float(result.dataframe["unit_cost"].notna().mean()) if "unit_cost" in result.dataframe.columns else 0.0
+            ),
+            "unit_price_non_null_rate": (
+                float(result.dataframe["unit_price"].notna().mean())
+                if "unit_price" in result.dataframe.columns
+                else 0.0
+            ),
+        },
+    }
+    report_json.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
+    report_md.write_text(
+        "\n".join(
+            [
+                "# Contract Validation Report",
+                "",
+                f"- Contract: `{report_payload['contract_path']}`",
+                f"- Sample: `{report_payload['sample_path']}`",
+                f"- Rows mapped: {report_payload['rows_mapped']}",
+                f"- Passed: `{report_payload['report']['passed']}`",
+                "",
+                "## Data Quality Metrics",
+                "",
+                f"- date_parse_success: {report_payload['report']['metrics'].get('date_parse_success', 0):.4f}",
+                f"- required_null_rate: {report_payload['report']['metrics'].get('required_null_rate', 0):.4f}",
+                f"- duplicate_rate: {report_payload['report']['metrics'].get('duplicate_rate', 0):.4f}",
+                f"- quantity_parse_success: {report_payload['report']['metrics'].get('quantity_parse_success', 0):.4f}",
+                "",
+                "## Cost Field Coverage",
+                "",
+                f"- unit_cost_non_null_rate: {report_payload['cost_field_coverage']['unit_cost_non_null_rate']:.4f}",
+                f"- unit_price_non_null_rate: {report_payload['cost_field_coverage']['unit_price_non_null_rate']:.4f}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     logger.info(
         "retrain.profiled_data_ready",
@@ -107,6 +162,8 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
         source_type=profile.source_type,
         rows=len(result.dataframe),
         canonical_path=str(canonical_path),
+        validation_report_json=str(report_json),
+        validation_report_md=str(report_md),
     )
     return result.dataframe
 
@@ -118,6 +175,8 @@ def _db_contract_profile(customer_id: str) -> ContractProfile:
         source_type="enterprise_event",
         grain="daily",
         timezone="UTC",
+        timezone_handling="convert_to_profile_tz_date",
+        quantity_sign_policy="allow_negative_returns",
         id_columns={"store_id": "store_id", "product_id": "product_id"},
         field_map={
             "date": "date",
@@ -129,6 +188,7 @@ def _db_contract_profile(customer_id: str) -> ContractProfile:
             "unit_price": "unit_price",
             "is_promotional": "is_promotional",
             "is_holiday": "is_holiday",
+            "transaction_type": "transaction_type",
         },
         type_map={
             "date": "date",
@@ -140,6 +200,7 @@ def _db_contract_profile(customer_id: str) -> ContractProfile:
             "unit_price": "float",
             "is_promotional": "bool",
             "is_holiday": "bool",
+            "transaction_type": "str",
         },
         unit_map={"quantity": {"multiplier": 1.0}},
         null_policy={},
@@ -187,8 +248,9 @@ def _load_db_data(
                     pass
 
                 signed_quantity = case(
+                    (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
                     (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
-                    else_=Transaction.quantity,
+                    else_=0,
                 )
 
                 sales_date = func.date(Transaction.timestamp)
@@ -203,7 +265,10 @@ def _load_db_data(
                         func.max(Transaction.unit_price).label("unit_price"),
                     )
                     .join(Product, Product.product_id == Transaction.product_id)
-                    .where(Transaction.customer_id == uuid.UUID(customer_id))
+                    .where(
+                        Transaction.customer_id == uuid.UUID(customer_id),
+                        Transaction.transaction_type.in_(["sale", "return"]),
+                    )
                     .group_by(sales_date, Transaction.store_id, Transaction.product_id)
                     .order_by(sales_date.asc())
                 )

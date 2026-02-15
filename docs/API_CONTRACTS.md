@@ -51,6 +51,35 @@ Returns:
 }
 ```
 
+### `GET /api/v1/ml/models/health`
+Returns champion/challenger summary plus computed retraining triggers:
+
+```json
+{
+  "champion": {"version": "v12", "status": "healthy"},
+  "challenger": {"version": "v13", "status": "shadow_testing"},
+  "retraining_triggers": {
+    "drift_detected": false,
+    "new_data_available": true,
+    "new_data_rows_since_last_retrain": 124,
+    "last_trigger": "scheduled",
+    "last_retrain_at": "2026-02-15T02:00:00"
+  },
+  "models_count": 2
+}
+```
+
+### `POST /api/v1/ml/models/{version}/promote`
+Manual promotion endpoint (admin role required).
+
+Request body:
+
+```json
+{
+  "promotion_reason": "Manual override approved after backtest and merchant review."
+}
+```
+
 ## Integrations
 
 ### `GET /api/v1/integrations/sync-health`

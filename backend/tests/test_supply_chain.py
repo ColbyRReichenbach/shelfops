@@ -219,3 +219,10 @@ class TestTransferConstants:
         from supply_chain.transfers import MAX_SEARCH_RADIUS_MILES
 
         assert 10 <= MAX_SEARCH_RADIUS_MILES <= 200
+
+    def test_handling_cost_floor_applies(self, monkeypatch):
+        from supply_chain import transfers
+
+        monkeypatch.setattr(transfers, "COST_PER_MILE", 0.5)
+        monkeypatch.setattr(transfers, "HANDLING_COST_FLOOR", 12.0)
+        assert max(5 * transfers.COST_PER_MILE, transfers.HANDLING_COST_FLOOR) == 12.0

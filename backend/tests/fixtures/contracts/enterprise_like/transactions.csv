@@ -1,0 +1,3 @@
+timestamp,store_id,sku,quantity,unit_price,transaction_type
+2026-01-01T23:00:00Z,WH-001,000111222333,5,3.99,sale
+2026-01-02T01:00:00Z,WH-001,000111222333,1,3.99,return

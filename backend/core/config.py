@@ -73,6 +73,25 @@ class Settings(BaseSettings):
     kafka_schema_registry_url: str = ""
     integration_sla_overrides: str = ""
 
+    # Supply chain transfer policy (externalized from hardcoded constants)
+    transfer_cost_per_mile: float = 0.50
+    transfer_default_lead_days: int = 2
+    transfer_max_search_radius_miles: float = 75.0
+    transfer_nearby_distance_miles: float = 30.0
+    transfer_handling_cost_floor: float = 0.0
+
+    # Inventory optimizer policy defaults
+    reorder_default_service_level: float = 0.95
+    reorder_cluster_multiplier_tier0: float = 1.15
+    reorder_cluster_multiplier_tier1: float = 1.00
+    reorder_cluster_multiplier_tier2: float = 0.85
+
+    # Sourcing policy assumptions (explicitly configurable)
+    sourcing_vendor_capacity_mode: str = "assumed_daily_capacity"
+    sourcing_vendor_default_daily_capacity: int = 10000
+    sourcing_vendor_capacity_multiplier: float = 100.0
+    sourcing_vendor_capacity_confidence: str = "assumed"
+
     # Email
     sendgrid_api_key: str = ""
     alert_from_email: str = "alerts@shelfops.com"

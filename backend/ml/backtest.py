@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ml.metrics_contract import compute_forecast_metrics
@@ -84,18 +84,25 @@ async def run_continuous_backtest(
 
         # Load actual sales for this window
         sales_date = func.date(Transaction.timestamp)
+        signed_quantity = func.sum(
+            case(
+                (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+                (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+                else_=0,
+            )
+        )
         actual_sales_query = (
             select(
                 Transaction.store_id,
                 Transaction.product_id,
                 sales_date.label("sale_date"),
-                func.sum(Transaction.quantity).label("actual_quantity"),
+                signed_quantity.label("actual_quantity"),
             )
             .where(
                 Transaction.customer_id == customer_id,
                 sales_date >= forecast_start,
                 sales_date <= forecast_end,
-                Transaction.transaction_type == "sale",
+                Transaction.transaction_type.in_(["sale", "return"]),
             )
             .group_by(Transaction.store_id, Transaction.product_id, sales_date)
         )

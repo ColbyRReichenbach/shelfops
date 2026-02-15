@@ -57,6 +57,12 @@ Public datasets are used to improve training/evaluation robustness, not to popul
 - Validation CLI: `backend/scripts/validate_customer_contract.py`
 - SMB onboarding flow script: `backend/scripts/run_onboarding_flow.py`
 
+## Decision Logic Confidence (Current Hardening)
+
+- Reorder/transfer/sourcing recommendations now include policy-source and assumption metadata.
+- Supplier-capacity and transfer-cost assumptions are configurable and surfaced in rationale outputs.
+- These controls improve operational trust while keeping scope SMB-first and enterprise pilot-credible.
+
 ## Engineering Status (Current)
 
 See `docs/RELEASE_READINESS.md` for live status, but current baseline includes:

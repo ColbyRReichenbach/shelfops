@@ -31,6 +31,13 @@ Core metrics:
 - Stockout miss rate
 - Overstock rate
 
+Target semantics (canonical for train/retrain/backtest):
+
+- Quantity is treated as **net demand** at the evaluation grain.
+- Sales contribute positive units.
+- Returns contribute negative units.
+- Comparison runs are valid only when all compared runs use the same signed-demand policy.
+
 Tracking:
 
 - Use existing model lifecycle/experiment path in `backend/ml/experiment.py`
@@ -197,7 +204,7 @@ Run configuration:
 Interpretation:
 - Do not compare MAE magnitudes directly across datasets due to different demand scales and frequencies.
 - MAPE + stockout/overstock rates are more comparable for cross-domain sanity checks.
-- Weekly Walmart baseline is frequency-aware in this run (`use_log_target=true`), and uses normalized non-negative demand magnitude for returns-adjusted rows.
+- Weekly Walmart baseline is frequency-aware in this run (`use_log_target=true`) and aligned to net-demand signed quantity policy for comparability.
 - Next step is pairwise training/validation (`favorita+walmart`, `favorita+rossmann`, `walmart+rossmann`) before all-three routing/ensemble decisions.
 
 ## Duo Combination Benchmarks (February 15, 2026)

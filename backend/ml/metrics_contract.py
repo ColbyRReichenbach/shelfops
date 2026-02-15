@@ -1,4 +1,11 @@
-"""Canonical forecast metric definitions used across training, backtest, and benchmarking."""
+"""
+Canonical forecast metric definitions used across training, backtest, and benchmarking.
+
+Target semantics policy (hardening baseline):
+  - Quantity represents net demand magnitude at the evaluation grain.
+  - Sales contribute positive quantity, returns contribute negative quantity.
+  - Benchmark/backtest/train comparisons must use the same signed-demand policy.
+"""
 
 from __future__ import annotations
 

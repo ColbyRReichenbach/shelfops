@@ -62,6 +62,10 @@ Verified in code:
 - Receiving discrepancy handling: `backend/supply_chain/receiving.py`
 - Transfer optimization logic: `backend/supply_chain/transfers.py`
 
+Current hardening note:
+
+- Recommendation payloads expose assumption confidence (for example, vendor-capacity assumptions and policy-source metadata) so operators can distinguish measured vs assumed inputs.
+
 Verified by tests:
 
 - `backend/tests/test_bugfixes.py`

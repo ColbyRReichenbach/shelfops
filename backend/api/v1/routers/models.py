@@ -14,10 +14,11 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, text
+from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_tenant_db
+from api.deps import get_current_user, get_tenant_db
 from db.models import ModelVersion
 
 logger = structlog.get_logger()
@@ -25,11 +26,41 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/api/v1/ml/models", tags=["models"])
 
 
+class PromoteModelRequest(BaseModel):
+    promotion_reason: str = Field(min_length=8, max_length=500)
+
+
+def _resolve_customer_id(user: dict) -> uuid.UUID:
+    raw = user.get("customer_id")
+    if not raw:
+        raise HTTPException(status_code=401, detail="No customer context set")
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid customer context") from exc
+
+
+def _is_admin_user(user: dict) -> bool:
+    role_values: list[str] = []
+    for key in ("role", "roles", "permissions", "scopes", "scope"):
+        value = user.get(key)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            role_values.extend(value.replace(",", " ").split())
+        elif isinstance(value, (list, tuple, set)):
+            role_values.extend([str(v) for v in value])
+    roles = {r.strip().lower() for r in role_values if str(r).strip()}
+    admin_markers = {"admin", "tenant_admin", "ml_admin", "owner", "platform_admin"}
+    return bool(roles & admin_markers)
+
+
 # ── Model Health Dashboard ──────────────────────────────────────────────────
 
 
 @router.get("/health")
 async def get_model_health(
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """
@@ -62,12 +93,7 @@ async def get_model_health(
     """
     from ml.arena import get_challenger_model, get_champion_model
 
-    # Get current customer_id from RLS context
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Get champion model
     champion = await get_champion_model(db, customer_id, "demand_forecast")
@@ -135,7 +161,7 @@ async def get_model_health(
         }
 
     # Get recent retraining events
-    from db.models import ModelRetrainingLog
+    from db.models import MLAlert, ModelRetrainingLog, Transaction
 
     retraining_result = await db.execute(
         select(ModelRetrainingLog.trigger_type, ModelRetrainingLog.started_at)
@@ -148,10 +174,36 @@ async def get_model_health(
     )
     last_retrain = retraining_result.one_or_none()
 
-    # Check for drift (simplified — would integrate with drift detection job)
+    drift_cutoff = datetime.utcnow() - timedelta(days=7)
+    drift_result = await db.execute(
+        select(func.count(MLAlert.ml_alert_id))
+        .where(
+            MLAlert.customer_id == customer_id,
+            MLAlert.alert_type == "drift_detected",
+            MLAlert.created_at >= drift_cutoff,
+            MLAlert.status.in_(["unread", "read", "actioned"]),
+        )
+        .limit(1)
+    )
+    recent_drift_alerts = int(drift_result.scalar() or 0)
+
+    if last_retrain and last_retrain.started_at:
+        tx_cutoff = last_retrain.started_at
+    else:
+        tx_cutoff = datetime.utcnow() - timedelta(hours=24)
+    new_data_result = await db.execute(
+        select(func.count(Transaction.transaction_id)).where(
+            Transaction.customer_id == customer_id,
+            Transaction.timestamp > tx_cutoff,
+            Transaction.transaction_type.in_(["sale", "return"]),
+        )
+    )
+    new_data_row_count = int(new_data_result.scalar() or 0)
+
     retraining_triggers = {
-        "drift_detected": False,  # Placeholder — integrate with monitoring.detect_model_drift
-        "new_data_available": True,  # Placeholder — check transaction freshness
+        "drift_detected": recent_drift_alerts > 0,
+        "new_data_available": new_data_row_count > 0,
+        "new_data_rows_since_last_retrain": new_data_row_count,
         "last_trigger": last_retrain.trigger_type if last_retrain else None,
         "last_retrain_at": last_retrain.started_at.isoformat() if last_retrain else None,
     }
@@ -171,6 +223,7 @@ async def get_model_health(
 async def get_backtest_time_series(
     version: str,
     days: int = 90,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> list[dict[str, Any]]:
     """
@@ -188,12 +241,7 @@ async def get_backtest_time_series(
           ...
         ]
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Get model ID for version
     model_result = await db.execute(
@@ -224,6 +272,8 @@ async def get_backtest_time_series(
 @router.post("/{version}/promote")
 async def promote_model(
     version: str,
+    payload: PromoteModelRequest,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """
@@ -232,12 +282,14 @@ async def promote_model(
     This bypasses auto-promotion threshold checks.
     Use with caution — should only be done after manual review.
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
+    if not _is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Manual promotion requires admin role")
+
+    actor = str(user.get("email") or user.get("sub") or "unknown")
+    reason = payload.promotion_reason.strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="promotion_reason is required")
 
     # Check model exists
     model_result = await db.execute(
@@ -257,22 +309,60 @@ async def promote_model(
     if model.status == "champion":
         raise HTTPException(status_code=400, detail=f"Model {version} is already champion")
 
+    model_metrics = dict(model.metrics or {})
+    history = list(model_metrics.get("manual_promotion_history", []))
+    entry = {
+        "version": version,
+        "reason": reason,
+        "actor": actor,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+    }
+    history.append(entry)
+    model_metrics["last_manual_promotion"] = entry
+    model_metrics["manual_promotion_history"] = history
+    model.metrics = model_metrics
+    await db.flush()
+
     # Promote
     from ml.arena import promote_to_champion
 
     await promote_to_champion(db, customer_id, "demand_forecast", version)
 
+    from db.models import ModelExperiment
+
+    db.add(
+        ModelExperiment(
+            customer_id=customer_id,
+            experiment_name=f"manual_promotion_demand_forecast_{version}",
+            hypothesis="Manual promotion approved by admin reviewer",
+            experiment_type="model_architecture",
+            model_name="demand_forecast",
+            baseline_version=None,
+            experimental_version=version,
+            status="completed",
+            proposed_by=actor,
+            approved_by=actor,
+            results={"reason": reason, "actor": actor, "manual": True},
+            decision_rationale=reason,
+            completed_at=datetime.utcnow(),
+        )
+    )
+    await db.commit()
+
     logger.info(
         "models.manual_promotion",
         customer_id=str(customer_id),
         version=version,
-        promoted_by="admin",  # Future: get from JWT auth
+        promoted_by=actor,
+        promotion_reason=reason,
     )
 
     return {
         "status": "success",
         "message": f"Model {version} promoted to champion",
         "promoted_at": datetime.now(timezone.utc).isoformat(),
+        "promoted_by": actor,
+        "promotion_reason": reason,
     }
 
 
@@ -282,6 +372,7 @@ async def promote_model(
 @router.get("/history")
 async def get_model_history(
     limit: int = 10,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> list[dict[str, Any]]:
     """
@@ -300,12 +391,7 @@ async def get_model_history(
           ...
         ]
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Get model versions
     versions_result = await db.execute(

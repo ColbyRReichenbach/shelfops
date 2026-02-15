@@ -34,6 +34,7 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from db.models import (
     DemandForecast,
     Product,
@@ -45,6 +46,7 @@ from db.models import (
 from supply_chain.sourcing import LeadTimeEstimate, SourcingDecision, SourcingEngine
 
 logger = structlog.get_logger()
+_settings = get_settings()
 
 # Service level → Z-score mapping (standard normal distribution)
 Z_SCORES = {
@@ -62,6 +64,26 @@ RELIABILITY_MULTIPLIERS = {
     (0.60, 0.80): 1.5,  # 60-79% → 50% buffer
     (0.00, 0.60): 1.8,  # <60% → 80% buffer (unreliable)
 }
+
+# Defaults used for policy-source tagging in rationale.
+DEFAULT_SERVICE_LEVEL = 0.95
+DEFAULT_CLUSTER_MULTIPLIERS = {0: 1.15, 1: 1.00, 2: 0.85}
+
+
+def get_cluster_multipliers() -> dict[int, float]:
+    return {
+        0: float(_settings.reorder_cluster_multiplier_tier0),
+        1: float(_settings.reorder_cluster_multiplier_tier1),
+        2: float(_settings.reorder_cluster_multiplier_tier2),
+    }
+
+
+def get_default_service_level() -> float:
+    return float(_settings.reorder_default_service_level)
+
+
+def _policy_source(label: str, configured: float, default: float) -> str:
+    return f"{label}:configured" if configured != default else f"{label}:default"
 
 
 @dataclass
@@ -109,7 +131,7 @@ class InventoryOptimizer:
         store_id: uuid.UUID,
         product_id: uuid.UUID,
         forecast_horizon_days: int = 14,
-        service_level: float = 0.95,
+        service_level: float | None = None,
     ) -> ReorderCalculation | None:
         """
         Calculate optimal ROP for a (store, product) pair.
@@ -123,8 +145,16 @@ class InventoryOptimizer:
 
         avg_daily_demand, demand_std_dev = demand
 
+        selected_service_level = service_level if service_level is not None else get_default_service_level()
+
         # 2. Get sourcing strategy (DC vs vendor + lead time)
-        sourcing = await self.sourcing.get_sourcing_strategy(customer_id, store_id, product_id)
+        expected_order_qty = max(1, round(avg_daily_demand * min(forecast_horizon_days, 14)))
+        sourcing = await self.sourcing.get_sourcing_strategy(
+            customer_id,
+            store_id,
+            product_id,
+            quantity=expected_order_qty,
+        )
         if sourcing:
             lead_time = sourcing.lead_time.mean_days
             lead_time_var = sourcing.lead_time.variance_days
@@ -152,7 +182,7 @@ class InventoryOptimizer:
         reliability_multiplier = get_reliability_multiplier(vendor_reliability)
 
         # 4. Calculate safety stock
-        z_score = get_z_score(service_level)
+        z_score = get_z_score(selected_service_level)
 
         # Safety stock accounts for BOTH demand variability AND lead time variability
         # SS = Z × √( LT × σ_demand² + D² × σ_LT² ) × reliability_multiplier × cluster_multiplier
@@ -164,7 +194,7 @@ class InventoryOptimizer:
         # low-volume stores (tier 2) get -15% to optimize holding costs
         store = await self.db.get(Store, store_id)
         cluster_tier = store.cluster_tier if store and store.cluster_tier is not None else 1
-        cluster_multipliers = {0: 1.15, 1: 1.00, 2: 0.85}
+        cluster_multipliers = get_cluster_multipliers()
         cluster_multiplier = cluster_multipliers.get(cluster_tier, 1.00)
 
         safety_stock = max(1, round(z_score * combined_std * reliability_multiplier * cluster_multiplier))
@@ -191,12 +221,40 @@ class InventoryOptimizer:
             "lead_time_variance": lead_time_var,
             "avg_daily_demand": round(avg_daily_demand, 2),
             "demand_std_dev": round(demand_std_dev, 2),
-            "service_level": service_level,
+            "service_level": selected_service_level,
             "z_score": z_score,
             "vendor_reliability": vendor_reliability,
             "reliability_multiplier": reliability_multiplier,
             "cluster_tier": cluster_tier,
             "cluster_multiplier": cluster_multiplier,
+            "assumption_confidence": (
+                sourcing.assumption_confidence
+                if sourcing and getattr(sourcing, "assumption_confidence", None)
+                else "measured"
+            ),
+            "assumption_notes": (
+                sourcing.assumption_notes if sourcing and getattr(sourcing, "assumption_notes", None) else []
+            ),
+            "policy_source": [
+                _policy_source("service_level", selected_service_level, DEFAULT_SERVICE_LEVEL),
+                _policy_source(
+                    "cluster_multiplier_tier0",
+                    cluster_multipliers.get(0, DEFAULT_CLUSTER_MULTIPLIERS[0]),
+                    DEFAULT_CLUSTER_MULTIPLIERS[0],
+                ),
+                _policy_source(
+                    "cluster_multiplier_tier1",
+                    cluster_multipliers.get(1, DEFAULT_CLUSTER_MULTIPLIERS[1]),
+                    DEFAULT_CLUSTER_MULTIPLIERS[1],
+                ),
+                _policy_source(
+                    "cluster_multiplier_tier2",
+                    cluster_multipliers.get(2, DEFAULT_CLUSTER_MULTIPLIERS[2]),
+                    DEFAULT_CLUSTER_MULTIPLIERS[2],
+                ),
+            ],
+            "lead_time_confidence": "measured" if sourcing else "assumed_fallback",
+            "reliability_confidence": "measured" if vendor_reliability != 0.95 else "assumed_default",
             "safety_stock_formula": (
                 f"Z({z_score:.3f}) × √(LT({lead_time}) × σd²({demand_std_dev:.1f}) "
                 f"+ D²({avg_daily_demand:.1f}) × σLT²({lead_time_var})) "
@@ -206,6 +264,7 @@ class InventoryOptimizer:
             "cost_per_order": cost_per_order,
             "min_order_qty": min_order_qty,
             "forecast_horizon_days": forecast_horizon_days,
+            "expected_order_qty_used_for_sourcing": expected_order_qty,
         }
 
         return ReorderCalculation(

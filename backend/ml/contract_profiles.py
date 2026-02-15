@@ -22,6 +22,8 @@ REQUIRED_KEYS = {
     "source_type",
     "grain",
     "timezone",
+    "timezone_handling",
+    "quantity_sign_policy",
     "id_columns",
     "field_map",
     "type_map",
@@ -41,6 +43,8 @@ class ContractProfile:
     source_type: str
     grain: str
     timezone: str
+    timezone_handling: str
+    quantity_sign_policy: str
     id_columns: dict[str, str]
     field_map: dict[str, str]
     type_map: dict[str, str]
@@ -100,6 +104,20 @@ def _normalize_profile(payload: dict[str, Any]) -> ContractProfile:
     if not contract_version.startswith("v"):
         raise ContractProfileError("contract_version must start with 'v' (example: v1)")
 
+    timezone_handling = str(payload["timezone_handling"]).strip().lower()
+    allowed_timezone_handling = {"source_local_date", "convert_to_profile_tz_date", "utc_date"}
+    if timezone_handling not in allowed_timezone_handling:
+        raise ContractProfileError(
+            f"Unsupported timezone_handling '{timezone_handling}'. Supported: {sorted(allowed_timezone_handling)}"
+        )
+
+    quantity_sign_policy = str(payload["quantity_sign_policy"]).strip().lower()
+    allowed_sign_policies = {"non_negative", "allow_negative_returns", "clip_negative"}
+    if quantity_sign_policy not in allowed_sign_policies:
+        raise ContractProfileError(
+            f"Unsupported quantity_sign_policy '{quantity_sign_policy}'. Supported: {sorted(allowed_sign_policies)}"
+        )
+
     type_map = _ensure_mapping(payload, "type_map")
     invalid_types = sorted(
         {str(v) for v in type_map.values() if str(v).lower() not in {"str", "string", "int", "float", "bool", "date"}}
@@ -115,6 +133,8 @@ def _normalize_profile(payload: dict[str, Any]) -> ContractProfile:
         source_type=source_type,
         grain=str(payload["grain"]),
         timezone=str(payload["timezone"]),
+        timezone_handling=timezone_handling,
+        quantity_sign_policy=quantity_sign_policy,
         id_columns={str(k): str(v) for k, v in _ensure_mapping(payload, "id_columns").items()},
         field_map={str(k): str(v) for k, v in _ensure_mapping(payload, "field_map").items()},
         type_map={str(k): str(v).lower() for k, v in type_map.items()},

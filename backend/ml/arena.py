@@ -36,6 +36,15 @@ def _as_float(value: Any) -> float | None:
         return None
 
 
+def _confidence_label(value: Any) -> str:
+    if value is None:
+        return "unavailable"
+    label = str(value).strip().lower()
+    if not label:
+        return "unavailable"
+    return label
+
+
 # ─── Model Version CRUD ─────────────────────────────────────────────────────
 
 
@@ -230,6 +239,7 @@ async def evaluate_for_promotion(
     champion_stockout = _as_float(champion_metrics.get("stockout_miss_rate"))
     champion_overstock_rate = _as_float(champion_metrics.get("overstock_rate"))
     champion_overstock_dollars = _as_float(champion_metrics.get("overstock_dollars"))
+    champion_overstock_confidence = _confidence_label(champion_metrics.get("overstock_dollars_confidence"))
 
     candidate_mae = _as_float(candidate_metrics.get("mae"))
     candidate_mape = _as_float(candidate_metrics.get("mape"))
@@ -237,6 +247,23 @@ async def evaluate_for_promotion(
     candidate_stockout = _as_float(candidate_metrics.get("stockout_miss_rate"))
     candidate_overstock_rate = _as_float(candidate_metrics.get("overstock_rate"))
     candidate_overstock_dollars = _as_float(candidate_metrics.get("overstock_dollars"))
+    candidate_overstock_confidence = _confidence_label(candidate_metrics.get("overstock_dollars_confidence"))
+
+    required_gate_inputs = {
+        "candidate.mae": candidate_mae,
+        "candidate.mape": candidate_mape,
+        "candidate.coverage": candidate_coverage,
+        "candidate.stockout_miss_rate": candidate_stockout,
+        "candidate.overstock_rate": candidate_overstock_rate,
+        "candidate.overstock_dollars": candidate_overstock_dollars,
+        "champion.mae": champion_mae,
+        "champion.mape": champion_mape,
+        "champion.coverage": champion_coverage,
+        "champion.stockout_miss_rate": champion_stockout,
+        "champion.overstock_rate": champion_overstock_rate,
+        "champion.overstock_dollars": champion_overstock_dollars,
+    }
+    missing_required_inputs = [name for name, value in required_gate_inputs.items() if value is None]
 
     # DS gates (strict)
     mae_gate = candidate_mae is not None and champion_mae is not None and candidate_mae <= champion_mae * 1.02
@@ -258,7 +285,15 @@ async def evaluate_for_promotion(
         and candidate_overstock_rate <= champion_overstock_rate + 0.005
     )
 
-    if candidate_overstock_dollars is not None and champion_overstock_dollars is not None:
+    overstock_confidence_gate = candidate_overstock_confidence in {
+        "measured",
+        "estimated",
+    } and champion_overstock_confidence in {
+        "measured",
+        "estimated",
+    }
+
+    if candidate_overstock_dollars is not None and champion_overstock_dollars is not None and overstock_confidence_gate:
         improved = candidate_overstock_dollars <= champion_overstock_dollars * 0.99
         near_flat_with_stockout_gain = (
             candidate_overstock_dollars <= champion_overstock_dollars * 1.005
@@ -270,15 +305,19 @@ async def evaluate_for_promotion(
     else:
         overstock_dollars_gate = False
 
-    should_promote = all(
-        [
-            mae_gate,
-            mape_gate,
-            coverage_gate,
-            stockout_gate,
-            overstock_rate_gate,
-            overstock_dollars_gate,
-        ]
+    should_promote = (
+        all(
+            [
+                mae_gate,
+                mape_gate,
+                coverage_gate,
+                stockout_gate,
+                overstock_rate_gate,
+                overstock_confidence_gate,
+                overstock_dollars_gate,
+            ]
+        )
+        and not missing_required_inputs
     )
 
     gate_checks = {
@@ -287,6 +326,7 @@ async def evaluate_for_promotion(
         "coverage_gate": coverage_gate,
         "stockout_miss_gate": stockout_gate,
         "overstock_rate_gate": overstock_rate_gate,
+        "overstock_dollars_confidence_gate": overstock_confidence_gate,
         "overstock_dollars_gate": overstock_dollars_gate,
     }
 
@@ -299,6 +339,7 @@ async def evaluate_for_promotion(
             "stockout_miss_rate": champion_stockout,
             "overstock_rate": champion_overstock_rate,
             "overstock_dollars": champion_overstock_dollars,
+            "overstock_dollars_confidence": champion_overstock_confidence,
         },
         "candidate_metrics": {
             "mae": candidate_mae,
@@ -307,6 +348,7 @@ async def evaluate_for_promotion(
             "stockout_miss_rate": candidate_stockout,
             "overstock_rate": candidate_overstock_rate,
             "overstock_dollars": candidate_overstock_dollars,
+            "overstock_dollars_confidence": candidate_overstock_confidence,
         },
         "thresholds": {
             "max_mae_regression_pct": 2.0,
@@ -316,6 +358,7 @@ async def evaluate_for_promotion(
             "overstock_dollars_improvement_pct": 1.0,
             "overstock_dollars_tolerance_pct": 0.5,
         },
+        "missing_required_inputs": missing_required_inputs,
     }
 
     # Persist decision context with candidate metrics for reproducibility.
@@ -333,6 +376,8 @@ async def evaluate_for_promotion(
     await db.commit()
 
     fail_reasons = [name for name, passed in gate_checks.items() if not passed]
+    if missing_required_inputs:
+        fail_reasons.insert(0, f"missing_required_inputs:{','.join(sorted(missing_required_inputs))}")
     decision_reason = (
         "passed_business_and_ds_gates"
         if should_promote

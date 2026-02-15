@@ -20,6 +20,7 @@ I built ShelfOps for two reasons:
 
 - Predicts demand and stockout risk.
 - Supports reorder workflows and transfer optimization logic.
+- Surfaces assumption/confidence metadata in recommendation rationale for operational transparency.
 - Tracks anomalies and alert outcomes.
 - Includes enterprise data exchange foundations (especially EDI-oriented workflows).
 - Supports contract-driven onboarding for heterogeneous SMB and enterprise source schemas.

@@ -3,6 +3,8 @@ tenant_id: demo_smb
 source_type: smb_sftp
 grain: daily
 timezone: America/New_York
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: non_negative
 country_code: US
 id_columns:
   store: store_id

@@ -12,6 +12,8 @@ tenant_id: tenant-1
 source_type: smb_csv
 grain: daily
 timezone: America/New_York
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: non_negative
 id_columns: {store: store_id, product: product_id}
 field_map: {sale_date: date, store: store_id, sku: product_id, qty: quantity}
 type_map: {date: date, store_id: str, product_id: str, quantity: float}

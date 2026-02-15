@@ -171,3 +171,36 @@ class TestStoreSpecificLeadTime:
         assert calc_a.lead_time_days == 2
         assert calc_b.lead_time_days == 8
         assert calc_a.reorder_point < calc_b.reorder_point
+
+    async def test_vendor_capacity_assumption_can_block_unrealistic_request(self, test_db, seeded_db):
+        from db.models import ProductSourcingRule
+        from supply_chain.sourcing import SourcingEngine
+
+        customer_id = seeded_db["customer_id"]
+        product_id = seeded_db["product"].product_id
+        supplier_id = seeded_db["supplier"].supplier_id
+        store_id = seeded_db["store"].store_id
+
+        test_db.add(
+            ProductSourcingRule(
+                customer_id=customer_id,
+                product_id=product_id,
+                store_id=store_id,
+                source_type="vendor_direct",
+                source_id=supplier_id,
+                lead_time_days=5,
+                lead_time_variance_days=1,
+                priority=1,
+                active=True,
+            )
+        )
+        await test_db.commit()
+
+        engine = SourcingEngine(test_db)
+
+        small_request = await engine.get_sourcing_strategy(customer_id, store_id, product_id, quantity=50)
+        assert small_request is not None
+        assert small_request.assumption_confidence in {"assumed", "measured"}
+
+        blocked = await engine.get_sourcing_strategy(customer_id, store_id, product_id, quantity=20001)
+        assert blocked is None

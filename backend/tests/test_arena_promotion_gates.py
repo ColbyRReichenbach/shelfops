@@ -21,6 +21,7 @@ async def test_business_and_ds_gate_promotes_when_non_regressing(test_db, seeded
             "stockout_miss_rate": 0.08,
             "overstock_rate": 0.12,
             "overstock_dollars": 1000.0,
+            "overstock_dollars_confidence": "measured",
         },
     )
 
@@ -38,6 +39,7 @@ async def test_business_and_ds_gate_promotes_when_non_regressing(test_db, seeded
             "stockout_miss_rate": 0.079,
             "overstock_rate": 0.118,
             "overstock_dollars": 980.0,
+            "overstock_dollars_confidence": "measured",
         },
     )
 
@@ -53,6 +55,7 @@ async def test_business_and_ds_gate_promotes_when_non_regressing(test_db, seeded
             "stockout_miss_rate": 0.079,
             "overstock_rate": 0.118,
             "overstock_dollars": 980.0,
+            "overstock_dollars_confidence": "measured",
         },
     )
 
@@ -115,6 +118,7 @@ async def test_promotion_gate_fails_closed_when_business_metrics_missing(test_db
             "stockout_miss_rate": 0.08,
             "overstock_rate": 0.12,
             "overstock_dollars": 1000.0,
+            "overstock_dollars_confidence": "estimated",
         },
     )
 

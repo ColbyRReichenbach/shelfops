@@ -25,7 +25,7 @@ def test_load_db_data_partial_data_blocks():
 
 def test_load_db_data_valid_path_returns_canonical_dataframe():
     rows = []
-    start = date(2026, 1, 1)
+    start = date.today() - timedelta(days=130)
     for day in range(1, 121):
         current = start + timedelta(days=day)
         rows.append(
@@ -49,3 +49,31 @@ def test_load_db_data_valid_path_returns_canonical_dataframe():
     )
     assert len(out) >= 90
     assert {"date", "store_id", "product_id", "quantity", "tenant_id", "source_type", "frequency"}.issubset(out.columns)
+
+
+def test_load_db_data_applies_return_sign_policy_from_contract():
+    raw = pd.DataFrame(
+        [
+            {
+                "date": "2026-01-01",
+                "store_id": "S1",
+                "product_id": "P1",
+                "quantity": 5,
+                "transaction_type": "sale",
+            },
+            {
+                "date": "2026-01-02",
+                "store_id": "S1",
+                "product_id": "P1",
+                "quantity": 2,
+                "transaction_type": "return",
+            },
+        ]
+    )
+    out = _load_db_data(
+        "00000000-0000-0000-0000-000000000001",
+        min_rows=2,
+        raw_override=raw,
+    )
+    assert out["quantity"].iloc[0] == 5
+    assert out["quantity"].iloc[1] == -2

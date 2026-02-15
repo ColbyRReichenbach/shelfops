@@ -18,7 +18,16 @@ def _load_sample(path: Path) -> pd.DataFrame:
         raise FileNotFoundError(f"Sample path not found: {path}")
 
     if path.is_dir():
-        csvs = sorted(path.glob("*.csv"))
+        preferred_names = ["transactions.csv", "sales.csv", "daily_sales.csv"]
+        preferred = [path / name for name in preferred_names if (path / name).exists()]
+        if preferred:
+            csvs = preferred
+        else:
+            csvs = sorted(
+                p
+                for p in path.glob("*.csv")
+                if p.name.lower() not in {"stores.csv", "products.csv", "store_master.csv", "product_master.csv"}
+            )
         if not csvs:
             raise ValueError(f"No CSV files found under directory: {path}")
         frames = [pd.read_csv(p, low_memory=False) for p in csvs]
@@ -33,6 +42,55 @@ def _load_sample(path: Path) -> pd.DataFrame:
     raise ValueError(f"Unsupported sample file type: {path.suffix}")
 
 
+def _load_reference_data(sample_path: Path) -> dict[str, pd.DataFrame]:
+    if not sample_path.is_dir():
+        return {}
+
+    references: dict[str, pd.DataFrame] = {}
+    store_candidates = ["stores.csv", "store_master.csv"]
+    product_candidates = ["products.csv", "product_master.csv", "items.csv"]
+
+    for name in store_candidates:
+        file_path = sample_path / name
+        if file_path.exists():
+            references["stores"] = pd.read_csv(file_path, low_memory=False)
+            break
+    for name in product_candidates:
+        file_path = sample_path / name
+        if file_path.exists():
+            references["products"] = pd.read_csv(file_path, low_memory=False)
+            break
+
+    return references
+
+
+def _cost_confidence(canonical: pd.DataFrame) -> dict[str, str | float]:
+    if canonical.empty:
+        return {
+            "unit_cost_non_null_rate": 0.0,
+            "unit_price_non_null_rate": 0.0,
+            "unit_cost_confidence": "unavailable",
+            "unit_price_confidence": "unavailable",
+        }
+
+    unit_cost_rate = float(canonical["unit_cost"].notna().mean()) if "unit_cost" in canonical.columns else 0.0
+    unit_price_rate = float(canonical["unit_price"].notna().mean()) if "unit_price" in canonical.columns else 0.0
+
+    def label(rate: float) -> str:
+        if rate >= 0.95:
+            return "measured"
+        if rate >= 0.5:
+            return "estimated"
+        return "unavailable"
+
+    return {
+        "unit_cost_non_null_rate": unit_cost_rate,
+        "unit_price_non_null_rate": unit_price_rate,
+        "unit_cost_confidence": label(unit_cost_rate),
+        "unit_price_confidence": label(unit_price_rate),
+    }
+
+
 def _to_markdown(
     contract_path: Path,
     sample_path: Path,
@@ -40,6 +98,7 @@ def _to_markdown(
     rows_out: int,
     required_fields_present: bool,
     report: dict,
+    cost_confidence: dict[str, str | float],
 ) -> str:
     metrics = report["metrics"]
     failures = report["failures"]
@@ -62,6 +121,20 @@ def _to_markdown(
         f"| required_null_rate | {metrics.get('required_null_rate', 0):.4f} | <= {report['thresholds']['max_required_null_rate']:.4f} |",
         f"| duplicate_rate | {metrics.get('duplicate_rate', 0):.4f} | <= {report['thresholds']['max_duplicate_rate']:.4f} |",
         f"| quantity_parse_success | {metrics.get('quantity_parse_success', 0):.4f} | >= {report['thresholds']['min_quantity_parse_success']:.4f} |",
+        "",
+        "## Semantic DQ",
+        "",
+        f"- max_future_days_observed: {metrics.get('max_future_days_observed', 0):.2f}",
+        f"- history_years_observed: {metrics.get('history_years_observed', 0):.2f}",
+        f"- store_ref_missing_rate: {metrics.get('store_ref_missing_rate', 0):.4f}",
+        f"- product_ref_missing_rate: {metrics.get('product_ref_missing_rate', 0):.4f}",
+        "",
+        "## Cost Field Confidence",
+        "",
+        f"- unit_cost_non_null_rate: {float(cost_confidence['unit_cost_non_null_rate']):.4f}",
+        f"- unit_cost_confidence: `{cost_confidence['unit_cost_confidence']}`",
+        f"- unit_price_non_null_rate: {float(cost_confidence['unit_price_non_null_rate']):.4f}",
+        f"- unit_price_confidence: `{cost_confidence['unit_price_confidence']}`",
         "",
         "## Failures",
         "",
@@ -112,13 +185,15 @@ def main() -> int:
     try:
         profile = load_contract_profile(contract_path)
         raw_df = _load_sample(sample_path)
+        reference_data = _load_reference_data(sample_path)
     except (ContractProfileError, FileNotFoundError, ValueError) as exc:
         print(f"Validation setup failed: {exc}")
         return 2
 
-    result = build_canonical_result(raw_df, profile)
+    result = build_canonical_result(raw_df, profile, reference_data=reference_data)
     canonical = result.dataframe
     report = result.report.to_dict()
+    cost_confidence = _cost_confidence(canonical)
 
     required_fields_present = set(CANONICAL_REQUIRED_FIELDS).issubset(canonical.columns)
 
@@ -129,6 +204,8 @@ def main() -> int:
         "rows_mapped": int(len(canonical)),
         "required_fields_present": required_fields_present,
         "report": report,
+        "cost_confidence": cost_confidence,
+        "reference_data_loaded": sorted(reference_data.keys()),
     }
 
     output_json = Path(args.output_json)
@@ -137,7 +214,15 @@ def main() -> int:
     output_md.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-    markdown = _to_markdown(contract_path, sample_path, len(raw_df), len(canonical), required_fields_present, report)
+    markdown = _to_markdown(
+        contract_path,
+        sample_path,
+        len(raw_df),
+        len(canonical),
+        required_fields_present,
+        report,
+        cost_confidence,
+    )
     output_md.write_text(markdown, encoding="utf-8")
 
     if args.write_canonical:

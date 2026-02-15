@@ -22,13 +22,29 @@ frontend/.next/
 frontend/coverage/
 
 # Data & Models
-data/
+data/*
 backend/reports/
 backend/models/*.joblib
 backend/models/**/*.joblib
 backend/models/*.h5
 backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
+
+# Keep strict EDI seed fixtures tracked for deterministic validation
+!data/seed/
+data/seed/*
+!data/seed/edi/
+data/seed/edi/*
+!data/seed/edi/EDI810_20260215_001.edi
+!data/seed/edi/EDI850_20260215_001.edi
+!data/seed/edi/EDI856_20260215_001.edi
+!data/seed_smoke/
+data/seed_smoke/*
+!data/seed_smoke/edi/
+data/seed_smoke/edi/*
+!data/seed_smoke/edi/EDI810_20260215_001.edi
+!data/seed_smoke/edi/EDI850_20260215_001.edi
+!data/seed_smoke/edi/EDI856_20260215_001.edi
 
 # Documentation
 docs/*
@@ -47,6 +63,13 @@ docs/*
 !docs/AUDIT_FINDINGS_REGISTER.md
 !docs/AUDIT_SCORECARD.md
 !docs/HIRING_DECISION_MEMO.md
+!docs/HARDENING_BASELINE_2026_02_15.md
+!docs/HARDENING_RUNBOOK.md
+!docs/HARDENING_TRACKER.md
+!docs/HARDENING_EVIDENCE_INDEX.md
+!docs/REMEDIATION_BASELINE_2026_02_15.md
+!docs/REMEDIATION_TRACKER.md
+!docs/REMEDIATION_EVIDENCE_INDEX.md
 
 # Test databases
 *.db

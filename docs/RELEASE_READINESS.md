@@ -56,3 +56,9 @@ Enable required status checks on `main` in GitHub repository settings:
 Do not treat this repository as launch-ready until blockers in `docs/KNOWN_ISSUES.md` marked `P0` are resolved.
 
 Industry figures are context; company-specific figures should come from each company’s own SEC filing (`docs/RESEARCH_SOURCES.md`).
+
+## Hardening Claim Policy
+
+- No capability claim is marked `ready` unless code path + test evidence is available.
+- Recommendation outputs that depend on assumptions must expose confidence/assumption metadata.
+- Any unverified or partial capability must be labeled `partial` in public docs and readiness artifacts.
