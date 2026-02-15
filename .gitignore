@@ -25,6 +25,7 @@ frontend/coverage/
 data/
 backend/reports/
 backend/models/*.joblib
+backend/models/**/*.joblib
 backend/models/*.h5
 backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
