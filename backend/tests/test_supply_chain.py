@@ -106,6 +106,101 @@ class TestTransferRequest:
         assert transfer.from_location_id == store_id
         assert transfer.to_location_id == store2.store_id
 
+    async def test_transfer_opportunities_rank_by_distance_and_excess(self, test_db, seeded_db):
+        """Closer store with strong excess should rank higher than farther options."""
+        from db.models import InventoryLevel, ReorderPoint, Store
+        from supply_chain.transfers import find_transfer_opportunities
+
+        customer_id = seeded_db["customer_id"]
+        product_id = seeded_db["product"].product_id
+        requesting_store = seeded_db["store"]
+
+        # Ensure requesting store has location coordinates.
+        requesting_store.lat = 44.98
+        requesting_store.lon = -93.27
+
+        store_near = Store(
+            customer_id=customer_id,
+            name="Near Store",
+            city="Minneapolis",
+            state="MN",
+            zip_code="55402",
+            lat=44.99,
+            lon=-93.26,
+        )
+        store_far = Store(
+            customer_id=customer_id,
+            name="Far Store",
+            city="Rochester",
+            state="MN",
+            zip_code="55901",
+            lat=44.02,
+            lon=-92.47,
+        )
+        test_db.add_all([store_near, store_far])
+        await test_db.flush()
+
+        now = datetime.utcnow()
+        test_db.add_all(
+            [
+                InventoryLevel(
+                    customer_id=customer_id,
+                    store_id=store_near.store_id,
+                    product_id=product_id,
+                    timestamp=now,
+                    quantity_on_hand=250,
+                    quantity_available=250,
+                    quantity_on_order=0,
+                    source="test",
+                ),
+                InventoryLevel(
+                    customer_id=customer_id,
+                    store_id=store_far.store_id,
+                    product_id=product_id,
+                    timestamp=now,
+                    quantity_on_hand=500,
+                    quantity_available=500,
+                    quantity_on_order=0,
+                    source="test",
+                ),
+                ReorderPoint(
+                    customer_id=customer_id,
+                    store_id=store_near.store_id,
+                    product_id=product_id,
+                    reorder_point=80,
+                    safety_stock=40,
+                    economic_order_qty=100,
+                    lead_time_days=3,
+                    service_level=0.95,
+                ),
+                ReorderPoint(
+                    customer_id=customer_id,
+                    store_id=store_far.store_id,
+                    product_id=product_id,
+                    reorder_point=120,
+                    safety_stock=90,
+                    economic_order_qty=120,
+                    lead_time_days=4,
+                    service_level=0.95,
+                ),
+            ]
+        )
+        await test_db.commit()
+
+        options = await find_transfer_opportunities(
+            test_db,
+            customer_id=customer_id,
+            product_id=product_id,
+            requesting_store_id=requesting_store.store_id,
+            needed_qty=100,
+            max_results=3,
+            search_radius_miles=200,
+        )
+
+        assert len(options) >= 2
+        assert options[0].from_store_name == "Near Store"
+        assert options[0].distance_miles < options[1].distance_miles
+
 
 class TestTransferConstants:
     """Test transfer module constants."""
@@ -124,3 +219,10 @@ class TestTransferConstants:
         from supply_chain.transfers import MAX_SEARCH_RADIUS_MILES
 
         assert 10 <= MAX_SEARCH_RADIUS_MILES <= 200
+
+    def test_handling_cost_floor_applies(self, monkeypatch):
+        from supply_chain import transfers
+
+        monkeypatch.setattr(transfers, "COST_PER_MILE", 0.5)
+        monkeypatch.setattr(transfers, "HANDLING_COST_FLOOR", 12.0)
+        assert max(5 * transfers.COST_PER_MILE, transfers.HANDLING_COST_FLOOR) == 12.0

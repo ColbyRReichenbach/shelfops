@@ -24,20 +24,25 @@ import structlog
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.config import get_settings
 from db.models import (
     InventoryLevel,
     ReorderPoint,
     Store,
     StoreTransfer,
 )
+from retail.planogram import get_min_presentation_qty
 from supply_chain.sourcing import haversine_miles
 
 logger = structlog.get_logger()
 
-# Transfer cost assumptions
-COST_PER_MILE = 0.50  # $0.50/mile for store-to-store transfer
-DEFAULT_TRANSFER_LEAD_DAYS = 2  # Same-day or next-day for nearby stores
-MAX_SEARCH_RADIUS_MILES = 75  # Don't look beyond 75 miles
+_settings = get_settings()
+# Transfer policy is configurable for tenant/operator realism.
+COST_PER_MILE = float(_settings.transfer_cost_per_mile)
+DEFAULT_TRANSFER_LEAD_DAYS = int(_settings.transfer_default_lead_days)
+MAX_SEARCH_RADIUS_MILES = float(_settings.transfer_max_search_radius_miles)
+NEARBY_DISTANCE_MILES = float(_settings.transfer_nearby_distance_miles)
+HANDLING_COST_FLOOR = float(_settings.transfer_handling_cost_floor)
 
 
 @dataclass
@@ -142,15 +147,19 @@ async def find_transfer_opportunities(
         rp = rp_map.get(store.store_id)
         safety_stock = rp.safety_stock if rp else 0
 
-        # Excess = available above safety stock + 20-unit buffer
+        # Excess = available above reserve floor, where reserve floor includes:
+        # safety stock + static operating buffer + minimum shelf presentation qty.
         buffer = 20
-        excess = inv.quantity_available - safety_stock - buffer
+        min_presentation_qty = await get_min_presentation_qty(db, product_id, store.store_id)
+        reserve_floor = max(safety_stock + buffer, min_presentation_qty)
+        excess = inv.quantity_available - reserve_floor
         if excess <= 0:
             continue
 
-        transfer_cost = round(distance * COST_PER_MILE, 2)
+        variable_cost = distance * COST_PER_MILE
+        transfer_cost = round(max(variable_cost, HANDLING_COST_FLOOR), 2)
         recommended_qty = min(excess, needed_qty) if needed_qty > 0 else excess
-        lead_days = DEFAULT_TRANSFER_LEAD_DAYS if distance <= 30 else DEFAULT_TRANSFER_LEAD_DAYS + 1
+        lead_days = DEFAULT_TRANSFER_LEAD_DAYS if distance <= NEARBY_DISTANCE_MILES else DEFAULT_TRANSFER_LEAD_DAYS + 1
 
         options.append(
             TransferOption(

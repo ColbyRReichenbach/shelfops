@@ -9,14 +9,15 @@ import ForecastsPage from '@/pages/ForecastsPage'
 import ProductsPage from '@/pages/ProductsPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
 import InventoryPage from '@/pages/InventoryPage'
+import MLOpsPage from '@/pages/MLOpsPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
+    const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
+
     // Development bypass
     if (import.meta.env.DEV) {
         return <>{children}</>
     }
-
-    const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
 
     if (isLoading) {
         return (
@@ -50,6 +51,7 @@ export default function App() {
                     <Route path="inventory" element={<InventoryPage />} />
                     <Route path="stores" element={<StoreView />} />
                     <Route path="integrations" element={<IntegrationsPage />} />
+                    <Route path="ml-ops" element={<MLOpsPage />} />
                 </Route>
 
                 {/* Catch-all redirect */}

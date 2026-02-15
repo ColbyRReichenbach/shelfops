@@ -140,3 +140,77 @@ export interface DashboardStats {
     active_promotions: number
     forecast_accuracy: number
 }
+
+// ─── ML Ops types ─────────────────────────────────────────────────────────
+
+export interface MLModel {
+    model_id: string
+    model_name: string
+    version: string
+    status: 'champion' | 'challenger' | 'archived' | 'candidate'
+    metrics: Record<string, number> | null
+    smoke_test_passed: boolean | null
+    routing_weight: number | null
+    created_at: string | null
+    promoted_at: string | null
+    archived_at: string | null
+}
+
+export interface BacktestEntry {
+    backtest_id: string
+    model_name: string
+    model_version: string
+    forecast_date: string | null
+    mae: number | null
+    mape: number | null
+    stockout_miss_rate: number | null
+    overstock_rate: number | null
+}
+
+export interface ExperimentRun {
+    experiment: string
+    model_name: string
+    timestamp: string | null
+    params: Record<string, unknown>
+    metrics: Record<string, number>
+    tags: Record<string, string>
+    mlflow_run_id: string | null
+    source_file: string
+}
+
+export interface SHAPFeature {
+    name: string
+    importance: number
+}
+
+export interface MLHealth {
+    status: string
+    model_counts: Record<string, number>
+    champions: Array<{
+        model_name: string
+        version: string
+        metrics: Record<string, number> | null
+        promoted_at: string | null
+    }>
+    recent_backtests_7d: number
+    registry_exists: boolean
+    checked_at: string
+}
+
+export interface SyncHealth {
+    integration_type: string
+    integration_name: string
+    last_sync: string | null
+    hours_since_sync: number | null
+    sla_hours: number
+    sla_status: 'ok' | 'breach'
+    failures_24h: number
+    syncs_24h: number
+    records_24h: number
+}
+
+export interface SyncHealthResponse {
+    sources: SyncHealth[]
+    overall_health: 'healthy' | 'degraded'
+    checked_at: string
+}

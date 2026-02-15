@@ -15,6 +15,7 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 # Add backend to path so imports work
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -64,6 +65,24 @@ Examples:
         choices=["cold_start", "production"],
         default=None,
         help="Force feature tier (default: auto-detect)",
+    )
+    parser.add_argument(
+        "--holdout-days",
+        type=int,
+        default=0,
+        help="Untouched holdout window size in days (default: 0, disabled)",
+    )
+    parser.add_argument(
+        "--train-end-date",
+        type=str,
+        default=None,
+        help="Optional explicit training cutoff date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--write-partition-manifest",
+        type=str,
+        default=None,
+        help="Optional output path for replay partition manifest JSON",
     )
 
     args = parser.parse_args()
@@ -123,6 +142,8 @@ Examples:
     print(f"  Version:   {version}")
     print(f"  Promote:   {args.promote}")
     print(f"  Tier:      {args.tier or 'auto-detect'}")
+    print(f"  Holdout:   {args.holdout_days} days")
+    print(f"  Cutoff:    {args.train_end_date or 'none'}")
     print()
 
     start = time.time()
@@ -135,6 +156,40 @@ Examples:
         f"({transactions_df['store_id'].nunique()} stores, "
         f"{transactions_df['product_id'].nunique()} products)"
     )
+
+    if args.holdout_days > 0 or args.train_end_date:
+        from ml.replay_partition import build_time_partition, write_partition_manifest
+
+        source_paths = [str(p.resolve()) for p in sorted(Path(data_dir).rglob("*.csv")) if p.is_file()]
+        dataset_id = (
+            str(transactions_df["dataset_id"].iloc[0])
+            if "dataset_id" in transactions_df.columns and len(transactions_df) > 0
+            else args.dataset
+        )
+        partition = build_time_partition(
+            transactions_df,
+            holdout_days=args.holdout_days,
+            train_end_date=args.train_end_date,
+            dataset_id=dataset_id,
+            source_paths=source_paths,
+        )
+        transactions_df = partition["train_df"]
+        metadata = partition["metadata"]
+
+        print(
+            "  ✓ Applied replay partition "
+            f"(train_end={metadata['train_end_date']}, "
+            f"holdout_start={metadata['holdout_start_date']}, "
+            f"holdout_rows={metadata['holdout_rows']:,})"
+        )
+        if args.write_partition_manifest:
+            manifest_path = write_partition_manifest(metadata, args.write_partition_manifest)
+            print(f"  ✓ Wrote partition manifest: {manifest_path}")
+
+        train_end_date = metadata["train_end_date"]
+        if transactions_df["date"].max().date().isoformat() > train_end_date:
+            print("\n❌ Partition integrity check failed: training data exceeds train_end_date.")
+            sys.exit(1)
 
     # Step 2: Feature engineering
     print("\nStep 2/4: Engineering features...")
@@ -170,6 +225,7 @@ Examples:
         version=version,
         dataset_name=args.dataset,
         promote=args.promote,
+        rows_trained=len(features_df),
     )
 
     elapsed = time.time() - start

@@ -1,0 +1,43 @@
+contract_version: v1
+tenant_id: productization-smb-b
+source_type: smb_sftp
+grain: daily
+timezone: America/New_York
+timezone_handling: source_local_date
+quantity_sign_policy: non_negative
+country_code: US
+date_format_hint: "%m-%d-%Y"
+currency: USD
+quantity_uom: units
+id_normalization_rules:
+  store_id:
+    strip: true
+  product_id:
+    strip: true
+    upper: true
+id_columns:
+  location_id: store_id
+  item_code: product_id
+field_map:
+  event_date: date
+  location_id: store_id
+  item_code: product_id
+  qty_tens: quantity
+type_map:
+  date: date
+  store_id: str
+  product_id: str
+  quantity: float
+unit_map:
+  quantity:
+    multiplier: 10.0
+null_policy: {}
+dedupe_keys:
+  - store_id
+  - product_id
+  - date
+dq_thresholds:
+  min_date_parse_success: 0.99
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  min_quantity_parse_success: 0.995

@@ -116,6 +116,23 @@ class EDIX12Parser:
         return None
 
     @staticmethod
+    def _extract_id_value_pairs(elements: list[str]) -> list[tuple[str, str]]:
+        """
+        Extract qualifier/value token pairs from an X12 segment.
+
+        Many real docs include sequence numbers before qualifiers (e.g.
+        `LIN*1*UP*...*IN*...`). This helper scans adjacent tokens so parsers
+        can handle both numbered and unnumbered variants.
+        """
+        pairs: list[tuple[str, str]] = []
+        for idx in range(1, len(elements) - 1):
+            qualifier = elements[idx].strip()
+            value = elements[idx + 1].strip()
+            if qualifier and value:
+                pairs.append((qualifier, value))
+        return pairs
+
+    @staticmethod
     def parse_846(raw: str) -> list[EDI846Item]:
         """
         Parse EDI 846 — Inventory Inquiry/Advice.
@@ -141,9 +158,7 @@ class EDIX12Parser:
                 # Start a new item
                 # LIN*1*UP*012345678901*IN*GTIN14DIGIT~
                 current_item = {"gtin": "", "upc": ""}
-                for i in range(1, len(elements) - 1, 2):
-                    qualifier = elements[i].strip()
-                    value = elements[i + 1].strip() if i + 1 < len(elements) else ""
+                for qualifier, value in EDIX12Parser._extract_id_value_pairs(elements):
                     if qualifier == "UP":
                         current_item["upc"] = value
                         if not current_item["gtin"]:
@@ -212,8 +227,12 @@ class EDIX12Parser:
                     except ValueError:
                         pass
 
-            elif seg_id == "TD5" and len(elements) >= 5:
-                shipment.carrier = elements[3].strip()
+            elif seg_id == "TD5" and len(elements) >= 4:
+                # TD5 commonly carries both a carrier code and a service level.
+                # Prefer service level when present (e.g. "Ground"), else use code.
+                carrier_code = elements[3].strip()
+                carrier_service = elements[4].strip() if len(elements) >= 5 else ""
+                shipment.carrier = carrier_service or carrier_code
 
             elif seg_id == "REF" and len(elements) >= 3:
                 qualifier = elements[1].strip()
@@ -226,9 +245,7 @@ class EDIX12Parser:
                 if current_item.get("gtin"):
                     shipment.items.append(current_item)
                 current_item = {}
-                for i in range(1, len(elements) - 1, 2):
-                    qualifier = elements[i].strip()
-                    value = elements[i + 1].strip() if i + 1 < len(elements) else ""
+                for qualifier, value in EDIX12Parser._extract_id_value_pairs(elements):
                     if qualifier in ("UP", "IN"):
                         current_item["gtin"] = value
 
@@ -281,9 +298,7 @@ class EDIX12Parser:
                     "unit_price": unit_price,
                     "line_total": qty * unit_price,
                 }
-                for i in range(5, len(elements) - 1, 2):
-                    qualifier = elements[i].strip()
-                    value = elements[i + 1].strip() if i + 1 < len(elements) else ""
+                for qualifier, value in EDIX12Parser._extract_id_value_pairs(elements):
                     if qualifier in ("UP", "IN"):
                         current_line["gtin"] = value
 
@@ -491,16 +506,34 @@ class EDIAdapter(RetailIntegrationAdapter):
     # ── File helpers ───────────────────────────────────────────────────────
 
     def _list_files(self, edi_type: str) -> list[str]:
-        """List unprocessed EDI files of a given type in the input dir."""
+        """
+        List unprocessed EDI files for a specific transaction type.
+
+        We cannot rely on filename conventions from trading partners, so we
+        inspect each document's ST segment and keep only files matching the
+        requested type (e.g. 846, 856, 810, 850).
+        """
         import os
 
         if not os.path.isdir(self.input_dir):
             return []
-        return [
-            os.path.join(self.input_dir, f)
-            for f in sorted(os.listdir(self.input_dir))
-            if f.endswith(".edi") or f.endswith(".x12") or f.endswith(".txt")
-        ]
+        matched_files: list[str] = []
+        for filename in sorted(os.listdir(self.input_dir)):
+            if not (filename.endswith(".edi") or filename.endswith(".x12") or filename.endswith(".txt")):
+                continue
+
+            filepath = os.path.join(self.input_dir, filename)
+            try:
+                raw = self._read_file(filepath)
+                txn_type = self.parser.detect_transaction_type(raw)
+                if txn_type == edi_type:
+                    matched_files.append(filepath)
+            except Exception:
+                # Ignore unreadable or malformed files; parser paths surface errors
+                # when specific sync methods process eligible documents.
+                continue
+
+        return matched_files
 
     @staticmethod
     def _read_file(filepath: str) -> str:

@@ -2,10 +2,14 @@
 Integrations Router — POS integration management + Square OAuth.
 """
 
+import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime
+import time
+import uuid
+from datetime import datetime, timedelta
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
@@ -18,10 +22,65 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_user, get_db, get_tenant_db
 from core.config import get_settings
 from core.security import encrypt
-from db.models import Integration
+from db.models import Integration, IntegrationSyncLog
+from integrations.sla_policy import resolve_sla_hours
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 settings = get_settings()
+
+
+# ─── OAuth State Helpers ─────────────────────────────────────────────────────
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def _state_signing_key() -> bytes:
+    # Combine secrets to avoid accidental key reuse in other signatures.
+    return f"{settings.jwt_secret}:{settings.encryption_key}".encode()
+
+
+def _sign_square_oauth_state(customer_id: str) -> str:
+    payload = {
+        "customer_id": customer_id,
+        "nonce": uuid.uuid4().hex,
+        "exp": int(time.time()) + max(60, int(settings.square_oauth_state_ttl_seconds)),
+    }
+    payload_token = _b64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = hmac.new(_state_signing_key(), payload_token.encode("utf-8"), hashlib.sha256).digest()
+    return f"{payload_token}.{_b64url_encode(signature)}"
+
+
+def _verify_square_oauth_state(state: str) -> str:
+    try:
+        payload_token, sig_token = state.split(".", 1)
+    except ValueError as exc:
+        raise ValueError("invalid_state_format") from exc
+
+    expected_sig = hmac.new(_state_signing_key(), payload_token.encode("utf-8"), hashlib.sha256).digest()
+    provided_sig = _b64url_decode(sig_token)
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        raise ValueError("invalid_state_signature")
+
+    try:
+        payload = json.loads(_b64url_decode(payload_token))
+    except Exception as exc:
+        raise ValueError("invalid_state_payload") from exc
+
+    exp = int(payload.get("exp", 0))
+    if exp <= int(time.time()):
+        raise ValueError("expired_state")
+
+    customer_id = str(payload.get("customer_id", "")).strip()
+    if not customer_id:
+        raise ValueError("missing_customer_id")
+    return customer_id
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -53,11 +112,12 @@ async def square_connect(
         if settings.square_environment == "sandbox"
         else "https://connect.squareup.com"
     )
+    state = _sign_square_oauth_state(str(user["customer_id"]))
     auth_url = (
         f"{base_url}/oauth2/authorize"
         f"?client_id={settings.square_client_id}"
         f"&scope=ITEMS_READ+INVENTORY_READ+ORDERS_READ+MERCHANT_PROFILE_READ"
-        f"&state={user['customer_id']}"
+        f"&state={quote(state, safe='')}"
     )
     return RedirectResponse(url=auth_url)
 
@@ -69,6 +129,11 @@ async def square_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Square OAuth callback — exchange code for tokens."""
+    try:
+        customer_id = _verify_square_oauth_state(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {exc}") from exc
+
     base_url = (
         "https://connect.squareupsandbox.com"
         if settings.square_environment == "sandbox"
@@ -92,7 +157,7 @@ async def square_callback(
     token_data = response.json()
 
     integration = Integration(
-        customer_id=state,
+        customer_id=customer_id,
         provider="square",
         access_token_encrypted=encrypt(token_data["access_token"]),
         refresh_token_encrypted=encrypt(token_data.get("refresh_token", "")),
@@ -161,3 +226,91 @@ async def disconnect_integration(
         raise HTTPException(status_code=404, detail="Integration not found")
     integration.status = "disconnected"
     await db.commit()
+
+
+# ─── Sync Health ────────────────────────────────────────────────────────────
+
+
+@router.get("/sync-health")
+async def get_sync_health(
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """
+    Get data ingestion health across all integration sources.
+
+    Returns last sync status per source, SLA compliance, and recent failures.
+    """
+    from sqlalchemy import func
+
+    # Get last sync per integration type
+    subquery = select(
+        IntegrationSyncLog.integration_type,
+        IntegrationSyncLog.integration_name,
+        func.max(IntegrationSyncLog.started_at).label("last_sync"),
+    ).group_by(
+        IntegrationSyncLog.integration_type,
+        IntegrationSyncLog.integration_name,
+    )
+    result = await db.execute(subquery)
+    latest_syncs = result.all()
+
+    # Get failure count (last 24h)
+    cutoff_24h = datetime.utcnow() - timedelta(hours=24)
+    fail_result = await db.execute(
+        select(
+            IntegrationSyncLog.integration_name,
+            func.count().label("failure_count"),
+        )
+        .where(
+            IntegrationSyncLog.sync_status.in_(["failed", "partial"]),
+            IntegrationSyncLog.started_at >= cutoff_24h,
+        )
+        .group_by(IntegrationSyncLog.integration_name)
+    )
+    failures = {row.integration_name: row.failure_count for row in fail_result.all()}
+
+    # Get total sync count (last 24h)
+    total_result = await db.execute(
+        select(
+            IntegrationSyncLog.integration_name,
+            func.count().label("total_count"),
+            func.sum(IntegrationSyncLog.records_synced).label("total_records"),
+        )
+        .where(IntegrationSyncLog.started_at >= cutoff_24h)
+        .group_by(IntegrationSyncLog.integration_name)
+    )
+    totals = {
+        row.integration_name: {
+            "count": row.total_count,
+            "records": int(row.total_records or 0),
+        }
+        for row in total_result.all()
+    }
+
+    sources = []
+    for row in latest_syncs:
+        name = row.integration_name
+        last_sync = row.last_sync
+        hours_since = (datetime.utcnow() - last_sync).total_seconds() / 3600 if last_sync else None
+        sla_limit = resolve_sla_hours(row.integration_type, name)
+        sla_ok = hours_since is not None and hours_since <= sla_limit
+
+        sources.append(
+            {
+                "integration_type": row.integration_type,
+                "integration_name": name,
+                "last_sync": last_sync.isoformat() if last_sync else None,
+                "hours_since_sync": round(hours_since, 1) if hours_since else None,
+                "sla_hours": sla_limit,
+                "sla_status": "ok" if sla_ok else "breach",
+                "failures_24h": failures.get(name, 0),
+                "syncs_24h": totals.get(name, {}).get("count", 0),
+                "records_24h": totals.get(name, {}).get("records", 0),
+            }
+        )
+
+    return {
+        "sources": sources,
+        "overall_health": "healthy" if all(s["sla_status"] == "ok" for s in sources) else "degraded",
+        "checked_at": datetime.utcnow().isoformat(),
+    }

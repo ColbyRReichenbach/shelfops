@@ -1,0 +1,50 @@
+contract_version: v1
+tenant_id: productization-enterprise-like
+source_type: enterprise_event
+grain: daily
+timezone: UTC
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: allow_negative_returns
+country_code: US
+date_format_hint: "iso8601"
+currency: USD
+quantity_uom: units
+id_normalization_rules:
+  store_id:
+    strip: true
+  product_id:
+    strip: true
+id_columns:
+  store_id: store_id
+  sku: product_id
+field_map:
+  timestamp: date
+  store_id: store_id
+  sku: product_id
+  quantity: quantity
+  unit_price: unit_price
+  transaction_type: transaction_type
+type_map:
+  date: date
+  store_id: str
+  product_id: str
+  quantity: float
+  unit_price: float
+  transaction_type: str
+unit_map:
+  quantity:
+    multiplier: 1.0
+null_policy:
+  unit_price:
+    fill_value: 0
+dedupe_keys:
+  - store_id
+  - product_id
+  - date
+dq_thresholds:
+  min_date_parse_success: 0.99
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  min_quantity_parse_success: 0.995
+  max_store_ref_missing_rate: 0.0
+  max_product_ref_missing_rate: 0.0

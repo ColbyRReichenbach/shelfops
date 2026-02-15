@@ -99,7 +99,6 @@ async def process_receiving(
             product_id=po.product_id,
             quantity_on_hand=latest_inv.quantity_on_hand + received_qty,
             quantity_on_order=max(0, latest_inv.quantity_on_order - ordered_qty),
-            quantity_in_transit=max(0, (latest_inv.quantity_in_transit or 0) - ordered_qty),
             quantity_available=(latest_inv.quantity_on_hand + received_qty) - latest_inv.quantity_reserved,
             quantity_reserved=latest_inv.quantity_reserved,
             timestamp=datetime.utcnow(),

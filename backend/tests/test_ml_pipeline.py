@@ -289,6 +289,43 @@ class TestPredictDemand:
         assert (result["forecasted_demand"] >= 0).all()
         assert (result["lower_bound"] >= 0).all()
 
+    def test_predict_demand_lstm_missing_norm_stats_falls_back(self):
+        from ml.features import COLD_START_FEATURE_COLS
+        from ml.predict import predict_demand
+
+        n = 4
+        features_df = pd.DataFrame(
+            {
+                "store_id": ["S1"] * n,
+                "product_id": ["P1"] * n,
+                "date": pd.date_range("2025-01-01", periods=n),
+            }
+        )
+        for col in COLD_START_FEATURE_COLS:
+            features_df[col] = np.random.rand(n)
+
+        class MockXGB:
+            def predict(self, X):
+                return np.array([4.0, 5.0, 6.0, 7.0])
+
+        class MockLSTM:
+            # Intentionally missing _norm_mean/_norm_std to force fallback path.
+            def predict(self, X, verbose=0):
+                return np.array([999.0])
+
+        models = {
+            "xgboost": MockXGB(),
+            "lstm": MockLSTM(),
+            "metadata": {
+                "weights": {"xgboost": 0.65, "lstm": 0.35},
+                "lstm_metrics": {"sequence_length": 2},
+            },
+            "feature_cols": COLD_START_FEATURE_COLS,
+        }
+
+        result = predict_demand(features_df, models)
+        assert result["forecasted_demand"].tolist() == [4.0, 5.0, 6.0, 7.0]
+
 
 class TestApplyBusinessRules:
     """Test post-prediction business rule adjustments."""

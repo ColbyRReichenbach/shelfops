@@ -20,8 +20,10 @@ from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import structlog
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from ml.metrics_contract import compute_forecast_metrics
 
 logger = structlog.get_logger()
 
@@ -60,7 +62,7 @@ async def run_continuous_backtest(
     Returns:
         dict with {windows_tested, avg_mae, avg_mape, results: [...]}
     """
-    from db.models import Base, Transaction
+    from db.models import Transaction
 
     logger.info(
         "backtest.started",
@@ -81,15 +83,28 @@ async def run_continuous_backtest(
         forecast_end = current_date + timedelta(days=window_size_days)
 
         # Load actual sales for this window
-        actual_sales_query = select(
-            Transaction.store_id,
-            Transaction.product_id,
-            Transaction.date,
-            Transaction.quantity,
-        ).where(
-            Transaction.customer_id == customer_id,
-            Transaction.date >= forecast_start,
-            Transaction.date <= forecast_end,
+        sales_date = func.date(Transaction.timestamp)
+        signed_quantity = func.sum(
+            case(
+                (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+                (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+                else_=0,
+            )
+        )
+        actual_sales_query = (
+            select(
+                Transaction.store_id,
+                Transaction.product_id,
+                sales_date.label("sale_date"),
+                signed_quantity.label("actual_quantity"),
+            )
+            .where(
+                Transaction.customer_id == customer_id,
+                sales_date >= forecast_start,
+                sales_date <= forecast_end,
+                Transaction.transaction_type.in_(["sale", "return"]),
+            )
+            .group_by(Transaction.store_id, Transaction.product_id, sales_date)
         )
 
         actual_result = await db.execute(actual_sales_query)
@@ -110,8 +125,8 @@ async def run_continuous_backtest(
                 {
                     "store_id": str(row.store_id),
                     "product_id": str(row.product_id),
-                    "date": row.date,
-                    "actual_quantity": row.quantity,
+                    "date": pd.to_datetime(row.sale_date).date(),
+                    "actual_quantity": row.actual_quantity,
                 }
                 for row in actual_sales
             ]
@@ -176,25 +191,14 @@ async def run_continuous_backtest(
             continue
 
         # Calculate metrics
-        comparison_df["error"] = comparison_df["forecasted_demand"] - comparison_df["actual_quantity"]
-        comparison_df["abs_error"] = comparison_df["error"].abs()
-        comparison_df["pct_error"] = (
-            comparison_df["abs_error"] / comparison_df["actual_quantity"].replace(0, 1)
-        ) * 100
-
-        mae = comparison_df["abs_error"].mean()
-        mape = comparison_df["pct_error"].mean()
-
-        # Stockout miss rate: % of actual stockouts (qty=0) we didn't predict
-        stockouts = comparison_df[comparison_df["actual_quantity"] == 0]
-        if len(stockouts) > 0:
-            stockout_miss_rate = (stockouts["forecasted_demand"] > 0).sum() / len(stockouts)
-        else:
-            stockout_miss_rate = 0.0
-
-        # Overstock rate: % of forecasts that were >2x actual demand
-        overstock_count = (comparison_df["forecasted_demand"] > comparison_df["actual_quantity"] * 2).sum()
-        overstock_rate = overstock_count / len(comparison_df) if len(comparison_df) > 0 else 0.0
+        metrics = compute_forecast_metrics(
+            comparison_df["actual_quantity"],
+            comparison_df["forecasted_demand"],
+        )
+        mae = float(metrics["mae"])
+        mape = float(metrics["mape_nonzero"])
+        stockout_miss_rate = float(metrics["stockout_miss_rate"])
+        overstock_rate = float(metrics["overstock_rate"])
 
         # Store result
         from db.models import BacktestResult

@@ -9,15 +9,19 @@ Skill: ml-forecasting
 Workflow: train-forecast-model.md
 """
 
+import json
 import os
 from typing import Any
 
 import joblib
 import numpy as np
 import pandas as pd
+import structlog
 
 from ml.features import FEATURE_COLS, get_feature_cols
 from ml.train import ENSEMBLE_WEIGHTS, MODEL_DIR, TARGET_COL
+
+logger = structlog.get_logger()
 
 # Confidence interval z-scores
 Z_SCORES = {0.80: 1.28, 0.85: 1.44, 0.90: 1.645, 0.95: 1.96}
@@ -35,6 +39,8 @@ def load_models(version: str) -> dict[str, Any]:
         # Read tier info; fall back to production for legacy models
         "feature_tier": metadata.get("feature_tier", "production"),
         "feature_cols": metadata.get("feature_cols", FEATURE_COLS),
+        "model_name": metadata.get("model_name", "demand_forecast"),
+        "version": version,
     }
 
     lstm_path = os.path.join(version_dir, "lstm.keras")
@@ -49,6 +55,68 @@ def load_models(version: str) -> dict[str, Any]:
         result["lstm"] = None
 
     return result
+
+
+def load_model_for_category(product_category: str) -> dict[str, Any]:
+    """
+    Route to category-specific model if available, else global fallback.
+
+    Checks for category-tier champion models first (e.g., v1_fresh),
+    then falls back to the global champion.
+
+    Args:
+        product_category: Product department (e.g., "Produce", "Grocery")
+
+    Returns:
+        Loaded model dict from load_models()
+    """
+    from ml.segmentation import get_category_tier, get_model_name
+
+    try:
+        tier = get_category_tier(product_category)
+        tier_model_name = get_model_name(tier)
+
+        # Check registry for tier-specific champion
+        registry_path = os.path.join(MODEL_DIR, "registry.json")
+
+        if os.path.exists(registry_path):
+            with open(registry_path) as f:
+                registry = json.load(f)
+
+            # Find champion for this tier
+            for entry in reversed(registry.get("models", [])):
+                if entry.get("model_name") == tier_model_name and entry.get("status") == "champion":
+                    logger.info(
+                        "predict.using_category_model",
+                        category=product_category,
+                        tier=tier,
+                        version=entry["version"],
+                    )
+                    return load_models(entry["version"])
+
+        logger.info(
+            "predict.no_category_model",
+            category=product_category,
+            tier=tier,
+            fallback="global_champion",
+        )
+    except ValueError:
+        logger.warning("predict.unknown_category", category=product_category)
+
+    # Fallback to global champion
+    return _load_global_champion()
+
+
+def _load_global_champion() -> dict[str, Any]:
+    """Load the global champion model."""
+    champion_path = os.path.join(MODEL_DIR, "champion.json")
+    if os.path.exists(champion_path):
+        with open(champion_path) as f:
+            champion = json.load(f)
+        return load_models(champion["version"])
+
+    # Last resort: try v1
+    return load_models("v1")
 
 
 def predict_demand(
@@ -77,20 +145,26 @@ def predict_demand(
     xgb_preds = models["xgboost"].predict(X)
     xgb_preds = np.maximum(xgb_preds, 0)
 
-    # LSTM prediction (if available)
+    # LSTM prediction (if available and runtime metadata is present)
     if models.get("lstm") is not None:
         lstm_model = models["lstm"]
-        X_norm = (X.values - lstm_model._norm_mean) / lstm_model._norm_std
-        # For single-step prediction, use last sequence_length rows
-        seq_len = models["metadata"].get("lstm_metrics", {}).get("sequence_length", 30)
-        if len(X_norm) >= seq_len:
-            X_seq = np.array([X_norm[-seq_len:]])
-            lstm_pred = lstm_model.predict(X_seq, verbose=0).flatten()
-            lstm_pred = np.maximum(lstm_pred, 0)
-            # Broadcast last prediction
-            lstm_preds = np.full(len(xgb_preds), lstm_pred[-1])
-        else:
+        norm_mean = getattr(lstm_model, "_norm_mean", None)
+        norm_std = getattr(lstm_model, "_norm_std", None)
+        if norm_mean is None or norm_std is None:
+            logger.warning("predict.lstm_missing_norm_stats_fallback_xgb")
             lstm_preds = xgb_preds  # Fallback
+        else:
+            X_norm = (X.values - norm_mean) / norm_std
+            # For single-step prediction, use last sequence_length rows
+            seq_len = models["metadata"].get("lstm_metrics", {}).get("sequence_length", 30)
+            if len(X_norm) >= seq_len:
+                X_seq = np.array([X_norm[-seq_len:]])
+                lstm_pred = lstm_model.predict(X_seq, verbose=0).flatten()
+                lstm_pred = np.maximum(lstm_pred, 0)
+                # Broadcast last prediction
+                lstm_preds = np.full(len(xgb_preds), lstm_pred[-1])
+            else:
+                lstm_preds = xgb_preds  # Fallback
     else:
         lstm_preds = xgb_preds  # XGBoost-only fallback
 

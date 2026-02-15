@@ -1,0 +1,3 @@
+sale_dt,location,sku_id,units_sold,cost_usd,retail_usd,promo
+01/01/2026,001,SKU-1,10,2.5,4.0,Y
+01/02/2026,001,SKU-1,8,2.5,4.0,N

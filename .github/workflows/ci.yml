@@ -38,7 +38,261 @@ jobs:
         env:
           PYTHONPATH: backend
           DATABASE_URL: sqlite+aiosqlite:///test.db
-        run: python -m pytest backend/tests/ -v --tb=short
+        run: python -m pytest backend/tests/ tests/ -v --tb=short
+
+  enterprise-seed-validation:
+    name: Enterprise Seed Validation
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+      - name: Generate smoke enterprise seed
+        run: |
+          python backend/scripts/seed_enterprise_data.py \
+            --days 7 \
+            --products 100 \
+            --stores 5 \
+            --output data/seed_ci
+      - name: Validate seeded enterprise artifacts
+        run: |
+          python backend/scripts/validate_enterprise_seed.py \
+            --input data/seed_ci \
+            --strict
+
+  edi-fixture-e2e:
+    name: EDI Fixture E2E
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-ml.txt
+          pip install aiosqlite
+      - name: Run deterministic EDI fixture harness
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: sqlite+aiosqlite:///test.db
+        run: python -m pytest backend/tests/test_edi_adapter.py -v --tb=short
+
+  contract-validation-suite:
+    name: Contract Validation Suite
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-ml.txt
+          pip install aiosqlite
+      - name: Run contract and mapping tests
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: sqlite+aiosqlite:///test.db
+        run: |
+          python -m pytest backend/tests/test_contract_profiles.py backend/tests/test_contract_mapper.py backend/tests/test_validate_customer_contract.py backend/tests/test_run_onboarding_flow.py -v --tb=short
+      - name: Validate demo SMB contract against fixture
+        env:
+          PYTHONPATH: backend
+        run: |
+          python backend/scripts/validate_customer_contract.py \
+            --contract contracts/demo_smb/smb_csv/v1.yaml \
+            --sample-path backend/tests/fixtures/contracts/sample_smb.csv \
+            --output-json backend/reports/contract_validation_ci.json \
+            --output-md backend/reports/contract_validation_ci.md
+
+  docs-command-check:
+    name: Docs Command Check
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-ml.txt
+      - name: Validate documented command surfaces
+        env:
+          PYTHONPATH: backend
+        run: |
+          python backend/scripts/validate_training_datasets.py --base-dir . --output /tmp/dataset_validation.md
+          python backend/scripts/run_training.py --help > /tmp/run_training_help.txt
+          python backend/scripts/benchmark_datasets.py --help > /tmp/benchmark_help.txt
+      - name: Validate documentation structure and policy
+        run: |
+          bash scripts/validate_docs.sh
+
+  postgres-parity:
+    name: Postgres Parity
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: shelfops
+          POSTGRES_USER: shelfops
+          POSTGRES_PASSWORD: dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shelfops -d shelfops"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install alembic
+      - name: Run migrations on Postgres
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Validate tenant session settings work on Postgres
+        run: |
+          python - <<'PY'
+          import asyncio
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          async def main():
+              engine = create_async_engine("postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops")
+              async with engine.connect() as conn:
+                  await conn.execute(text("SELECT set_config('app.current_customer_id', '00000000-0000-0000-0000-000000000001', false)"))
+                  result = await conn.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
+                  value = result.scalar_one_or_none()
+                  assert value == "00000000-0000-0000-0000-000000000001"
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
+
+  release-gate:
+    name: Release Gate
+    runs-on: ubuntu-latest
+    needs: [backend-lint, backend-test, postgres-parity]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: shelfops
+          POSTGRES_USER: shelfops
+          POSTGRES_PASSWORD: dev_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shelfops -d shelfops"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          cache: pip
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install -r backend/requirements-ml.txt
+          pip install alembic aiosqlite
+      - name: Migration rollback/forward smoke
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic downgrade 007
+          alembic upgrade head
+      - name: Validate forced RLS stays enabled
+        run: |
+          python - <<'PY'
+          import asyncio
+          from sqlalchemy import text
+          from sqlalchemy.ext.asyncio import create_async_engine
+
+          TABLES = [
+              "stores",
+              "products",
+              "suppliers",
+              "transactions",
+              "inventory_levels",
+              "integrations",
+              "integration_sync_log",
+          ]
+
+          async def main():
+              engine = create_async_engine("postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops")
+              async with engine.connect() as conn:
+                  for table in TABLES:
+                      result = await conn.execute(
+                          text(
+                              "SELECT relforcerowsecurity FROM pg_class "
+                              "WHERE oid = to_regclass(:table_name)"
+                          ),
+                          {"table_name": f"public.{table}"},
+                      )
+                      forced = result.scalar_one_or_none()
+                      assert forced is True, f"Expected FORCE RLS on {table}, got {forced!r}"
+              await engine.dispose()
+
+          asyncio.run(main())
+          PY
+      - name: Validate runtime config matrix
+        env:
+          APP_ENV: production
+          DEBUG: "false"
+          AUTH0_DOMAIN: example-tenant.us.auth0.com
+          AUTH0_AUDIENCE: https://api.shelfops.com
+          JWT_SECRET: ci-nondefault-jwt-secret
+          ENCRYPTION_KEY: ci-nondefault-encryption-key
+          SQUARE_CLIENT_ID: sq0idp-ci-demo-client-id
+          SQUARE_CLIENT_SECRET: sq0csp-ci-demo-client-secret
+          SQUARE_WEBHOOK_SECRET: sqwhsec-ci-demo-webhook-secret
+          SQUARE_ENABLE_DEMO_ID_SYNTHESIS: "false"
+        run: |
+          python backend/scripts/validate_runtime_config.py --require-square --pretty
+      - name: Run auth/sync smoke drills
+        env:
+          PYTHONPATH: backend
+          DATABASE_URL: sqlite+aiosqlite:///test.db
+        run: |
+          python -m pytest \
+            backend/tests/test_security_guardrails.py \
+            backend/tests/test_security_auth0.py \
+            backend/tests/test_integrations_api.py \
+            backend/tests/test_square_sync_mapping.py \
+            backend/tests/test_sync_worker_pipeline.py \
+            backend/tests/test_validate_runtime_config_script.py \
+            -v --tb=short
 
   frontend-lint:
     name: Frontend Lint

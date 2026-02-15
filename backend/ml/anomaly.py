@@ -86,9 +86,7 @@ async def build_anomaly_features(
 
     # Get products (for price, category)
     prod_result = await db.execute(
-        select(Product.product_id, Product.unit_price, Product.category).where(
-            Product.customer_id == customer_id
-        )
+        select(Product.product_id, Product.unit_price, Product.category).where(Product.customer_id == customer_id)
     )
     products = {row.product_id: {"unit_price": row.unit_price, "category": row.category} for row in prod_result.all()}
 
@@ -155,8 +153,10 @@ async def build_anomaly_features(
     # Calculate price vs category average
     category_avg_price = features_df.groupby("category")["unit_price"].mean().to_dict()
     features_df["price_vs_avg"] = features_df.apply(
-        lambda row: ((row["unit_price"] - category_avg_price.get(row["category"], row["unit_price"]))
-                     / (category_avg_price.get(row["category"], row["unit_price"]) + 1))
+        lambda row: (
+            (row["unit_price"] - category_avg_price.get(row["category"], row["unit_price"]))
+            / (category_avg_price.get(row["category"], row["unit_price"]) + 1)
+        )
         * 100,
         axis=1,
     )
@@ -190,6 +190,8 @@ async def detect_anomalies_ml(
             "top_anomalies": [...],
         }
     """
+    from ml.experiment import ExperimentTracker
+
     logger.info("anomaly.detect_start", customer_id=str(customer_id))
 
     # Build feature matrix
@@ -222,14 +224,46 @@ async def detect_anomalies_ml(
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Train Isolation Forest
-    iso_forest = IsolationForest(
-        contamination=contamination,
-        random_state=42,
-        n_estimators=100,
-    )
-    predictions = iso_forest.fit_predict(X_scaled)
-    anomaly_scores = iso_forest.score_samples(X_scaled)
+    # Train Isolation Forest with MLflow tracking
+    with ExperimentTracker(model_name="anomaly_detector") as tracker:
+        tracker.log_params(
+            {
+                "contamination": contamination,
+                "n_estimators": 100,
+                "n_features": len(feature_cols),
+                "n_samples": len(X),
+                "severity_threshold": severity_threshold,
+                "customer_id": str(customer_id),
+            }
+        )
+        tracker.log_tags(
+            {
+                "model_type": "isolation_forest",
+                "trigger": "scheduled",
+            }
+        )
+
+        iso_forest = IsolationForest(
+            contamination=contamination,
+            random_state=42,
+            n_estimators=100,
+        )
+        predictions = iso_forest.fit_predict(X_scaled)
+        anomaly_scores = iso_forest.score_samples(X_scaled)
+
+        # Log detection metrics
+        n_anomalies = int((predictions == -1).sum())
+        tracker.log_metrics(
+            {
+                "n_anomalies": n_anomalies,
+                "anomaly_rate": round(n_anomalies / len(predictions), 4) if len(predictions) > 0 else 0,
+                "mean_score": float(anomaly_scores.mean()),
+                "min_score": float(anomaly_scores.min()),
+            }
+        )
+
+        # Log severity distribution after anomalies are classified
+        tracker.log_model(iso_forest, "isolation_forest")
 
     # Add predictions to DataFrame
     features_df["is_anomaly"] = predictions == -1
@@ -332,7 +366,9 @@ def _explain_anomaly(row: pd.Series) -> str:
 
     # Stock anomaly
     if row["quantity_on_hand"] > row["sales_7d"] * 10:
-        reasons.append(f"Overstock detected ({row['quantity_on_hand']:.0f} units vs {row['sales_7d']:.0f} weekly sales)")
+        reasons.append(
+            f"Overstock detected ({row['quantity_on_hand']:.0f} units vs {row['sales_7d']:.0f} weekly sales)"
+        )
     elif row["quantity_on_hand"] < row["sales_7d"] * 0.5:
         reasons.append(f"Low stock ({row['quantity_on_hand']:.0f} units vs {row['sales_7d']:.0f} weekly sales)")
 

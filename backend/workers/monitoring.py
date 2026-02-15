@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
@@ -291,7 +291,10 @@ def run_daily_backtest(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Get champion model
                 champion = await get_champion_model(
@@ -339,6 +342,227 @@ def run_daily_backtest(self, customer_id: str):
 
 
 @celery_app.task(
+    name="workers.monitoring.compute_forecast_accuracy",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=180,
+    acks_late=True,
+)
+def compute_forecast_accuracy(
+    self,
+    customer_id: str,
+    lookback_days: int = 30,
+    model_version: str | None = None,
+):
+    """
+    Compute realized forecast accuracy from persisted forecasts vs transaction outcomes.
+    """
+    run_id = self.request.id or "manual"
+    logger.info(
+        "accuracy_compute.started",
+        customer_id=customer_id,
+        run_id=run_id,
+        lookback_days=lookback_days,
+        model_version=model_version,
+    )
+
+    async def _compute():
+        import pandas as pd
+
+        from core.config import get_settings
+        from db.models import DemandForecast, ForecastAccuracy, ModelVersion, Transaction
+        from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+            async with async_session() as db:
+                customer_uuid = uuid.UUID(customer_id)
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+
+                end_date = datetime.utcnow().date() - timedelta(days=1)
+                start_date = end_date - timedelta(days=max(lookback_days - 1, 0))
+                if end_date < start_date:
+                    return {"status": "skipped", "reason": "invalid_date_range"}
+
+                forecast_query = select(
+                    DemandForecast.store_id,
+                    DemandForecast.product_id,
+                    DemandForecast.forecast_date,
+                    DemandForecast.forecasted_demand,
+                    DemandForecast.model_version,
+                ).where(
+                    DemandForecast.customer_id == customer_uuid,
+                    DemandForecast.forecast_date >= start_date,
+                    DemandForecast.forecast_date <= end_date,
+                )
+                if model_version:
+                    forecast_query = forecast_query.where(DemandForecast.model_version == model_version)
+
+                forecast_rows = (await db.execute(forecast_query)).all()
+                if not forecast_rows:
+                    return {
+                        "status": "skipped",
+                        "reason": "no_forecasts_for_window",
+                        "window_start": str(start_date),
+                        "window_end": str(end_date),
+                    }
+
+                sales_date = func.date(Transaction.timestamp)
+                signed_quantity = func.sum(
+                    case(
+                        (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+                        (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+                        else_=0,
+                    )
+                )
+                actual_rows = (
+                    await db.execute(
+                        select(
+                            Transaction.store_id,
+                            Transaction.product_id,
+                            sales_date.label("sale_date"),
+                            signed_quantity.label("actual_quantity"),
+                        )
+                        .where(
+                            Transaction.customer_id == customer_uuid,
+                            sales_date >= start_date,
+                            sales_date <= end_date,
+                            Transaction.transaction_type.in_(["sale", "return"]),
+                        )
+                        .group_by(Transaction.store_id, Transaction.product_id, sales_date)
+                    )
+                ).all()
+
+                actual_map = {
+                    (str(row.store_id), str(row.product_id), row.sale_date): float(row.actual_quantity or 0.0)
+                    for row in actual_rows
+                }
+
+                delete_query = ForecastAccuracy.__table__.delete().where(
+                    ForecastAccuracy.customer_id == customer_uuid,
+                    ForecastAccuracy.forecast_date >= start_date,
+                    ForecastAccuracy.forecast_date <= end_date,
+                )
+                if model_version:
+                    delete_query = delete_query.where(ForecastAccuracy.model_version == model_version)
+                await db.execute(delete_query)
+
+                inserted = 0
+                for row in forecast_rows:
+                    key = (str(row.store_id), str(row.product_id), row.forecast_date)
+                    actual = float(actual_map.get(key, 0.0))
+                    forecasted = float(row.forecasted_demand or 0.0)
+                    mae = abs(forecasted - actual)
+                    mape = (mae / abs(actual)) if actual != 0 else 0.0
+                    db.add(
+                        ForecastAccuracy(
+                            customer_id=customer_uuid,
+                            store_id=row.store_id,
+                            product_id=row.product_id,
+                            forecast_date=row.forecast_date,
+                            forecasted_demand=forecasted,
+                            actual_demand=actual,
+                            mae=mae,
+                            mape=mape,
+                            model_version=row.model_version,
+                            evaluated_at=datetime.utcnow(),
+                        )
+                    )
+                    inserted += 1
+
+                tx_rows = (
+                    await db.execute(
+                        select(
+                            func.date(Transaction.timestamp).label("date"),
+                            Transaction.store_id,
+                            Transaction.product_id,
+                            func.sum(
+                                case(
+                                    (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+                                    (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+                                    else_=0,
+                                )
+                            ).label("quantity"),
+                        )
+                        .where(
+                            Transaction.customer_id == customer_uuid,
+                            Transaction.transaction_type.in_(["sale", "return"]),
+                        )
+                        .group_by(func.date(Transaction.timestamp), Transaction.store_id, Transaction.product_id)
+                    )
+                ).all()
+                tx_df = pd.DataFrame(
+                    [
+                        {
+                            "date": row.date,
+                            "store_id": str(row.store_id),
+                            "product_id": str(row.product_id),
+                            "quantity": float(row.quantity or 0.0),
+                        }
+                        for row in tx_rows
+                    ],
+                    columns=["date", "store_id", "product_id", "quantity"],
+                )
+
+                challenger_result = await db.execute(
+                    select(ModelVersion.version)
+                    .where(
+                        ModelVersion.customer_id == customer_uuid,
+                        ModelVersion.model_name == "demand_forecast",
+                        ModelVersion.status.in_(["candidate", "challenger"]),
+                    )
+                    .order_by(ModelVersion.created_at.desc())
+                    .limit(1)
+                )
+                challenger_row = challenger_result.one_or_none()
+                candidate_version = str(challenger_row.version) if challenger_row else model_version
+
+                readiness = await evaluate_and_persist_tenant_readiness(
+                    db=db,
+                    customer_id=customer_uuid,
+                    transactions_df=tx_df,
+                    candidate_version=candidate_version,
+                    model_name="demand_forecast",
+                    thresholds=ReadinessThresholds(
+                        min_history_days=settings.ml_cold_start_min_history_days,
+                        min_store_count=settings.ml_cold_start_min_store_count,
+                        min_product_count=settings.ml_cold_start_min_product_count,
+                        min_accuracy_samples=settings.ml_promotion_min_accuracy_samples,
+                        accuracy_window_days=settings.ml_promotion_accuracy_window_days,
+                    ),
+                )
+
+                await db.commit()
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "window_start": str(start_date),
+                    "window_end": str(end_date),
+                    "forecasts_evaluated": len(forecast_rows),
+                    "accuracy_rows_written": inserted,
+                    "readiness": readiness,
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        result = asyncio.run(_compute())
+        logger.info("accuracy_compute.completed", **result)
+        return result
+    except Exception as exc:
+        logger.error("accuracy_compute.failed", customer_id=customer_id, error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
     name="workers.monitoring.run_weekly_backtest",
     bind=True,
     max_retries=2,
@@ -369,7 +593,10 @@ def run_weekly_backtest(self, customer_id: str, lookback_days: int = 90):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Get champion model
                 champion = await get_champion_model(
@@ -614,7 +841,10 @@ def detect_anomalies_ml(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Run anomaly detection
                 result = await detect_func(
@@ -681,7 +911,10 @@ def detect_ghost_stock(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Run ghost stock detection
                 result = await detect_func(

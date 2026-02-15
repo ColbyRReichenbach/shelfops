@@ -1,15 +1,8 @@
 """
-Enterprise Data Seeder — Generate Realistic Retail Datasets
+Enterprise Data Seeder — Generate Synthetic Retail Datasets
 
-Creates production-scale synthetic data that mimics what ShelfOps would
-receive from enterprise retailers like Target or Lowe's via EDI/SFTP/Kafka.
-
-All parameters benchmarked against real-world data:
-  - NRF shrinkage rates by category (2022–2024)
-  - FMI / Kroger / industry gross margins by department
-  - Target, Walmart, Lowe's 10-K financial metrics
-  - Beverage Marketing Corp, AFFI, ReFED category growth
-  - See docs/RETAIL_DATA_ANALYSIS.md for full source citations
+Creates deterministic synthetic data for exercising ShelfOps ingestion
+pipelines (EDI/SFTP/Kafka) and integration observability paths.
 
 What this generates:
   - 500+ products with GTINs/UPCs across 12 departments
@@ -46,8 +39,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-# ── Constants (Benchmarked Against Real Retail Data) ───────────────────────
-# Source: docs/RETAIL_DATA_ANALYSIS.md
+# ── Constants (Synthetic profile defaults) ──────────────────────────────────
 
 DEPARTMENTS = {
     "Grocery": {
@@ -688,13 +680,13 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)
-    print("🏪 ShelfOps Enterprise Data Generator (v2 — Benchmarked)")
+    print("🏪 ShelfOps Enterprise Data Generator (v2)")
     print("=" * 60)
     print(f"  Products:     {args.products}")
     print(f"  Stores:       {args.stores}")
     print(f"  Days:         {args.days}")
     print(f"  Output:       {output}")
-    print("  Benchmarks:   docs/RETAIL_DATA_ANALYSIS.md")
+    print("  Profile:      synthetic enterprise integration test data")
     print()
 
     # ── Products ──────────────────────────────────────────────
@@ -796,7 +788,7 @@ def main():
     # ── Summary ───────────────────────────────────────────────
     print()
     print("=" * 60)
-    print("✅ Enterprise data generation complete! (v2 — Benchmarked)")
+    print("✅ Enterprise data generation complete! (v2)")
     print("=" * 60)
     print(f"\n  📁 Output directory: {output}/")
     print(f"  📊 Products:          {len(products)} with GTINs + per-dept margins")

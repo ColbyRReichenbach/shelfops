@@ -63,7 +63,8 @@ from sqlalchemy import (
     UniqueConstraint,
     types,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 
 class GUID(TypeDecorator):
@@ -98,6 +99,10 @@ class GUID(TypeDecorator):
 # Alias so existing Column(UUID(as_uuid=True)) calls still work
 def UUID(as_uuid=True):
     return GUID()
+
+
+# Use JSONB on PostgreSQL, plain JSON elsewhere (e.g., SQLite tests).
+JSONB_TYPE = JSON().with_variant(PG_JSONB(), "postgresql")
 
 
 from sqlalchemy.orm import relationship
@@ -146,6 +151,7 @@ class Store(Base):
     lon = Column(Float)
     timezone = Column(String(50), default="America/New_York")
     status = Column(String(20), nullable=False, default="active")
+    cluster_tier = Column(Integer, default=1)  # 0=high_volume, 1=mid_volume, 2=low_volume
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -319,6 +325,7 @@ class DemandForecast(Base):
     upper_bound = Column(Float)
     confidence = Column(Float)
     model_version = Column(String(50), nullable=False)
+    category_tier = Column(String(50), nullable=True)  # fresh, general_merchandise, hardware
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
@@ -392,7 +399,7 @@ class Alert(Base):
     alert_type = Column(String(50), nullable=False)
     severity = Column(String(20), nullable=False)
     message = Column(Text, nullable=False)
-    alert_metadata = Column("metadata", JSON, default={})
+    alert_metadata = Column("metadata", JSON, default=dict)
     status = Column(String(20), nullable=False, default="open")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     acknowledged_at = Column(DateTime)
@@ -528,7 +535,7 @@ class Integration(Base):
     webhook_secret = Column(String(255))
     status = Column(String(20), nullable=False, default="connected")
     last_sync_at = Column(DateTime)
-    config = Column(JSON, default={})  # Adapter-specific config (SFTP creds, Kafka topics, EDI dirs)
+    config = Column(JSON, default=dict)  # Adapter-specific config (SFTP creds, Kafka topics, EDI dirs)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -564,7 +571,7 @@ class Anomaly(Base):
     expected_value = Column(Float)
     actual_value = Column(Float)
     z_score = Column(Float)
-    anomaly_metadata = Column(JSONB, nullable=True)  # Rich context for ML-detected anomalies
+    anomaly_metadata = Column(JSONB_TYPE, nullable=True)  # Rich context for ML-detected anomalies
     status = Column(String(20), nullable=False, default="detected")
 
     __table_args__ = (
@@ -574,7 +581,9 @@ class Anomaly(Base):
             "anomaly_type IN ('demand_spike', 'demand_drop', 'inventory_discrepancy', 'price_anomaly', 'data_quality', 'ml_detected')",
             name="ck_anomaly_type",
         ),
-        CheckConstraint("severity IN ('low', 'medium', 'high', 'critical', 'info', 'warning')", name="ck_anomaly_severity"),
+        CheckConstraint(
+            "severity IN ('low', 'medium', 'high', 'critical', 'info', 'warning')", name="ck_anomaly_severity"
+        ),
         CheckConstraint(
             "status IN ('detected', 'investigating', 'resolved', 'false_positive')", name="ck_anomaly_status"
         ),
@@ -596,7 +605,7 @@ class EDITransactionLog(Base):
     filename = Column(String(255))
     raw_content = Column(Text)
     parsed_records = Column(Integer, default=0)
-    errors = Column(JSON, default=[])
+    errors = Column(JSON, default=list)
     status = Column(String(20), nullable=False, default="received")
     processed_at = Column(DateTime)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -1011,13 +1020,11 @@ class ModelVersion(Base):
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     version = Column(String(20), nullable=False)  # 'v1', 'v2', etc.
-    status = Column(
-        String(20), nullable=False, default="candidate"
-    )  # 'champion', 'challenger', 'shadow', 'archived'
+    status = Column(String(20), nullable=False, default="candidate")  # 'champion', 'challenger', 'shadow', 'archived'
     routing_weight = Column(Float, default=0.0)  # For canary: 0.05 = 5% traffic
     promoted_at = Column(DateTime, nullable=True)
     archived_at = Column(DateTime, nullable=True)
-    metrics = Column(JSONB, nullable=True)  # {mae, mape, coverage, ...}
+    metrics = Column(JSONB_TYPE, nullable=True)  # {mae, mape, coverage, ...}
     smoke_test_passed = Column(Boolean, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -1108,7 +1115,7 @@ class ModelRetrainingLog(Base):
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     trigger_type = Column(String(50), nullable=False)  # 'scheduled', 'drift', 'new_data', 'manual'
-    trigger_metadata = Column(JSONB, nullable=True)  # {drift_pct: 0.18, new_products: 73}
+    trigger_metadata = Column(JSONB_TYPE, nullable=True)  # {drift_pct: 0.18, new_products: 73}
     status = Column(String(20), nullable=False, default="running")  # 'running', 'completed', 'failed'
     version_produced = Column(String(20), nullable=True)
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -1117,7 +1124,62 @@ class ModelRetrainingLog(Base):
     __table_args__ = (Index("ix_model_retraining_log_customer_model", "customer_id", "model_name"),)
 
 
-# ─── 32. ML Alerts (In-App Notifications) ──────────────────────────────────
+# ─── 32. Tenant ML Readiness (Cold Start -> Production Tier) ──────────────
+
+
+class TenantMLReadiness(Base):
+    """
+    Tenant readiness state machine for ML production tiering.
+
+    States:
+      - cold_start
+      - warming
+      - production_tier_candidate
+      - production_tier_active
+    """
+
+    __tablename__ = "tenant_ml_readiness"
+
+    readiness_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False, unique=True)
+    state = Column(String(40), nullable=False, default="cold_start")
+    reason_code = Column(String(100), nullable=False, default="insufficient_history")
+    gate_snapshot = Column(JSONB_TYPE, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    transitioned_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('cold_start', 'warming', 'production_tier_candidate', 'production_tier_active')",
+            name="ck_tenant_ml_readiness_state",
+        ),
+        Index("ix_tenant_ml_readiness_customer_state", "customer_id", "state"),
+    )
+
+
+class TenantMLReadinessAudit(Base):
+    """Audit trail for tenant readiness transitions."""
+
+    __tablename__ = "tenant_ml_readiness_audit"
+
+    event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    from_state = Column(String(40), nullable=True)
+    to_state = Column(String(40), nullable=False)
+    reason_code = Column(String(100), nullable=False)
+    gate_snapshot = Column(JSONB_TYPE, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_tenant_ml_readiness_audit_customer", "customer_id", "created_at"),
+        CheckConstraint(
+            "to_state IN ('cold_start', 'warming', 'production_tier_candidate', 'production_tier_active')",
+            name="ck_tenant_ml_readiness_audit_to_state",
+        ),
+    )
+
+
+# ─── 33. ML Alerts (In-App Notifications) ──────────────────────────────────
 
 
 class MLAlert(Base):
@@ -1139,7 +1201,7 @@ class MLAlert(Base):
     severity = Column(String(20), nullable=False)  # 'info', 'warning', 'critical'
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
-    alert_metadata = Column(JSONB, nullable=True)  # {model_version, drift_pct, action_required}
+    alert_metadata = Column(JSONB_TYPE, nullable=True)  # {model_version, drift_pct, action_required}
     status = Column(String(20), nullable=False, default="unread")  # 'unread', 'read', 'actioned', 'dismissed'
     action_url = Column(String(500), nullable=True)  # Link to review page
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -1149,7 +1211,7 @@ class MLAlert(Base):
     __table_args__ = (Index("ix_ml_alerts_customer_status", "customer_id", "status", "created_at"),)
 
 
-# ─── 33. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
+# ─── 34. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
 
 
 class ModelExperiment(Base):
@@ -1172,17 +1234,45 @@ class ModelExperiment(Base):
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
     experiment_name = Column(String(255), nullable=False)
     hypothesis = Column(Text, nullable=False)  # "Department-tiered models will improve MAE by 10-15%"
-    experiment_type = Column(String(50), nullable=False)  # 'feature_engineering', 'model_architecture', 'data_source', 'segmentation'
+    experiment_type = Column(
+        String(50), nullable=False
+    )  # 'feature_engineering', 'model_architecture', 'data_source', 'segmentation'
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     baseline_version = Column(String(20), nullable=True)  # Champion version at experiment start
     experimental_version = Column(String(20), nullable=True)  # Version produced by experiment
     status = Column(String(20), nullable=False, default="proposed")
     proposed_by = Column(String(255), nullable=False)  # User ID or email
     approved_by = Column(String(255), nullable=True)
-    results = Column(JSONB, nullable=True)  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2}
+    results = Column(JSONB_TYPE, nullable=True)  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2}
     decision_rationale = Column(Text, nullable=True)  # Why approved/rejected
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),)
+
+
+# ─── 35. Integration Sync Log ──────────────────────────────────────────────
+
+
+class IntegrationSyncLog(Base):
+    """Track data ingestion from POS/EDI/SFTP/Kafka sources."""
+
+    __tablename__ = "integration_sync_log"
+
+    sync_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    integration_type = Column(String(20), nullable=False)  # POS, EDI, SFTP, Kafka
+    integration_name = Column(String(100), nullable=False)  # Square POS, EDI 846, etc.
+    sync_type = Column(String(50), nullable=False)  # transactions, inventory, products
+    records_synced = Column(Integer, nullable=False)
+    sync_status = Column(String(20), nullable=False, default="success")  # success, failed, partial
+    started_at = Column(DateTime, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    error_message = Column(Text, nullable=True)
+    sync_metadata = Column(JSONB_TYPE, nullable=True)
+
+    __table_args__ = (
+        Index("ix_sync_log_customer_type", "customer_id", "integration_type"),
+        Index("ix_sync_log_started_at", "started_at"),
+    )

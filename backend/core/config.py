@@ -9,6 +9,9 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings
 
+DEFAULT_JWT_SECRET = "dev-secret-change-in-production"
+DEFAULT_ENCRYPTION_KEY = "dev-encryption-key-change-in-production"
+
 # Find .env file: check CWD first, then parent (project root)
 _env_file = Path(".env")
 if not _env_file.exists():
@@ -23,6 +26,7 @@ class Settings(BaseSettings):
     # App
     app_name: str = "ShelfOps"
     app_version: str = "1.0.0"
+    app_env: str = "local"
     debug: bool = False
 
     # Database
@@ -36,7 +40,9 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_client_id: str = ""
     auth0_audience: str = ""
-    jwt_secret: str = "dev-secret-change-in-production"
+    auth0_issuer: str = ""
+    auth0_jwks_cache_ttl_seconds: int = 300
+    jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
 
     # Square Integration
@@ -44,6 +50,8 @@ class Settings(BaseSettings):
     square_client_secret: str = ""
     square_webhook_secret: str = ""
     square_environment: str = "sandbox"
+    square_oauth_state_ttl_seconds: int = 600
+    square_enable_demo_id_synthesis: bool = False
 
     # Shopify Integration (SMB tier)
     shopify_api_key: str = ""
@@ -67,6 +75,35 @@ class Settings(BaseSettings):
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_consumer_group: str = "shelfops-ingest"
     kafka_schema_registry_url: str = ""
+    integration_sla_overrides: str = ""
+
+    # Supply chain transfer policy (externalized from hardcoded constants)
+    transfer_cost_per_mile: float = 0.50
+    transfer_default_lead_days: int = 2
+    transfer_max_search_radius_miles: float = 75.0
+    transfer_nearby_distance_miles: float = 30.0
+    transfer_handling_cost_floor: float = 0.0
+
+    # Inventory optimizer policy defaults
+    reorder_default_service_level: float = 0.95
+    reorder_cluster_multiplier_tier0: float = 1.15
+    reorder_cluster_multiplier_tier1: float = 1.00
+    reorder_cluster_multiplier_tier2: float = 0.85
+
+    # Sourcing policy assumptions (explicitly configurable)
+    sourcing_vendor_capacity_mode: str = "assumed_daily_capacity"
+    sourcing_vendor_default_daily_capacity: int = 10000
+    sourcing_vendor_capacity_multiplier: float = 100.0
+    sourcing_vendor_capacity_confidence: str = "assumed"
+
+    # ML runtime + readiness policy
+    ml_forecast_horizon_days: int = 14
+    ml_accuracy_lookback_days: int = 30
+    ml_promotion_min_accuracy_samples: int = 30
+    ml_promotion_accuracy_window_days: int = 30
+    ml_cold_start_min_history_days: int = 90
+    ml_cold_start_min_store_count: int = 1
+    ml_cold_start_min_product_count: int = 25
 
     # Email
     sendgrid_api_key: str = ""
@@ -77,7 +114,7 @@ class Settings(BaseSettings):
     vertex_ai_region: str = "us-central1"
 
     # Encryption
-    encryption_key: str = "dev-encryption-key-change-in-production"
+    encryption_key: str = DEFAULT_ENCRYPTION_KEY
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
@@ -92,4 +129,20 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     """Cached settings instance."""
-    return Settings()
+    settings = Settings()
+    _enforce_security_guardrails(settings)
+    return settings
+
+
+def _enforce_security_guardrails(settings: Settings) -> None:
+    env = settings.app_env.strip().lower()
+    is_local = env in {"", "local", "dev", "development", "test"}
+    if is_local:
+        return
+
+    if settings.debug:
+        raise ValueError("Refusing to start with debug=true outside local/dev/test")
+    if settings.jwt_secret == DEFAULT_JWT_SECRET:
+        raise ValueError("Refusing to start with default JWT secret outside local/dev/test")
+    if settings.encryption_key == DEFAULT_ENCRYPTION_KEY:
+        raise ValueError("Refusing to start with default encryption key outside local/dev/test")

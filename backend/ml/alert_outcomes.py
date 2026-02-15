@@ -26,6 +26,20 @@ from db.models import Alert, Anomaly
 
 logger = structlog.get_logger()
 
+ALERT_RESOLVED_OUTCOMES = {
+    "true_positive",
+    "prevented_stockout",
+    "prevented_overstock",
+    "ghost_stock_confirmed",
+}
+
+ANOMALY_OUTCOME_TO_STATUS = {
+    "true_positive": "resolved",
+    "false_positive": "false_positive",
+    "resolved": "resolved",
+    "investigating": "investigating",
+}
+
 
 # ── Outcome Recording ───────────────────────────────────────────────────────
 
@@ -73,13 +87,19 @@ async def record_alert_outcome(
         }
 
     # Update alert with outcome
-    alert.status = "resolved" if outcome in ("true_positive", "prevented_stockout", "prevented_overstock", "ghost_stock_confirmed") else "dismissed"
+    alert.status = "resolved" if outcome in ALERT_RESOLVED_OUTCOMES else "dismissed"
     alert.resolved_at = datetime.utcnow()
 
-    # Store outcome in metadata (we'll add an outcome field in a future migration)
-    # For now, store in existing columns
-    if outcome == "false_positive":
-        alert.status = "dismissed"
+    alert_metadata = dict(alert.alert_metadata or {})
+    alert_metadata.update(
+        {
+            "outcome": outcome,
+            "outcome_notes": outcome_notes,
+            "prevented_loss": prevented_loss,
+            "outcome_recorded_at": datetime.utcnow().isoformat(),
+        }
+    )
+    alert.alert_metadata = alert_metadata
 
     await db.commit()
 
@@ -141,8 +161,25 @@ async def record_anomaly_outcome(
             "message": "Anomaly not found",
         }
 
-    # Update anomaly status
-    anomaly.status = outcome
+    # Map user outcome values onto valid DB status enum values.
+    mapped_status = ANOMALY_OUTCOME_TO_STATUS.get(outcome)
+    if not mapped_status:
+        return {
+            "status": "error",
+            "message": (f"Invalid outcome. Expected one of: {', '.join(sorted(ANOMALY_OUTCOME_TO_STATUS.keys()))}"),
+        }
+
+    anomaly.status = mapped_status
+    anomaly_metadata = dict(anomaly.anomaly_metadata or {})
+    anomaly_metadata.update(
+        {
+            "outcome": outcome,
+            "outcome_notes": outcome_notes,
+            "action_taken": action_taken,
+            "outcome_recorded_at": datetime.utcnow().isoformat(),
+        }
+    )
+    anomaly.anomaly_metadata = anomaly_metadata
 
     await db.commit()
 
@@ -224,8 +261,7 @@ async def calculate_alert_effectiveness(
 
     if alerts_with_resolution:
         response_times = [
-            (alert.resolved_at - alert.created_at).total_seconds() / 3600
-            for alert in alerts_with_resolution
+            (alert.resolved_at - alert.created_at).total_seconds() / 3600 for alert in alerts_with_resolution
         ]
         avg_response_time_hours = sum(response_times) / len(response_times)
     else:

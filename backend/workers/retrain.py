@@ -12,11 +12,17 @@ Runs the full ML pipeline:
 import glob
 import json
 import os
-from datetime import datetime, timezone
+import uuid
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import structlog
 
+from ml.contract_mapper import build_canonical_result
+from ml.contract_profiles import ContractProfile, load_contract_profile
+from ml.data_contracts import load_canonical_transactions
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
@@ -45,67 +51,14 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
     synthetic seed data. Returns a unified DataFrame with columns:
     (store_id, product_id, date, quantity, category).
     """
-    csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
-    if not csv_files:
-        raise FileNotFoundError(f"No CSV files found in {data_dir}")
+    path = Path(data_dir)
+    canonical_csv = path / "canonical_transactions.csv"
 
-    frames = []
-    for f in csv_files:
-        df = pd.read_csv(f, parse_dates=["date"] if "date" in pd.read_csv(f, nrows=0).columns else False)
-        frames.append(df)
-        logger.info("retrain.loaded_csv", file=os.path.basename(f), rows=len(df))
-
-    combined = pd.concat(frames, ignore_index=True)
-
-    # Normalize column names for common Kaggle datasets
-    rename_map = {}
-    cols_lower = {c.lower(): c for c in combined.columns}
-
-    # Favorita: store_nbr → store_id, family → category, sales → quantity
-    if "store_nbr" in cols_lower:
-        rename_map[cols_lower["store_nbr"]] = "store_id"
-    if "family" in cols_lower and "category" not in cols_lower:
-        rename_map[cols_lower["family"]] = "category"
-    if "sales" in cols_lower and "quantity" not in cols_lower:
-        rename_map[cols_lower["sales"]] = "quantity"
-    # Walmart: Store → store_id, Dept → category, Weekly_Sales → quantity
-    if "store" in cols_lower and "store_id" not in cols_lower:
-        rename_map[cols_lower["store"]] = "store_id"
-    if "dept" in cols_lower and "category" not in cols_lower:
-        rename_map[cols_lower["dept"]] = "category"
-    if "weekly_sales" in cols_lower and "quantity" not in cols_lower:
-        rename_map[cols_lower["weekly_sales"]] = "quantity"
-    # Rossmann: Store → store_id, Sales → quantity
-    if "sales" in cols_lower and "quantity" not in cols_lower:
-        rename_map[cols_lower["sales"]] = "quantity"
-
-    if rename_map:
-        combined = combined.rename(columns=rename_map)
-        logger.info("retrain.normalized_columns", remapped=list(rename_map.keys()))
-
-    # Ensure required columns
-    required = {"store_id", "date", "quantity"}
-    missing = required - set(combined.columns)
-    if missing:
-        raise ValueError(f"Missing required columns after normalization: {missing}")
-
-    # Add product_id if missing (aggregate by store + category)
-    if "product_id" not in combined.columns:
-        if "category" in combined.columns:
-            combined["product_id"] = combined["category"].astype(str)
-        elif "item_nbr" in combined.columns:
-            combined["product_id"] = combined["item_nbr"].astype(str)
-        else:
-            combined["product_id"] = "all"
-
-    # Ensure date column is datetime
-    if not pd.api.types.is_datetime64_any_dtype(combined["date"]):
-        combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
-        combined = combined.dropna(subset=["date"])
-
-    # Cast store_id and product_id to strings
-    combined["store_id"] = combined["store_id"].astype(str)
-    combined["product_id"] = combined["product_id"].astype(str)
+    # Profile-driven onboarding flow writes canonical CSV for retraining.
+    if canonical_csv.exists():
+        combined = pd.read_csv(canonical_csv, parse_dates=["date"], low_memory=False)
+    else:
+        combined = load_canonical_transactions(data_dir)
 
     logger.info(
         "retrain.data_ready",
@@ -113,9 +66,439 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
         stores=combined["store_id"].nunique(),
         products=combined["product_id"].nunique(),
         date_range=f"{combined['date'].min()} → {combined['date'].max()}",
+        dataset_id=combined["dataset_id"].iloc[0] if len(combined) > 0 else "unknown",
+        frequency=combined["frequency"].iloc[0] if len(combined) > 0 else "unknown",
+    )
+    return combined
+
+
+def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -> pd.DataFrame:
+    """
+    Load raw source data using a versioned contract profile and persist canonical output.
+    """
+    profile = load_contract_profile(contract_path)
+    sample = Path(sample_path)
+
+    if sample.is_dir():
+        # Prefer explicit transaction/sales extracts over master/reference files.
+        preferred_names = ["transactions.csv", "sales.csv", "daily_sales.csv"]
+        preferred = [sample / name for name in preferred_names if (sample / name).exists()]
+        if preferred:
+            csvs = preferred
+        else:
+            csvs = sorted(
+                p
+                for p in sample.glob("*.csv")
+                if p.name.lower() not in {"stores.csv", "products.csv", "store_master.csv", "product_master.csv"}
+            )
+        if not csvs:
+            raise FileNotFoundError(f"No CSV files found in sample directory: {sample}")
+        raw = pd.concat([pd.read_csv(p, low_memory=False) for p in csvs], ignore_index=True)
+    else:
+        if sample.suffix.lower() == ".csv":
+            raw = pd.read_csv(sample, low_memory=False)
+        elif sample.suffix.lower() in {".json", ".jsonl"}:
+            raw = pd.read_json(sample, lines=True)
+        else:
+            raise ValueError(f"Unsupported sample file type for profiled load: {sample.suffix}")
+
+    result = build_canonical_result(raw, profile)
+    if not result.report.passed:
+        raise ValueError(f"Contract validation failed: {'; '.join(result.report.failures)}")
+
+    target_dir = Path(output_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    canonical_path = target_dir / "canonical_transactions.csv"
+    result.dataframe.to_csv(canonical_path, index=False)
+    report_json = target_dir / "contract_validation_report.json"
+    report_md = target_dir / "contract_validation_report.md"
+    lineage_json = target_dir / "column_lineage_map.json"
+    schema_json = target_dir / "canonical_schema_snapshot.json"
+    lineage_map: dict[str, list[str]] = {}
+    for source, canonical in profile.field_map.items():
+        lineage_map.setdefault(str(canonical), []).append(str(source))
+    schema_snapshot = {
+        "row_count": int(len(result.dataframe)),
+        "columns": [
+            {
+                "name": str(col),
+                "dtype": str(result.dataframe[col].dtype),
+                "non_null_rate": float(result.dataframe[col].notna().mean()) if len(result.dataframe) > 0 else 0.0,
+            }
+            for col in result.dataframe.columns
+        ],
+    }
+    report_payload = {
+        "contract_path": str(Path(contract_path).resolve()),
+        "sample_path": str(sample.resolve()),
+        "rows_mapped": int(len(result.dataframe)),
+        "report": result.report.to_dict(),
+        "column_lineage_map": dict(sorted(lineage_map.items())),
+        "canonical_schema_snapshot": schema_snapshot,
+        "cost_field_coverage": {
+            "unit_cost_non_null_rate": (
+                float(result.dataframe["unit_cost"].notna().mean()) if "unit_cost" in result.dataframe.columns else 0.0
+            ),
+            "unit_price_non_null_rate": (
+                float(result.dataframe["unit_price"].notna().mean())
+                if "unit_price" in result.dataframe.columns
+                else 0.0
+            ),
+        },
+    }
+    report_json.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
+    lineage_json.write_text(json.dumps(report_payload["column_lineage_map"], indent=2), encoding="utf-8")
+    schema_json.write_text(json.dumps(report_payload["canonical_schema_snapshot"], indent=2), encoding="utf-8")
+    report_md.write_text(
+        "\n".join(
+            [
+                "# Contract Validation Report",
+                "",
+                f"- Contract: `{report_payload['contract_path']}`",
+                f"- Sample: `{report_payload['sample_path']}`",
+                f"- Rows mapped: {report_payload['rows_mapped']}",
+                f"- Passed: `{report_payload['report']['passed']}`",
+                "",
+                "## Data Quality Metrics",
+                "",
+                f"- date_parse_success: {report_payload['report']['metrics'].get('date_parse_success', 0):.4f}",
+                f"- required_null_rate: {report_payload['report']['metrics'].get('required_null_rate', 0):.4f}",
+                f"- duplicate_rate: {report_payload['report']['metrics'].get('duplicate_rate', 0):.4f}",
+                f"- quantity_parse_success: {report_payload['report']['metrics'].get('quantity_parse_success', 0):.4f}",
+                f"- requires_custom_adapter: {report_payload['report']['metrics'].get('requires_custom_adapter', 0):.0f}",
+                "",
+                "## Cost Field Coverage",
+                "",
+                f"- unit_cost_non_null_rate: {report_payload['cost_field_coverage']['unit_cost_non_null_rate']:.4f}",
+                f"- unit_price_non_null_rate: {report_payload['cost_field_coverage']['unit_price_non_null_rate']:.4f}",
+                "",
+                "## Artifacts",
+                "",
+                f"- Column lineage map: `{lineage_json}`",
+                f"- Canonical schema snapshot: `{schema_json}`",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
     )
 
-    return combined
+    logger.info(
+        "retrain.profiled_data_ready",
+        tenant_id=profile.tenant_id,
+        source_type=profile.source_type,
+        rows=len(result.dataframe),
+        canonical_path=str(canonical_path),
+        validation_report_json=str(report_json),
+        validation_report_md=str(report_md),
+        column_lineage_map_json=str(lineage_json),
+        canonical_schema_snapshot_json=str(schema_json),
+    )
+    return result.dataframe
+
+
+def _db_contract_profile(customer_id: str) -> ContractProfile:
+    return ContractProfile(
+        contract_version="v1",
+        tenant_id=customer_id,
+        source_type="enterprise_event",
+        grain="daily",
+        timezone="UTC",
+        timezone_handling="convert_to_profile_tz_date",
+        quantity_sign_policy="allow_negative_returns",
+        id_columns={"store_id": "store_id", "product_id": "product_id"},
+        field_map={
+            "date": "date",
+            "store_id": "store_id",
+            "product_id": "product_id",
+            "quantity": "quantity",
+            "category": "category",
+            "unit_cost": "unit_cost",
+            "unit_price": "unit_price",
+            "is_promotional": "is_promotional",
+            "is_holiday": "is_holiday",
+            "transaction_type": "transaction_type",
+        },
+        type_map={
+            "date": "date",
+            "store_id": "str",
+            "product_id": "str",
+            "quantity": "float",
+            "category": "str",
+            "unit_cost": "float",
+            "unit_price": "float",
+            "is_promotional": "bool",
+            "is_holiday": "bool",
+            "transaction_type": "str",
+        },
+        unit_map={"quantity": {"multiplier": 1.0}},
+        null_policy={},
+        dedupe_keys=["store_id", "product_id", "date"],
+        dq_thresholds={
+            "min_date_parse_success": 0.99,
+            "max_required_null_rate": 0.005,
+            "max_duplicate_rate": 0.01,
+            "min_quantity_parse_success": 0.995,
+        },
+        country_code="US",
+    )
+
+
+def _load_db_data(
+    customer_id: str,
+    min_rows: int = 90,
+    raw_override: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """
+    Load tenant transaction history from the production DB, normalize via
+    contract mapper, and enforce minimum data sufficiency checks.
+    """
+    import asyncio
+
+    from sqlalchemy import case, func, select, text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from db.models import Product, Transaction
+
+    async def _query() -> pd.DataFrame:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    # SQLite test harness does not support set_config.
+                    pass
+
+                signed_quantity = case(
+                    (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+                    (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+                    else_=0,
+                )
+
+                sales_date = func.date(Transaction.timestamp)
+                result = await db.execute(
+                    select(
+                        sales_date.label("date"),
+                        Transaction.store_id.label("store_id"),
+                        Transaction.product_id.label("product_id"),
+                        func.sum(signed_quantity).label("quantity"),
+                        func.max(Product.category).label("category"),
+                        func.max(Product.unit_cost).label("unit_cost"),
+                        func.max(Transaction.unit_price).label("unit_price"),
+                    )
+                    .join(Product, Product.product_id == Transaction.product_id)
+                    .where(
+                        Transaction.customer_id == uuid.UUID(customer_id),
+                        Transaction.transaction_type.in_(["sale", "return"]),
+                    )
+                    .group_by(sales_date, Transaction.store_id, Transaction.product_id)
+                    .order_by(sales_date.asc())
+                )
+                rows = result.all()
+
+                if not rows:
+                    return pd.DataFrame()
+
+                return pd.DataFrame(
+                    [
+                        {
+                            "date": row.date,
+                            "store_id": str(row.store_id),
+                            "product_id": str(row.product_id),
+                            "quantity": float(row.quantity or 0.0),
+                            "category": row.category or "unknown",
+                            "unit_cost": float(row.unit_cost) if row.unit_cost is not None else None,
+                            "unit_price": float(row.unit_price) if row.unit_price is not None else None,
+                            "is_promotional": 0,
+                            "is_holiday": 0,
+                        }
+                        for row in rows
+                    ]
+                )
+        finally:
+            await engine.dispose()
+
+    raw = raw_override.copy() if raw_override is not None else asyncio.run(_query())
+    if raw.empty:
+        raise ValueError(f"No transaction history found in DB for customer_id={customer_id}")
+
+    profile = _db_contract_profile(customer_id)
+    mapped = build_canonical_result(raw, profile)
+    if not mapped.report.passed:
+        raise ValueError(f"DB canonical validation failed: {'; '.join(mapped.report.failures)}")
+
+    canonical = mapped.dataframe.copy()
+    if len(canonical) < min_rows:
+        raise ValueError(f"Insufficient training rows ({len(canonical)} < {min_rows}) for customer_id={customer_id}")
+    if canonical["store_id"].nunique() < 1 or canonical["product_id"].nunique() < 1:
+        raise ValueError("Insufficient store/product diversity for retraining")
+
+    logger.info(
+        "retrain.db_data_ready",
+        customer_id=customer_id,
+        rows=len(canonical),
+        stores=int(canonical["store_id"].nunique()),
+        products=int(canonical["product_id"].nunique()),
+        date_range=f"{canonical['date'].min()} → {canonical['date'].max()}",
+    )
+    return canonical
+
+
+def _apply_training_cutoff(transactions_df: pd.DataFrame, train_end_date: str) -> tuple[pd.DataFrame, str]:
+    """
+    Enforce a strict training cutoff date (inclusive).
+
+    Returns the filtered frame and normalized cutoff ISO date string.
+    """
+    cutoff = pd.to_datetime(train_end_date, errors="raise").date()
+    filtered = transactions_df[pd.to_datetime(transactions_df["date"]).dt.date <= cutoff].copy()
+    if filtered.empty:
+        raise ValueError(f"No training rows remain after applying train_end_date={cutoff.isoformat()}")
+
+    observed_max = pd.to_datetime(filtered["date"]).max().date()
+    if observed_max > cutoff:
+        raise ValueError(
+            f"Training cutoff integrity failure: observed max {observed_max.isoformat()} > {cutoff.isoformat()}"
+        )
+    return filtered, cutoff.isoformat()
+
+
+def _candidate_metrics_from_holdout(features_df: pd.DataFrame, ensemble_result: dict) -> dict:
+    from ml.metrics_contract import compute_forecast_metrics, coverage_rate
+    from ml.train import TARGET_COL
+
+    if TARGET_COL not in features_df.columns:
+        raise ValueError(f"Missing target column '{TARGET_COL}' in features_df")
+
+    feature_cols = [c for c in ensemble_result.get("ensemble", {}).get("feature_cols", []) if c in features_df.columns]
+    if not feature_cols:
+        raise ValueError("No feature columns available for holdout metric computation")
+
+    n_rows = len(features_df)
+    split = int(n_rows * 0.8)
+    if n_rows < 50 or split <= 0 or split >= n_rows:
+        raise ValueError(f"Insufficient rows for holdout evaluation (rows={n_rows})")
+
+    train_part = features_df.iloc[:split].copy()
+    eval_part = features_df.iloc[split:].copy()
+    if len(eval_part) < 10:
+        raise ValueError(f"Insufficient holdout rows for evaluation (rows={len(eval_part)})")
+
+    model = ensemble_result["xgboost"]["model"]
+    X_train = train_part[feature_cols].fillna(0)
+    y_train = pd.to_numeric(train_part[TARGET_COL], errors="coerce").fillna(0.0)
+    X_eval = eval_part[feature_cols].fillna(0)
+    y_eval = pd.to_numeric(eval_part[TARGET_COL], errors="coerce").fillna(0.0)
+
+    train_preds = np.maximum(model.predict(X_train), 0)
+    eval_preds = np.maximum(model.predict(X_eval), 0)
+
+    residual_abs = np.abs(y_train.values - train_preds)
+    interval_width = float(np.quantile(residual_abs, 0.9)) if len(residual_abs) else 0.0
+    lower_bound = np.maximum(eval_preds - interval_width, 0)
+    upper_bound = eval_preds + interval_width
+
+    metric_bundle = compute_forecast_metrics(
+        y_eval,
+        eval_preds,
+        unit_cost=eval_part["unit_cost"] if "unit_cost" in eval_part.columns else None,
+    )
+
+    return {
+        "mae": float(metric_bundle["mae"]),
+        "mape": float(metric_bundle["mape_nonzero"]),
+        "coverage": float(coverage_rate(y_eval, lower_bound, upper_bound)),
+        "stockout_miss_rate": float(metric_bundle["stockout_miss_rate"]),
+        "overstock_rate": float(metric_bundle["overstock_rate"]),
+        "overstock_dollars": metric_bundle["overstock_dollars"],
+        "overstock_dollars_confidence": metric_bundle["overstock_dollars_confidence"],
+        "eval_rows": int(len(eval_part)),
+        "interval_q90_width": interval_width,
+    }
+
+
+def _normalize_retrain_trigger(trigger: str) -> str:
+    mapping = {
+        "drift_detected": "drift",
+        "new_products": "new_data",
+    }
+    return mapping.get(trigger, trigger)
+
+
+def _record_retraining_event(
+    *,
+    customer_id: str,
+    model_name: str,
+    trigger: str,
+    trigger_metadata: dict | None,
+    status: str,
+    version_produced: str | None,
+    started_at: datetime,
+    completed_at: datetime,
+    run_id: str,
+    dataset_name: str,
+    error: str | None = None,
+) -> None:
+    """
+    Persist a retraining audit event for runtime/API visibility.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from db.models import ModelRetrainingLog
+
+    normalized_trigger = _normalize_retrain_trigger(trigger)
+    payload = {
+        "run_id": run_id,
+        "dataset_name": dataset_name,
+        "raw_trigger": trigger,
+    }
+    if trigger_metadata:
+        payload["trigger_metadata"] = trigger_metadata
+    if error:
+        payload["error"] = error
+
+    async def _write() -> None:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    # SQLite test harness does not support set_config.
+                    pass
+
+                db.add(
+                    ModelRetrainingLog(
+                        customer_id=uuid.UUID(customer_id),
+                        model_name=model_name,
+                        trigger_type=normalized_trigger,
+                        trigger_metadata=payload,
+                        status=status,
+                        version_produced=version_produced,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                    )
+                )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_write())
 
 
 @celery_app.task(
@@ -134,13 +517,21 @@ def retrain_forecast_model(
     promote: bool = False,
     trigger: str = "scheduled",
     trigger_metadata: dict | None = None,
+    model_name: str = "demand_forecast",
+    category_tier: str | None = None,
+    contract_path: str | None = None,
+    sample_path: str | None = None,
+    canonical_output_dir: str | None = None,
+    train_end_date: str | None = None,
 ):
     """
     Retrain demand forecast model with MLOps integration.
 
+    Supports global and category-specific model retraining.
+
     Modes:
       - Cold-start: Pass data_dir pointing to CSV files (Kaggle/synthetic)
-      - Production: Pass customer_id to query DB (future — requires async DB)
+      - Production: Pass customer_id to query tenant DB and normalize via contract mapper.
 
     Triggers:
       - "scheduled": Weekly Sunday 2AM (auto-promote if better)
@@ -149,19 +540,26 @@ def retrain_forecast_model(
       - "manual": Human-initiated
 
     Args:
-        customer_id: Tenant ID for DB-sourced data (future)
+        customer_id: Tenant ID for DB-sourced retraining
         data_dir: Path to CSV training data directory
         version: Model version string (auto-incremented if None)
         dataset_name: Name for MLflow tracking (e.g., "favorita")
         promote: If True, force promotion (overrides auto-promotion logic)
         trigger: Trigger type for MLOps tracking
         trigger_metadata: Additional context for the trigger
+        model_name: Model identifier for registry (e.g., "demand_forecast_fresh")
+        category_tier: If set, filter data to this tier's categories
+        contract_path: Optional YAML contract profile for tenant onboarding source mapping
+        sample_path: Optional raw sample path (CSV/JSONL/directory) used with contract_path
+        canonical_output_dir: Optional output directory for canonicalized CSV
+        train_end_date: Optional inclusive cutoff date (YYYY-MM-DD) for replay-safe training
     """
     from ml.features import create_features
     from ml.train import save_models, train_ensemble
 
     run_id = self.request.id or "manual"
     ver = version or _next_version()
+    task_started_at = datetime.utcnow()
 
     logger.info(
         "retrain.started",
@@ -174,11 +572,17 @@ def retrain_forecast_model(
 
     try:
         # ── Step 1: Load data ────────────────────────────────────────
-        if data_dir:
+        if contract_path and sample_path:
+            output_dir = canonical_output_dir or os.path.join("data", "canonical", customer_id or "local")
+            transactions_df = _load_profiled_data(contract_path, sample_path, output_dir)
+            dataset_name = dataset_name if dataset_name != "unknown" else "contract_profiled"
+        elif data_dir:
             transactions_df = _load_csv_data(data_dir)
+        elif customer_id:
+            transactions_df = _load_db_data(customer_id)
+            dataset_name = dataset_name if dataset_name != "unknown" else "tenant_db"
         else:
-            # TODO: Production mode — query DB for customer's transaction data
-            # For now, try default seed data location
+            # Local fallback mode for ad-hoc training when no DB customer context exists.
             default_dirs = ["data/seed", "data/kaggle", "../data/seed"]
             transactions_df = None
             for d in default_dirs:
@@ -191,6 +595,29 @@ def retrain_forecast_model(
                     "No data_dir specified and no default data found. "
                     "Run seed_enterprise_data.py or download_kaggle_data.py first."
                 )
+
+        # ── Step 1b: Filter by category tier (if training tier-specific model)
+        if category_tier:
+            from ml.segmentation import get_tier_categories
+
+            tier_categories = get_tier_categories(category_tier)
+            if "category" in transactions_df.columns:
+                transactions_df = transactions_df[transactions_df["category"].isin(tier_categories)]
+                logger.info(
+                    "retrain.filtered_by_tier",
+                    tier=category_tier,
+                    categories=tier_categories,
+                    rows=len(transactions_df),
+                )
+
+        cutoff_applied = None
+        if train_end_date:
+            transactions_df, cutoff_applied = _apply_training_cutoff(transactions_df, train_end_date)
+            logger.info(
+                "retrain.cutoff_applied",
+                train_end_date=cutoff_applied,
+                rows=len(transactions_df),
+            )
 
         # ── Step 2: Feature engineering ──────────────────────────────
         logger.info("retrain.creating_features", rows=len(transactions_df))
@@ -211,15 +638,15 @@ def retrain_forecast_model(
             features_df=features_df,
             dataset_name=dataset_name,
             version=ver,
+            model_name=model_name,
         )
-
-        metrics = ensemble_result.get("metrics", {})
+        xgb_metrics = ensemble_result.get("xgboost", {}).get("metrics", {})
         logger.info(
             "retrain.trained",
             version=ver,
-            tier=ensemble_result.get("tier", "unknown"),
-            mae=metrics.get("ensemble_mae"),
-            mape=metrics.get("ensemble_mape"),
+            tier=ensemble_result.get("ensemble", {}).get("feature_tier", "unknown"),
+            mae=xgb_metrics.get("mae"),
+            mape=xgb_metrics.get("mape"),
         )
 
         # ── Step 4: Save models + register ───────────────────────────
@@ -228,6 +655,7 @@ def retrain_forecast_model(
             version=ver,
             dataset_name=dataset_name,
             promote=promote,
+            rows_trained=len(features_df),
         )
         logger.info("retrain.saved", version=ver, promoted=promote)
 
@@ -236,11 +664,24 @@ def retrain_forecast_model(
         if customer_id:
             try:
                 import asyncio
-                import uuid
+
+                from sqlalchemy import func, select, text, update
+                from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
                 from core.config import get_settings
-                from ml.arena import evaluate_for_promotion, register_model_version
-                from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+                from db.models import ForecastAccuracy, ModelVersion
+                from ml.arena import evaluate_for_promotion, get_champion_model, register_model_version
+                from ml.experiment import sync_registry_with_runtime_state
+                from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
+
+                model_metrics = _candidate_metrics_from_holdout(features_df, ensemble_result)
+                model_metrics["tier"] = ensemble_result.get("ensemble", {}).get("feature_tier", "unknown")
+                smoke_test_passed = bool(
+                    model_metrics.get("eval_rows", 0) >= 10
+                    and model_metrics.get("mae") is not None
+                    and model_metrics.get("mape") is not None
+                    and model_metrics.get("coverage") is not None
+                )
 
                 async def register_and_evaluate():
                     settings = get_settings()
@@ -248,46 +689,196 @@ def retrain_forecast_model(
                     try:
                         async_session = async_sessionmaker(engine, class_=AsyncSession)
                         async with async_session() as db:
+                            customer_uuid = uuid.UUID(customer_id)
+
+                            async def _attach_runtime_registry_state(payload: dict) -> dict:
+                                status_result = await db.execute(
+                                    select(ModelVersion.status)
+                                    .where(
+                                        ModelVersion.customer_id == customer_uuid,
+                                        ModelVersion.model_name == model_name,
+                                        ModelVersion.version == ver,
+                                    )
+                                    .limit(1)
+                                )
+                                candidate_status = status_result.scalar_one_or_none()
+                                champion = await get_champion_model(
+                                    db=db,
+                                    customer_id=customer_uuid,
+                                    model_name=model_name,
+                                )
+                                payload["candidate_status"] = str(candidate_status) if candidate_status else None
+                                payload["active_champion_version"] = champion["version"] if champion else None
+                                return payload
+
                             # Set tenant context for RLS
-                            await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                            try:
+                                await db.execute(
+                                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                                    {"customer_id": customer_id},
+                                )
+                            except Exception:
+                                # SQLite test harness does not support set_config.
+                                pass
 
                             # Register model version in DB
-                            model_metrics = {
-                                "mae": metrics.get("ensemble_mae"),
-                                "mape": metrics.get("ensemble_mape"),
-                                "coverage": 1.0,  # Future: calculate actual coverage
-                                "tier": ensemble_result.get("tier", "unknown"),
-                            }
-
                             model_id = await register_model_version(
                                 db=db,
-                                customer_id=uuid.UUID(customer_id),
-                                model_name="demand_forecast",
+                                customer_id=customer_uuid,
+                                model_name=model_name,
                                 version=ver,
                                 metrics=model_metrics,
                                 status="candidate",
-                                smoke_test_passed=True,  # Future: add smoke tests
+                                smoke_test_passed=smoke_test_passed,
                             )
+
+                            readiness = await evaluate_and_persist_tenant_readiness(
+                                db=db,
+                                customer_id=customer_uuid,
+                                transactions_df=transactions_df,
+                                candidate_version=ver,
+                                model_name=model_name,
+                                thresholds=ReadinessThresholds(
+                                    min_history_days=settings.ml_cold_start_min_history_days,
+                                    min_store_count=settings.ml_cold_start_min_store_count,
+                                    min_product_count=settings.ml_cold_start_min_product_count,
+                                    min_accuracy_samples=settings.ml_promotion_min_accuracy_samples,
+                                    accuracy_window_days=settings.ml_promotion_accuracy_window_days,
+                                ),
+                            )
+
+                            # Promotion gate is fail-closed on missing business metrics.
+                            if model_metrics.get("overstock_dollars") is None:
+                                blocked_metrics = dict(model_metrics)
+                                blocked_metrics["promotion_block_reason"] = "blocked_missing_business_metrics"
+                                await db.execute(
+                                    update(ModelVersion)
+                                    .where(
+                                        ModelVersion.customer_id == customer_uuid,
+                                        ModelVersion.model_name == model_name,
+                                        ModelVersion.version == ver,
+                                    )
+                                    .values(
+                                        status="challenger",
+                                        routing_weight=0.0,
+                                        metrics=blocked_metrics,
+                                    )
+                                )
+                                await db.commit()
+                                return await _attach_runtime_registry_state(
+                                    {
+                                        "model_id": str(model_id),
+                                        "readiness": readiness,
+                                        "promotion": {
+                                            "promoted": False,
+                                            "reason": "blocked_missing_business_metrics",
+                                        },
+                                    }
+                                )
 
                             # Auto-promote if better than champion (unless force-promote disabled)
                             if trigger in ("scheduled", "manual"):
+                                champion = await get_champion_model(
+                                    db=db,
+                                    customer_id=customer_uuid,
+                                    model_name=model_name,
+                                )
+                                champion_version = champion["version"] if champion else None
+
+                                cutoff = datetime.utcnow() - timedelta(days=settings.ml_promotion_accuracy_window_days)
+
+                                async def sample_count(version: str | None) -> int:
+                                    if not version:
+                                        return 0
+                                    result = await db.execute(
+                                        select(func.count(ForecastAccuracy.id)).where(
+                                            ForecastAccuracy.customer_id == customer_uuid,
+                                            ForecastAccuracy.model_version == version,
+                                            ForecastAccuracy.evaluated_at >= cutoff,
+                                        )
+                                    )
+                                    return int(result.scalar() or 0)
+
+                                candidate_samples = await sample_count(ver)
+                                champion_samples = await sample_count(champion_version)
+                                min_samples = int(settings.ml_promotion_min_accuracy_samples)
+                                requires_champion_window = champion_version is not None
+                                insufficient_candidate = candidate_samples < min_samples
+                                insufficient_champion = requires_champion_window and champion_samples < min_samples
+
+                                if insufficient_candidate or insufficient_champion:
+                                    blocked_metrics = dict(model_metrics)
+                                    blocked_metrics["promotion_block_reason"] = "blocked_insufficient_accuracy_samples"
+                                    blocked_metrics["promotion_block_details"] = {
+                                        "candidate_version": ver,
+                                        "candidate_samples": candidate_samples,
+                                        "champion_version": champion_version,
+                                        "champion_samples": champion_samples,
+                                        "required_min_samples": min_samples,
+                                        "window_days": settings.ml_promotion_accuracy_window_days,
+                                    }
+                                    await db.execute(
+                                        update(ModelVersion)
+                                        .where(
+                                            ModelVersion.customer_id == customer_uuid,
+                                            ModelVersion.model_name == model_name,
+                                            ModelVersion.version == ver,
+                                        )
+                                        .values(
+                                            status="challenger",
+                                            routing_weight=0.0,
+                                            metrics=blocked_metrics,
+                                        )
+                                    )
+                                    await db.commit()
+                                    return await _attach_runtime_registry_state(
+                                        {
+                                            "model_id": str(model_id),
+                                            "readiness": readiness,
+                                            "promotion": {
+                                                "promoted": False,
+                                                "reason": "blocked_insufficient_accuracy_samples",
+                                                "details": blocked_metrics["promotion_block_details"],
+                                            },
+                                        }
+                                    )
+
                                 promotion_result = await evaluate_for_promotion(
                                     db=db,
-                                    customer_id=uuid.UUID(customer_id),
-                                    model_name="demand_forecast",
+                                    customer_id=customer_uuid,
+                                    model_name=model_name,
                                     candidate_version=ver,
                                     candidate_metrics=model_metrics,
-                                    improvement_threshold=0.95,  # 5% improvement required
                                 )
-                                return {"model_id": str(model_id), "promotion": promotion_result}
+                                return await _attach_runtime_registry_state(
+                                    {"model_id": str(model_id), "promotion": promotion_result, "readiness": readiness}
+                                )
                             else:
                                 # Drift/new_products triggers → challenger only, no auto-promote
-                                return {"model_id": str(model_id), "promotion": {"promoted": False, "reason": f"trigger={trigger}"}}
+                                return await _attach_runtime_registry_state(
+                                    {
+                                        "model_id": str(model_id),
+                                        "readiness": readiness,
+                                        "promotion": {"promoted": False, "reason": f"trigger={trigger}"},
+                                    }
+                                )
 
                     finally:
                         await engine.dispose()
 
                 mlops_result = asyncio.run(register_and_evaluate())
+                try:
+                    if isinstance(mlops_result, dict) and "error" not in mlops_result:
+                        promotion_block = mlops_result.get("promotion") or {}
+                        sync_registry_with_runtime_state(
+                            version=ver,
+                            model_name=model_name,
+                            candidate_status=mlops_result.get("candidate_status"),
+                            active_champion_version=mlops_result.get("active_champion_version"),
+                            promotion_reason=promotion_block.get("reason"),
+                        )
+                except Exception as sync_exc:
+                    logger.warning("retrain.registry_runtime_sync_failed", error=str(sync_exc), exc_info=True)
                 logger.info("retrain.mlops_integration", **mlops_result)
 
             except Exception as mlops_exc:
@@ -295,26 +886,88 @@ def retrain_forecast_model(
                 # Don't fail the whole job if MLOps integration fails
                 mlops_result = {"error": str(mlops_exc)}
 
+        # ── Step 5b: Runtime forecast generation ────────────────────
+        forecast_generation_result = None
+        if customer_id:
+            try:
+                from core.config import get_settings
+                from workers.forecast import generate_forecasts
+
+                settings = get_settings()
+                forecast_generation_result = generate_forecasts.run(
+                    customer_id=customer_id,
+                    horizon_days=settings.ml_forecast_horizon_days,
+                    model_version=ver,
+                    model_name=model_name,
+                )
+                logger.info("retrain.forecasts_generated", result=forecast_generation_result)
+            except Exception as forecast_exc:  # noqa: BLE001
+                logger.warning(
+                    "retrain.forecast_generation_failed",
+                    error=str(forecast_exc),
+                    exc_info=True,
+                )
+                forecast_generation_result = {"error": str(forecast_exc)}
+
         # ── Step 6: Summary ──────────────────────────────────────────
         summary = {
             "status": "success",
             "version": ver,
+            "model_name": model_name,
+            "category_tier": category_tier,
             "dataset": dataset_name,
-            "tier": ensemble_result.get("tier", "unknown"),
+            "tier": ensemble_result.get("ensemble", {}).get("feature_tier", "unknown"),
             "rows_trained": len(features_df),
-            "mae": metrics.get("ensemble_mae"),
-            "mape": metrics.get("ensemble_mape"),
+            "mae": xgb_metrics.get("mae"),
+            "mape": xgb_metrics.get("mape"),
             "promoted": promote,
             "mlops": mlops_result,
+            "forecast_generation": forecast_generation_result,
             "trigger": trigger,
             "trigger_metadata": trigger_metadata,
+            "train_end_date": cutoff_applied,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
+
+        if customer_id:
+            try:
+                _record_retraining_event(
+                    customer_id=customer_id,
+                    model_name=model_name,
+                    trigger=trigger,
+                    trigger_metadata=trigger_metadata,
+                    status="completed",
+                    version_produced=ver,
+                    started_at=task_started_at,
+                    completed_at=datetime.utcnow(),
+                    run_id=run_id,
+                    dataset_name=dataset_name,
+                )
+            except Exception as retrain_log_exc:
+                logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
 
         logger.info("retrain.completed", **summary)
         return summary
 
     except Exception as exc:
+        if customer_id:
+            try:
+                _record_retraining_event(
+                    customer_id=customer_id,
+                    model_name=model_name,
+                    trigger=trigger,
+                    trigger_metadata=trigger_metadata,
+                    status="failed",
+                    version_produced=None,
+                    started_at=task_started_at,
+                    completed_at=datetime.utcnow(),
+                    run_id=run_id,
+                    dataset_name=dataset_name,
+                    error=str(exc),
+                )
+            except Exception as retrain_log_exc:
+                logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
+
         logger.error(
             "retrain.failed",
             run_id=run_id,

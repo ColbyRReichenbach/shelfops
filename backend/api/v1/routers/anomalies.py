@@ -22,7 +22,7 @@ from db.models import Anomaly
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/anomalies", tags=["anomalies"])
+router = APIRouter(prefix="/api/v1/ml/anomalies", tags=["anomalies"])
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────

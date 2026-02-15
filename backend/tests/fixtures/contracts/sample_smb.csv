@@ -1,0 +1,3 @@
+sale_date,store_code,sku,units,cogs,retail,promoted,category
+2026-01-01,STR-001,SKU-001,10,2.5,4.0,1,Beverage
+2026-01-02,STR-001,SKU-001,9,2.5,4.0,0,Beverage

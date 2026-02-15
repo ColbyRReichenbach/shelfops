@@ -1,0 +1,38 @@
+contract_version: v1
+tenant_id: demo_smb
+source_type: smb_sftp
+grain: daily
+timezone: America/New_York
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: non_negative
+country_code: US
+id_columns:
+  store: store_id
+  product: product_id
+field_map:
+  TRANS_DATE: date
+  STORE_NBR: store_id
+  ITEM_NBR: product_id
+  QTY_SOLD: quantity
+  UNIT_COST: unit_cost
+  UNIT_PRICE: unit_price
+type_map:
+  date: date
+  store_id: str
+  product_id: str
+  quantity: float
+  unit_cost: float
+  unit_price: float
+unit_map:
+  quantity:
+    multiplier: 1.0
+null_policy: {}
+dedupe_keys:
+  - store_id
+  - product_id
+  - date
+dq_thresholds:
+  min_date_parse_success: 0.99
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  min_quantity_parse_success: 0.995

@@ -22,15 +22,47 @@ frontend/.next/
 frontend/coverage/
 
 # Data & Models
-data/
+data/*
 backend/reports/
 backend/models/*.joblib
+backend/models/**/*.joblib
 backend/models/*.h5
 backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
 
-# Documentation (User Requested)
-docs/
+# Keep strict EDI seed fixtures tracked for deterministic validation
+!data/seed/
+data/seed/*
+!data/seed/edi/
+data/seed/edi/*
+!data/seed/edi/EDI810_20260215_001.edi
+!data/seed/edi/EDI850_20260215_001.edi
+!data/seed/edi/EDI856_20260215_001.edi
+!data/seed_smoke/
+data/seed_smoke/*
+!data/seed_smoke/edi/
+data/seed_smoke/edi/*
+!data/seed_smoke/edi/EDI810_20260215_001.edi
+!data/seed_smoke/edi/EDI850_20260215_001.edi
+!data/seed_smoke/edi/EDI856_20260215_001.edi
+
+# Documentation artifacts (curated snapshots only)
+docs/productization_artifacts/**
+!docs/productization_artifacts/
+!docs/productization_artifacts/model_strategy_cycle.json
+!docs/productization_artifacts/model_strategy_cycle.md
+!docs/productization_artifacts/migration_rollout_validation.md
+!docs/productization_artifacts/staging_runtime_chain_validation.json
+!docs/productization_artifacts/staging_runtime_chain_validation.md
+!docs/productization_artifacts/replay_summary.json
+!docs/productization_artifacts/replay_summary.md
+!docs/productization_artifacts/replay_model_strategy_decision.md
+!docs/productization_artifacts/smb_tenant_a/
+!docs/productization_artifacts/smb_tenant_a/contract_validation_report.md
+!docs/productization_artifacts/smb_tenant_b/
+!docs/productization_artifacts/smb_tenant_b/contract_validation_report.md
+!docs/productization_artifacts/enterprise_like/
+!docs/productization_artifacts/enterprise_like/contract_validation_report.md
 
 # Test databases
 *.db

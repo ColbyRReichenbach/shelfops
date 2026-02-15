@@ -182,23 +182,25 @@ def _sales_history_features(
 
     grp = txn_df.groupby(group)[qty_col]
 
-    txn_df["sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).sum())
-    txn_df["sales_14d"] = grp.transform(lambda x: x.rolling(14, min_periods=1).sum())
-    txn_df["sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).sum())
-    txn_df["sales_90d"] = grp.transform(lambda x: x.rolling(90, min_periods=1).sum())
+    # IMPORTANT: shift all history features by 1 to prevent target leakage.
+    # At time t, features must only use observations up to t-1.
+    txn_df["sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).sum().shift(1))
+    txn_df["sales_14d"] = grp.transform(lambda x: x.rolling(14, min_periods=1).sum().shift(1))
+    txn_df["sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).sum().shift(1))
+    txn_df["sales_90d"] = grp.transform(lambda x: x.rolling(90, min_periods=1).sum().shift(1))
 
-    txn_df["avg_daily_sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).mean())
-    txn_df["avg_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).mean())
+    txn_df["avg_daily_sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).mean().shift(1))
+    txn_df["avg_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).mean().shift(1))
 
-    # Trend: slope proxy via diff of rolling means
-    txn_df["sales_trend_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).mean().diff())
-    txn_df["sales_trend_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).mean().diff())
+    # Trend: slope proxy via diff of rolling means, then lag by 1 for leakage safety.
+    txn_df["sales_trend_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).mean().diff().shift(1))
+    txn_df["sales_trend_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).mean().diff().shift(1))
 
-    txn_df["sales_volatility_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).std())
-    txn_df["sales_volatility_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).std())
+    txn_df["sales_volatility_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).std().shift(1))
+    txn_df["sales_volatility_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).std().shift(1))
 
-    txn_df["max_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).max())
-    txn_df["min_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).min())
+    txn_df["max_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).max().shift(1))
+    txn_df["min_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).min().shift(1))
 
     return txn_df
 

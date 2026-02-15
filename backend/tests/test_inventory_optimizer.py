@@ -14,6 +14,8 @@ from inventory.optimizer import (
     RELIABILITY_MULTIPLIERS,
     Z_SCORES,
     InventoryOptimizer,
+    get_cluster_multipliers,
+    get_default_service_level,
     get_reliability_multiplier,
     get_z_score,
 )
@@ -155,3 +157,12 @@ class TestMultiplierCoverage:
             score = pct / 100.0
             mult = get_reliability_multiplier(score)
             assert mult <= prev_mult or mult == prev_mult or prev_mult == float("inf")
+
+
+class TestConfigDrivenDefaults:
+    def test_default_service_level_is_valid(self):
+        assert 0.8 <= get_default_service_level() <= 0.999
+
+    def test_cluster_multipliers_are_available(self):
+        multipliers = get_cluster_multipliers()
+        assert set(multipliers.keys()) == {0, 1, 2}

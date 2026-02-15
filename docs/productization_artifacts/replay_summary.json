@@ -1,0 +1,53 @@
+{
+  "generated_at": "2026-02-15T16:01:58.234738+00:00",
+  "dataset_id": "seed_synthetic",
+  "customer_id": "00000000-0000-0000-0000-000000000001",
+  "dry_run": true,
+  "replay_start": "2026-01-17",
+  "replay_end": "2026-01-18",
+  "replay_days": 2,
+  "partition_manifest": "../docs/productization_artifacts/replay_partition_manifest.json",
+  "retrain_count": 1,
+  "critical_failures": 0,
+  "trigger_events": [
+    {
+      "timestamp": "2026-02-15T16:01:58.047734+00:00",
+      "date": "2026-01-17",
+      "event": "retrain",
+      "reasons": [
+        "initial"
+      ],
+      "version": "replay_v1",
+      "train_end_date": "2026-01-16"
+    }
+  ],
+  "baseline_metrics": {
+    "mae": 23.06757160531819,
+    "mape_nonzero": 0.33479992502367767,
+    "stockout_miss_rate": 0.0,
+    "overstock_rate": 0.5965942454492072,
+    "critical_failures": 0.0
+  },
+  "baseline_gate_passed": false,
+  "baseline_gate_failures": [
+    "mape_nonzero",
+    "overstock_rate"
+  ],
+  "champion_version": null,
+  "hitl_counts": {
+    "po_edit": 6
+  },
+  "db_persistence": {
+    "enabled": false,
+    "demand_forecast_rows_written": 0,
+    "forecast_accuracy_rows_written": 0,
+    "max_rows_per_day": 2000
+  },
+  "artifacts": {
+    "daily_log": "../docs/productization_artifacts/replay_daily_log.jsonl",
+    "summary_json": "../docs/productization_artifacts/replay_summary.json",
+    "summary_md": "../docs/productization_artifacts/replay_summary.md",
+    "hitl_decisions_json": "../docs/productization_artifacts/replay_hitl_decisions.json",
+    "strategy_md": "../docs/productization_artifacts/replay_model_strategy_decision.md"
+  }
+}

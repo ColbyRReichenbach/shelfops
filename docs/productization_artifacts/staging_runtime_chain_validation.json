@@ -1,0 +1,108 @@
+{
+  "executed_at": "2026-02-15T15:14:03.257810+00:00",
+  "customer_id": "00000000-0000-0000-0000-000000000001",
+  "model_version": "v4",
+  "retrain": {
+    "status": "success",
+    "version": "v4",
+    "model_name": "demand_forecast",
+    "category_tier": null,
+    "dataset": "tenant_db",
+    "tier": "cold_start",
+    "rows_trained": 3668,
+    "mae": 5.074499069688363,
+    "mape": 1.1328125838062355,
+    "promoted": false,
+    "mlops": {
+      "model_id": "ded2f9b8-8461-4b03-8cf6-6b32a63631be",
+      "readiness": {
+        "state": "cold_start",
+        "reason_code": "insufficient_product_count",
+        "transitioned": false,
+        "previous_state": "cold_start",
+        "snapshot": {
+          "history_days": 90,
+          "store_count": 4,
+          "product_count": 20,
+          "candidate_version": "v4",
+          "champion_version": null,
+          "candidate_accuracy_samples": 0,
+          "champion_accuracy_samples": 0,
+          "thresholds": {
+            "min_history_days": 90,
+            "min_store_count": 1,
+            "min_product_count": 25,
+            "min_accuracy_samples": 30,
+            "accuracy_window_days": 30
+          }
+        }
+      },
+      "promotion": {
+        "promoted": false,
+        "reason": "blocked_insufficient_accuracy_samples",
+        "details": {
+          "candidate_version": "v4",
+          "candidate_samples": 0,
+          "champion_version": null,
+          "champion_samples": 0,
+          "required_min_samples": 30,
+          "window_days": 30
+        }
+      }
+    },
+    "forecast_generation": {
+      "status": "success",
+      "customer_id": "00000000-0000-0000-0000-000000000001",
+      "model_version": "v4",
+      "horizon_days": 14,
+      "forecast_rows_created": 1120,
+      "rows_skipped_invalid_ids": 0,
+      "generated_at": "2026-02-15T15:14:00.836093+00:00"
+    },
+    "trigger": "manual",
+    "trigger_metadata": null,
+    "completed_at": "2026-02-15T15:14:00.843473+00:00"
+  },
+  "generate_forecasts": {
+    "status": "success",
+    "customer_id": "00000000-0000-0000-0000-000000000001",
+    "model_version": "v4",
+    "horizon_days": 14,
+    "forecast_rows_created": 1120,
+    "rows_skipped_invalid_ids": 0,
+    "generated_at": "2026-02-15T15:14:02.535718+00:00"
+  },
+  "backfilled_historical_forecasts": 252,
+  "compute_accuracy": {
+    "status": "success",
+    "customer_id": "00000000-0000-0000-0000-000000000001",
+    "window_start": "2026-02-08",
+    "window_end": "2026-02-14",
+    "forecasts_evaluated": 252,
+    "accuracy_rows_written": 252,
+    "readiness": {
+      "state": "cold_start",
+      "reason_code": "insufficient_product_count",
+      "transitioned": false,
+      "previous_state": "cold_start",
+      "snapshot": {
+        "history_days": 90,
+        "store_count": 4,
+        "product_count": 20,
+        "candidate_version": "v4",
+        "champion_version": null,
+        "candidate_accuracy_samples": 252,
+        "champion_accuracy_samples": 0,
+        "thresholds": {
+          "min_history_days": 90,
+          "min_store_count": 1,
+          "min_product_count": 25,
+          "min_accuracy_samples": 30,
+          "accuracy_window_days": 30
+        }
+      }
+    }
+  },
+  "forecast_rows_for_version": 1372,
+  "accuracy_rows_for_version": 252
+}

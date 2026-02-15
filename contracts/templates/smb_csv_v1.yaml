@@ -1,0 +1,64 @@
+contract_version: v1
+tenant_id: tenant-template
+source_type: smb_csv
+grain: daily
+timezone: America/New_York
+timezone_handling: convert_to_profile_tz_date
+quantity_sign_policy: non_negative
+country_code: US
+date_format_hint: "%Y-%m-%d"
+currency: USD
+quantity_uom: units
+id_normalization_rules:
+  store_id:
+    strip: true
+    upper: true
+  product_id:
+    strip: true
+    upper: true
+id_columns:
+  store: store_id
+  product: product_id
+field_map:
+  sale_date: date
+  location_code: store_id
+  sku: product_id
+  units_sold: quantity
+  unit_cost: unit_cost
+  unit_price: unit_price
+  promo_flag: is_promotional
+  holiday_flag: is_holiday
+  category_name: category
+type_map:
+  date: date
+  store_id: str
+  product_id: str
+  quantity: float
+  unit_cost: float
+  unit_price: float
+  is_promotional: bool
+  is_holiday: bool
+  category: str
+unit_map:
+  quantity:
+    multiplier: 1.0
+  unit_cost:
+    multiplier: 1.0
+  unit_price:
+    multiplier: 1.0
+null_policy:
+  category:
+    fill_value: unknown
+  is_promotional:
+    fill_value: 0
+  is_holiday:
+    fill_value: 0
+dedupe_keys:
+  - store_id
+  - product_id
+  - date
+dq_thresholds:
+  min_date_parse_success: 0.99
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  min_quantity_parse_success: 0.995
