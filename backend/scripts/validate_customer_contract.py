@@ -91,6 +91,27 @@ def _cost_confidence(canonical: pd.DataFrame) -> dict[str, str | float]:
     }
 
 
+def _canonical_schema_snapshot(canonical: pd.DataFrame) -> dict:
+    return {
+        "columns": [
+            {
+                "name": str(col),
+                "dtype": str(canonical[col].dtype),
+                "non_null_rate": float(canonical[col].notna().mean()) if len(canonical) > 0 else 0.0,
+            }
+            for col in canonical.columns
+        ],
+        "row_count": int(len(canonical)),
+    }
+
+
+def _lineage_map(profile) -> dict[str, list[str]]:
+    lineage: dict[str, list[str]] = {}
+    for source, canonical in profile.field_map.items():
+        lineage.setdefault(str(canonical), []).append(str(source))
+    return dict(sorted(lineage.items()))
+
+
 def _to_markdown(
     contract_path: Path,
     sample_path: Path,
@@ -121,6 +142,7 @@ def _to_markdown(
         f"| required_null_rate | {metrics.get('required_null_rate', 0):.4f} | <= {report['thresholds']['max_required_null_rate']:.4f} |",
         f"| duplicate_rate | {metrics.get('duplicate_rate', 0):.4f} | <= {report['thresholds']['max_duplicate_rate']:.4f} |",
         f"| quantity_parse_success | {metrics.get('quantity_parse_success', 0):.4f} | >= {report['thresholds']['min_quantity_parse_success']:.4f} |",
+        f"| requires_custom_adapter | {metrics.get('requires_custom_adapter', 0):.0f} | 0 = no |",
         "",
         "## Semantic DQ",
         "",
@@ -206,6 +228,8 @@ def main() -> int:
         "report": report,
         "cost_confidence": cost_confidence,
         "reference_data_loaded": sorted(reference_data.keys()),
+        "column_lineage_map": _lineage_map(profile),
+        "canonical_schema_snapshot": _canonical_schema_snapshot(canonical),
     }
 
     output_json = Path(args.output_json)
@@ -213,6 +237,14 @@ def main() -> int:
     output_json.parent.mkdir(parents=True, exist_ok=True)
     output_md.parent.mkdir(parents=True, exist_ok=True)
     output_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    (output_json.parent / "column_lineage_map.json").write_text(
+        json.dumps(payload["column_lineage_map"], indent=2),
+        encoding="utf-8",
+    )
+    (output_json.parent / "canonical_schema_snapshot.json").write_text(
+        json.dumps(payload["canonical_schema_snapshot"], indent=2),
+        encoding="utf-8",
+    )
 
     markdown = _to_markdown(
         contract_path,

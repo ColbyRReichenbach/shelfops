@@ -6,6 +6,15 @@ _Last updated: February 15, 2026_
 
 ShelfOps is in **pre-production hardening**. Core functionality is implemented and build/test gates are stable, with SMB/mid-market as the practical launch path while enterprise validation continues.
 
+Canonical status source: `docs/PRODUCTION_READINESS_BOARD.md`.
+
+Status taxonomy used across docs:
+
+- `implemented`
+- `pilot_validated`
+- `partial`
+- `blocked`
+
 ## Where We Are In Production
 
 - ShelfOps is in **pre-production hardening**.

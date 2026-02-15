@@ -53,6 +53,10 @@ class ContractProfile:
     dedupe_keys: list[str]
     dq_thresholds: dict[str, float]
     country_code: str = "unknown"
+    date_format_hint: str | None = None
+    currency: str | None = None
+    quantity_uom: str | None = None
+    id_normalization_rules: dict[str, Any] | None = None
 
 
 class ContractProfileError(ValueError):
@@ -143,6 +147,14 @@ def _normalize_profile(payload: dict[str, Any]) -> ContractProfile:
         dedupe_keys=dedupe_keys,
         dq_thresholds=_coerce_float_thresholds(_ensure_mapping(payload, "dq_thresholds")),
         country_code=str(payload.get("country_code", "unknown")),
+        date_format_hint=(str(payload["date_format_hint"]) if payload.get("date_format_hint") else None),
+        currency=(str(payload["currency"]).upper() if payload.get("currency") else None),
+        quantity_uom=(str(payload["quantity_uom"]) if payload.get("quantity_uom") else None),
+        id_normalization_rules=(
+            {str(k): v for k, v in payload.get("id_normalization_rules", {}).items()}
+            if isinstance(payload.get("id_normalization_rules"), dict)
+            else None
+        ),
     )
 
 

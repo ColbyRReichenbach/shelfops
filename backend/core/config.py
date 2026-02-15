@@ -92,6 +92,15 @@ class Settings(BaseSettings):
     sourcing_vendor_capacity_multiplier: float = 100.0
     sourcing_vendor_capacity_confidence: str = "assumed"
 
+    # ML runtime + readiness policy
+    ml_forecast_horizon_days: int = 14
+    ml_accuracy_lookback_days: int = 30
+    ml_promotion_min_accuracy_samples: int = 30
+    ml_promotion_accuracy_window_days: int = 30
+    ml_cold_start_min_history_days: int = 90
+    ml_cold_start_min_store_count: int = 1
+    ml_cold_start_min_product_count: int = 25
+
     # Email
     sendgrid_api_key: str = ""
     alert_from_email: str = "alerts@shelfops.com"

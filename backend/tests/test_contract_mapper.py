@@ -290,3 +290,20 @@ def test_enterprise_like_fixture_passes_with_reference_data():
     }
     result = build_canonical_result(raw, profile, reference_data=refs)
     assert result.report.passed is True
+
+
+def test_non_representable_schema_returns_requires_custom_adapter_signal():
+    profile = _profile_variant_a()
+    # Missing required source columns and nested payload objects.
+    raw = pd.DataFrame(
+        [
+            {
+                "event_payload": {"date": "2026-01-01", "store": "S1"},
+                "qty": 2,
+            }
+        ]
+    )
+    result = build_canonical_result(raw, profile)
+    assert result.report.passed is False
+    assert result.report.metrics.get("requires_custom_adapter") == 1.0
+    assert any("requires_custom_adapter" in failure for failure in result.report.failures)

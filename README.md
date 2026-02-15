@@ -38,6 +38,8 @@ I built ShelfOps for two reasons:
 - Enterprise connectors are implemented and under continuous validation using synthetic enterprise-format data.
 - Forecasting can be tuned now on public datasets; some advanced models remain partially blocked pending production telemetry.
 
+Status labels across project docs use: `implemented`, `pilot_validated`, `partial`, `blocked`.
+
 ## Why SMB-First
 
 SMB/mid-market teams can adopt decision workflows faster with fewer integration dependencies, which makes them the practical first deployment path. Enterprise capabilities are still core to the architecture, but are positioned as pilot-ready logic and validation work rather than full enterprise onboarding readiness today.
@@ -47,6 +49,7 @@ SMB/mid-market teams can adopt decision workflows faster with fewer integration 
 - **Non-technical overview (recruiters / business stakeholders):** `docs/README_NON_TECHNICAL.md`
 - **Technical overview (engineering / data hiring managers):** `docs/README_TECHNICAL.md`
 - **Current readiness and delivery status:** `docs/RELEASE_READINESS.md`
+- **Canonical production status board:** `docs/PRODUCTION_READINESS_BOARD.md`
 - **Data strategy and model-readiness gates:** `docs/DATA_STRATEGY.md`
 - **Data contract specification (SMB + enterprise):** `docs/DATA_CONTRACT_SPEC.md`
 - **SMB onboarding runbook:** `docs/SMB_ONBOARDING_RUNBOOK.md`
@@ -54,6 +57,10 @@ SMB/mid-market teams can adopt decision workflows faster with fewer integration 
 - **Known gaps and priorities:** `docs/KNOWN_ISSUES.md`
 - **API contract reference:** `docs/API_CONTRACTS.md`
 - **Roadmap:** `docs/ROADMAP.md`
+- **Production decision log:** `docs/PRODUCTION_DECISION_LOG.md`
+- **ML effectiveness report:** `docs/ML_EFFECTIVENESS_REPORT.md`
+- **Enterprise vs SMB architecture brief:** `docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md`
+- **Integration incident runbook:** `docs/INTEGRATION_INCIDENT_RUNBOOK.md`
 - **External research sources (filings + industry):** `docs/RESEARCH_SOURCES.md`
 - **Model readiness matrix:** `docs/MODEL_READINESS_MATRIX.md`
 - **Forecast tuning protocol:** `docs/TUNING_PROTOCOL.md`

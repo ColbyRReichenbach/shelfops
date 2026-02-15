@@ -13,7 +13,7 @@ import glob
 import json
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -112,11 +112,29 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
     result.dataframe.to_csv(canonical_path, index=False)
     report_json = target_dir / "contract_validation_report.json"
     report_md = target_dir / "contract_validation_report.md"
+    lineage_json = target_dir / "column_lineage_map.json"
+    schema_json = target_dir / "canonical_schema_snapshot.json"
+    lineage_map: dict[str, list[str]] = {}
+    for source, canonical in profile.field_map.items():
+        lineage_map.setdefault(str(canonical), []).append(str(source))
+    schema_snapshot = {
+        "row_count": int(len(result.dataframe)),
+        "columns": [
+            {
+                "name": str(col),
+                "dtype": str(result.dataframe[col].dtype),
+                "non_null_rate": float(result.dataframe[col].notna().mean()) if len(result.dataframe) > 0 else 0.0,
+            }
+            for col in result.dataframe.columns
+        ],
+    }
     report_payload = {
         "contract_path": str(Path(contract_path).resolve()),
         "sample_path": str(sample.resolve()),
         "rows_mapped": int(len(result.dataframe)),
         "report": result.report.to_dict(),
+        "column_lineage_map": dict(sorted(lineage_map.items())),
+        "canonical_schema_snapshot": schema_snapshot,
         "cost_field_coverage": {
             "unit_cost_non_null_rate": (
                 float(result.dataframe["unit_cost"].notna().mean()) if "unit_cost" in result.dataframe.columns else 0.0
@@ -129,6 +147,8 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
         },
     }
     report_json.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
+    lineage_json.write_text(json.dumps(report_payload["column_lineage_map"], indent=2), encoding="utf-8")
+    schema_json.write_text(json.dumps(report_payload["canonical_schema_snapshot"], indent=2), encoding="utf-8")
     report_md.write_text(
         "\n".join(
             [
@@ -145,11 +165,17 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
                 f"- required_null_rate: {report_payload['report']['metrics'].get('required_null_rate', 0):.4f}",
                 f"- duplicate_rate: {report_payload['report']['metrics'].get('duplicate_rate', 0):.4f}",
                 f"- quantity_parse_success: {report_payload['report']['metrics'].get('quantity_parse_success', 0):.4f}",
+                f"- requires_custom_adapter: {report_payload['report']['metrics'].get('requires_custom_adapter', 0):.0f}",
                 "",
                 "## Cost Field Coverage",
                 "",
                 f"- unit_cost_non_null_rate: {report_payload['cost_field_coverage']['unit_cost_non_null_rate']:.4f}",
                 f"- unit_price_non_null_rate: {report_payload['cost_field_coverage']['unit_price_non_null_rate']:.4f}",
+                "",
+                "## Artifacts",
+                "",
+                f"- Column lineage map: `{lineage_json}`",
+                f"- Canonical schema snapshot: `{schema_json}`",
             ]
         )
         + "\n",
@@ -164,6 +190,8 @@ def _load_profiled_data(contract_path: str, sample_path: str, output_dir: str) -
         canonical_path=str(canonical_path),
         validation_report_json=str(report_json),
         validation_report_md=str(report_md),
+        column_lineage_map_json=str(lineage_json),
+        canonical_schema_snapshot_json=str(schema_json),
     )
     return result.dataframe
 
@@ -528,12 +556,13 @@ def retrain_forecast_model(
             try:
                 import asyncio
 
-                from sqlalchemy import text, update
+                from sqlalchemy import func, select, text, update
                 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
                 from core.config import get_settings
-                from db.models import ModelVersion
-                from ml.arena import evaluate_for_promotion, register_model_version
+                from db.models import ForecastAccuracy, ModelVersion
+                from ml.arena import evaluate_for_promotion, get_champion_model, register_model_version
+                from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
 
                 model_metrics = _candidate_metrics_from_holdout(features_df, ensemble_result)
                 model_metrics["tier"] = ensemble_result.get("ensemble", {}).get("feature_tier", "unknown")
@@ -571,6 +600,21 @@ def retrain_forecast_model(
                                 smoke_test_passed=smoke_test_passed,
                             )
 
+                            readiness = await evaluate_and_persist_tenant_readiness(
+                                db=db,
+                                customer_id=uuid.UUID(customer_id),
+                                transactions_df=transactions_df,
+                                candidate_version=ver,
+                                model_name=model_name,
+                                thresholds=ReadinessThresholds(
+                                    min_history_days=settings.ml_cold_start_min_history_days,
+                                    min_store_count=settings.ml_cold_start_min_store_count,
+                                    min_product_count=settings.ml_cold_start_min_product_count,
+                                    min_accuracy_samples=settings.ml_promotion_min_accuracy_samples,
+                                    accuracy_window_days=settings.ml_promotion_accuracy_window_days,
+                                ),
+                            )
+
                             # Promotion gate is fail-closed on missing business metrics.
                             if model_metrics.get("overstock_dollars") is None:
                                 blocked_metrics = dict(model_metrics)
@@ -591,6 +635,7 @@ def retrain_forecast_model(
                                 await db.commit()
                                 return {
                                     "model_id": str(model_id),
+                                    "readiness": readiness,
                                     "promotion": {
                                         "promoted": False,
                                         "reason": "blocked_missing_business_metrics",
@@ -599,6 +644,69 @@ def retrain_forecast_model(
 
                             # Auto-promote if better than champion (unless force-promote disabled)
                             if trigger in ("scheduled", "manual"):
+                                champion = await get_champion_model(
+                                    db=db,
+                                    customer_id=uuid.UUID(customer_id),
+                                    model_name=model_name,
+                                )
+                                champion_version = champion["version"] if champion else None
+
+                                cutoff = datetime.utcnow() - timedelta(days=settings.ml_promotion_accuracy_window_days)
+
+                                async def sample_count(version: str | None) -> int:
+                                    if not version:
+                                        return 0
+                                    result = await db.execute(
+                                        select(func.count(ForecastAccuracy.id)).where(
+                                            ForecastAccuracy.customer_id == uuid.UUID(customer_id),
+                                            ForecastAccuracy.model_version == version,
+                                            ForecastAccuracy.evaluated_at >= cutoff,
+                                        )
+                                    )
+                                    return int(result.scalar() or 0)
+
+                                candidate_samples = await sample_count(ver)
+                                champion_samples = await sample_count(champion_version)
+                                min_samples = int(settings.ml_promotion_min_accuracy_samples)
+                                requires_champion_window = champion_version is not None
+                                insufficient_candidate = candidate_samples < min_samples
+                                insufficient_champion = requires_champion_window and champion_samples < min_samples
+
+                                if insufficient_candidate or insufficient_champion:
+                                    blocked_metrics = dict(model_metrics)
+                                    blocked_metrics["promotion_block_reason"] = "blocked_insufficient_accuracy_samples"
+                                    blocked_metrics["promotion_block_details"] = {
+                                        "candidate_version": ver,
+                                        "candidate_samples": candidate_samples,
+                                        "champion_version": champion_version,
+                                        "champion_samples": champion_samples,
+                                        "required_min_samples": min_samples,
+                                        "window_days": settings.ml_promotion_accuracy_window_days,
+                                    }
+                                    await db.execute(
+                                        update(ModelVersion)
+                                        .where(
+                                            ModelVersion.customer_id == uuid.UUID(customer_id),
+                                            ModelVersion.model_name == model_name,
+                                            ModelVersion.version == ver,
+                                        )
+                                        .values(
+                                            status="challenger",
+                                            routing_weight=0.0,
+                                            metrics=blocked_metrics,
+                                        )
+                                    )
+                                    await db.commit()
+                                    return {
+                                        "model_id": str(model_id),
+                                        "readiness": readiness,
+                                        "promotion": {
+                                            "promoted": False,
+                                            "reason": "blocked_insufficient_accuracy_samples",
+                                            "details": blocked_metrics["promotion_block_details"],
+                                        },
+                                    }
+
                                 promotion_result = await evaluate_for_promotion(
                                     db=db,
                                     customer_id=uuid.UUID(customer_id),
@@ -606,11 +714,12 @@ def retrain_forecast_model(
                                     candidate_version=ver,
                                     candidate_metrics=model_metrics,
                                 )
-                                return {"model_id": str(model_id), "promotion": promotion_result}
+                                return {"model_id": str(model_id), "promotion": promotion_result, "readiness": readiness}
                             else:
                                 # Drift/new_products triggers → challenger only, no auto-promote
                                 return {
                                     "model_id": str(model_id),
+                                    "readiness": readiness,
                                     "promotion": {"promoted": False, "reason": f"trigger={trigger}"},
                                 }
 
@@ -625,6 +734,29 @@ def retrain_forecast_model(
                 # Don't fail the whole job if MLOps integration fails
                 mlops_result = {"error": str(mlops_exc)}
 
+        # ── Step 5b: Runtime forecast generation ────────────────────
+        forecast_generation_result = None
+        if customer_id:
+            try:
+                from core.config import get_settings
+                from workers.forecast import generate_forecasts
+
+                settings = get_settings()
+                forecast_generation_result = generate_forecasts.run(
+                    customer_id=customer_id,
+                    horizon_days=settings.ml_forecast_horizon_days,
+                    model_version=ver,
+                    model_name=model_name,
+                )
+                logger.info("retrain.forecasts_generated", result=forecast_generation_result)
+            except Exception as forecast_exc:  # noqa: BLE001
+                logger.warning(
+                    "retrain.forecast_generation_failed",
+                    error=str(forecast_exc),
+                    exc_info=True,
+                )
+                forecast_generation_result = {"error": str(forecast_exc)}
+
         # ── Step 6: Summary ──────────────────────────────────────────
         summary = {
             "status": "success",
@@ -638,6 +770,7 @@ def retrain_forecast_model(
             "mape": xgb_metrics.get("mape"),
             "promoted": promote,
             "mlops": mlops_result,
+            "forecast_generation": forecast_generation_result,
             "trigger": trigger,
             "trigger_metadata": trigger_metadata,
             "completed_at": datetime.now(timezone.utc).isoformat(),

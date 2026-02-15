@@ -173,6 +173,55 @@ def _apply_quantity_sign_policy(mapped: pd.DataFrame, profile: ContractProfile) 
     return out
 
 
+def _apply_id_normalization(mapped: pd.DataFrame, profile: ContractProfile) -> pd.DataFrame:
+    rules = profile.id_normalization_rules or {}
+    if not isinstance(rules, dict):
+        return mapped
+    out = mapped.copy()
+    for canonical_field in ("store_id", "product_id"):
+        if canonical_field not in out.columns:
+            continue
+        field_rules = rules.get(canonical_field)
+        if not isinstance(field_rules, dict):
+            continue
+        series = out[canonical_field].astype("string")
+        if field_rules.get("strip", True):
+            series = series.str.strip()
+        if field_rules.get("upper", False):
+            series = series.str.upper()
+        if field_rules.get("lower", False):
+            series = series.str.lower()
+        prefix = field_rules.get("remove_prefix")
+        if isinstance(prefix, str) and prefix:
+            series = series.str.removeprefix(prefix)
+        out[canonical_field] = series
+    return out
+
+
+def _representability_failures(raw_df: pd.DataFrame, profile: ContractProfile) -> list[str]:
+    failures: list[str] = []
+
+    for required in CANONICAL_REQUIRED_FIELDS:
+        mapped_sources = [src for src, target in profile.field_map.items() if target == required]
+        source_present = any(src in raw_df.columns for src in mapped_sources)
+        canonical_present = required in raw_df.columns
+        if not source_present and not canonical_present:
+            failures.append(f"requires_custom_adapter: missing mapping/source for required field '{required}'")
+
+    for source_col in profile.field_map.keys():
+        if source_col not in raw_df.columns:
+            continue
+        sample = raw_df[source_col].dropna().head(100)
+        has_nested = sample.apply(lambda v: isinstance(v, (dict, list, tuple, set))).any()
+        if bool(has_nested):
+            failures.append(
+                "requires_custom_adapter: nested/object values detected in "
+                f"'{source_col}' (flattening logic not representable via profile mapping)"
+            )
+
+    return failures
+
+
 def _reference_ids(reference_data: dict[str, pd.DataFrame], key: str) -> set[str]:
     frame = reference_data.get(key)
     if frame is None or frame.empty:
@@ -233,6 +282,7 @@ def map_to_canonical(raw_df: pd.DataFrame, profile: ContractProfile) -> pd.DataF
     for field in ["store_id", "product_id", "category"]:
         if field in mapped.columns:
             mapped[field] = mapped[field].astype("string")
+    mapped = _apply_id_normalization(mapped, profile)
 
     # Quantity + optional numerics should be numeric for downstream pipelines.
     for field in ["quantity", "unit_cost", "unit_price", "on_hand_qty", "on_order_qty"]:
@@ -375,6 +425,17 @@ def build_canonical_result(
     reference_data: dict[str, pd.DataFrame] | None = None,
 ) -> CanonicalResult:
     """Map and validate in one call for onboarding flows."""
+    representability_failures = _representability_failures(raw_df, profile)
     canonical = map_to_canonical(raw_df, profile)
     report = validate_canonical(canonical, profile, reference_data=reference_data)
+    merged_failures = representability_failures + report.failures
+    merged_metrics = dict(report.metrics)
+    merged_metrics["requires_custom_adapter"] = 1.0 if representability_failures else 0.0
+    report = ValidationReport(
+        passed=not merged_failures,
+        thresholds=report.thresholds,
+        metrics=merged_metrics,
+        failures=merged_failures,
+        row_count=report.row_count,
+    )
     return CanonicalResult(dataframe=canonical, report=report)

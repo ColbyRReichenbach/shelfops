@@ -1124,7 +1124,62 @@ class ModelRetrainingLog(Base):
     __table_args__ = (Index("ix_model_retraining_log_customer_model", "customer_id", "model_name"),)
 
 
-# ─── 32. ML Alerts (In-App Notifications) ──────────────────────────────────
+# ─── 32. Tenant ML Readiness (Cold Start -> Production Tier) ──────────────
+
+
+class TenantMLReadiness(Base):
+    """
+    Tenant readiness state machine for ML production tiering.
+
+    States:
+      - cold_start
+      - warming
+      - production_tier_candidate
+      - production_tier_active
+    """
+
+    __tablename__ = "tenant_ml_readiness"
+
+    readiness_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False, unique=True)
+    state = Column(String(40), nullable=False, default="cold_start")
+    reason_code = Column(String(100), nullable=False, default="insufficient_history")
+    gate_snapshot = Column(JSONB_TYPE, nullable=True)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    transitioned_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('cold_start', 'warming', 'production_tier_candidate', 'production_tier_active')",
+            name="ck_tenant_ml_readiness_state",
+        ),
+        Index("ix_tenant_ml_readiness_customer_state", "customer_id", "state"),
+    )
+
+
+class TenantMLReadinessAudit(Base):
+    """Audit trail for tenant readiness transitions."""
+
+    __tablename__ = "tenant_ml_readiness_audit"
+
+    event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    from_state = Column(String(40), nullable=True)
+    to_state = Column(String(40), nullable=False)
+    reason_code = Column(String(100), nullable=False)
+    gate_snapshot = Column(JSONB_TYPE, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_tenant_ml_readiness_audit_customer", "customer_id", "created_at"),
+        CheckConstraint(
+            "to_state IN ('cold_start', 'warming', 'production_tier_candidate', 'production_tier_active')",
+            name="ck_tenant_ml_readiness_audit_to_state",
+        ),
+    )
+
+
+# ─── 33. ML Alerts (In-App Notifications) ──────────────────────────────────
 
 
 class MLAlert(Base):
@@ -1156,7 +1211,7 @@ class MLAlert(Base):
     __table_args__ = (Index("ix_ml_alerts_customer_status", "customer_id", "status", "created_at"),)
 
 
-# ─── 33. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
+# ─── 34. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
 
 
 class ModelExperiment(Base):
@@ -1197,7 +1252,7 @@ class ModelExperiment(Base):
     __table_args__ = (Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),)
 
 
-# ─── Integration Sync Log ─────────────────────────────────────────────────
+# ─── 35. Integration Sync Log ──────────────────────────────────────────────
 
 
 class IntegrationSyncLog(Base):

@@ -46,6 +46,8 @@ For exact citations and safe wording rules, see: `docs/RESEARCH_SOURCES.md`.
 - Enterprise connectors are implemented and under continuous validation using synthetic enterprise-format data.
 - Forecasting can be tuned now on public datasets; some advanced models remain partially blocked pending production telemetry.
 
+Status labels used in project updates: `implemented`, `pilot_validated`, `partial`, `blocked`.
+
 ## Why SMB-First Is Intentional
 
 Smaller operators can adopt faster with fewer integration constraints, so this is the most practical initial market. Enterprise logic is still built and validated in parallel so the system can support pilot-style enterprise scenarios without over-claiming full enterprise rollout readiness.
@@ -60,11 +62,14 @@ I see two clear paths:
 ## What To Read Next
 
 - Technical hiring-manager version: `docs/README_TECHNICAL.md`
+- Canonical readiness board: `docs/PRODUCTION_READINESS_BOARD.md`
 - Readiness and launch status: `docs/RELEASE_READINESS.md`
 - Data contract and onboarding spec: `docs/DATA_CONTRACT_SPEC.md`
 - SMB onboarding runbook: `docs/SMB_ONBOARDING_RUNBOOK.md`
 - Enterprise pilot readiness gates: `docs/ENTERPRISE_PILOT_READINESS.md`
 - Product priorities and gaps: `docs/KNOWN_ISSUES.md`
+- ML effectiveness report: `docs/ML_EFFECTIVENESS_REPORT.md`
+- Enterprise vs SMB architecture brief: `docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md`
 - Source-backed research references: `docs/RESEARCH_SOURCES.md`
 - Model readiness matrix: `docs/MODEL_READINESS_MATRIX.md`
 

@@ -4,10 +4,11 @@ _Last updated: February 15, 2026_
 
 ## Current Baseline
 
-- Backend tests: `236/236` passing
+- Backend tests: passing (see latest CI artifact / readiness board)
 - Backend lint/format: passing
 - Frontend production build: passing
 - Status: **Pre-production hardening**
+- Canonical status board: `docs/PRODUCTION_READINESS_BOARD.md`
 
 ## Completed Hardening (This Cycle)
 
@@ -27,11 +28,13 @@ _Last updated: February 15, 2026_
 2. Keep connector contract tests for EDI/SFTP/Kafka sync-health outputs current.
 3. Maintain tenant contract validation suite and mapping regression coverage.
 4. Keep data-readiness gate checklist synced with promotion policy (`docs/DATA_STRATEGY.md`).
+5. Keep runtime forecast -> accuracy -> promotion loop healthy for all active tenants.
 
 ### P1: Production-Parity CI
 1. Add PostgreSQL-backed backend test job in CI (service container).
 2. Keep SQLite fast path for local smoke tests.
 3. Enforce enterprise sync SLA/freshness checks in CI.
+4. Keep required checks enforced on `main` branch protection settings.
 
 ### P1: API Versioning Consistency
 1. Consolidate ML endpoints under one prefix strategy.

@@ -21,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_tenant_db
-from db.models import BacktestResult, ModelVersion
+from db.models import BacktestResult, DemandForecast, ForecastAccuracy, ModelVersion
 
 logger = structlog.get_logger()
 
@@ -282,4 +282,155 @@ async def get_ml_health(
         "recent_backtests_7d": recent_backtests,
         "registry_exists": (MODEL_DIR / "registry.json").exists(),
         "checked_at": datetime.utcnow().isoformat(),
+    }
+
+
+@router.get("/effectiveness")
+async def get_model_effectiveness(
+    window_days: int = Query(30, ge=7, le=365),
+    model_name: str = Query("demand_forecast"),
+    store_id: str | None = Query(None),
+    product_id: str | None = Query(None),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    """
+    Operational model effectiveness summary for rolling windows.
+
+    Uses live ForecastAccuracy rows and joins prediction intervals from DemandForecast
+    to compute coverage.
+    """
+    cutoff = datetime.utcnow() - timedelta(days=window_days)
+
+    versions_query = await db.execute(
+        select(ModelVersion.version).where(ModelVersion.model_name == model_name)
+    )
+    model_versions = [str(row.version) for row in versions_query.all()]
+
+    query = (
+        select(
+            ForecastAccuracy.forecast_date,
+            ForecastAccuracy.model_version,
+            ForecastAccuracy.forecasted_demand,
+            ForecastAccuracy.actual_demand,
+            ForecastAccuracy.mae,
+            ForecastAccuracy.mape,
+            DemandForecast.lower_bound,
+            DemandForecast.upper_bound,
+        )
+        .outerjoin(
+            DemandForecast,
+            (DemandForecast.store_id == ForecastAccuracy.store_id)
+            & (DemandForecast.product_id == ForecastAccuracy.product_id)
+            & (DemandForecast.forecast_date == ForecastAccuracy.forecast_date)
+            & (DemandForecast.model_version == ForecastAccuracy.model_version),
+        )
+        .where(ForecastAccuracy.evaluated_at >= cutoff)
+        .order_by(ForecastAccuracy.forecast_date.asc())
+    )
+
+    if model_versions:
+        query = query.where(ForecastAccuracy.model_version.in_(model_versions))
+    if store_id:
+        query = query.where(ForecastAccuracy.store_id == store_id)
+    if product_id:
+        query = query.where(ForecastAccuracy.product_id == product_id)
+
+    rows = (await db.execute(query)).all()
+    if not rows:
+        return {
+            "window_days": window_days,
+            "model_name": model_name,
+            "status": "no_data",
+            "sample_count": 0,
+            "metrics": None,
+            "trend": "unknown",
+            "confidence": "unavailable",
+        }
+
+    def _safe_float(value: Any) -> float:
+        try:
+            return float(value or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    sample_count = len(rows)
+    mae_values = [_safe_float(r.mae) for r in rows]
+    mape_values = [_safe_float(r.mape) for r in rows]
+
+    stockout_misses = 0
+    overstock = 0
+    covered = 0
+    coverage_denominator = 0
+    for row in rows:
+        actual = _safe_float(row.actual_demand)
+        forecasted = _safe_float(row.forecasted_demand)
+        if actual > 0 and forecasted <= 0:
+            stockout_misses += 1
+        if forecasted > actual:
+            overstock += 1
+        if row.lower_bound is not None and row.upper_bound is not None:
+            coverage_denominator += 1
+            if _safe_float(row.lower_bound) <= actual <= _safe_float(row.upper_bound):
+                covered += 1
+
+    mae_avg = sum(mae_values) / sample_count
+    mape_avg = sum(mape_values) / sample_count
+    stockout_miss_rate = stockout_misses / sample_count
+    overstock_rate = overstock / sample_count
+    coverage = (covered / coverage_denominator) if coverage_denominator > 0 else None
+
+    midpoint = sample_count // 2
+    early = mae_values[:midpoint] if midpoint else mae_values
+    recent = mae_values[midpoint:] if midpoint else mae_values
+    early_mae = (sum(early) / len(early)) if early else mae_avg
+    recent_mae = (sum(recent) / len(recent)) if recent else mae_avg
+    if recent_mae < early_mae * 0.97:
+        trend = "improving"
+    elif recent_mae > early_mae * 1.03:
+        trend = "degrading"
+    else:
+        trend = "stable"
+
+    if sample_count >= 200:
+        confidence = "measured"
+    elif sample_count >= 50:
+        confidence = "estimated"
+    else:
+        confidence = "low_sample"
+
+    by_version: dict[str, dict[str, float | int]] = {}
+    for row in rows:
+        key = str(row.model_version)
+        item = by_version.setdefault(key, {"samples": 0, "mae_sum": 0.0, "mape_sum": 0.0})
+        item["samples"] += 1
+        item["mae_sum"] += _safe_float(row.mae)
+        item["mape_sum"] += _safe_float(row.mape)
+
+    version_metrics = [
+        {
+            "model_version": version,
+            "samples": values["samples"],
+            "mae": round(values["mae_sum"] / values["samples"], 4) if values["samples"] else None,
+            "mape_nonzero": round(values["mape_sum"] / values["samples"], 4) if values["samples"] else None,
+        }
+        for version, values in sorted(by_version.items())
+    ]
+
+    return {
+        "window_days": window_days,
+        "model_name": model_name,
+        "status": "ok",
+        "sample_count": sample_count,
+        "trend": trend,
+        "confidence": confidence,
+        "metrics": {
+            "mae": round(mae_avg, 4),
+            "mape_nonzero": round(mape_avg, 4),
+            "coverage": round(float(coverage), 4) if coverage is not None else None,
+            "stockout_miss_rate": round(stockout_miss_rate, 4),
+            "overstock_rate": round(overstock_rate, 4),
+        },
+        "by_version": version_metrics,
+        "window_start": cutoff.date().isoformat(),
+        "window_end": datetime.utcnow().date().isoformat(),
     }

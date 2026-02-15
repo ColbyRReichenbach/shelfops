@@ -36,6 +36,8 @@ ShelfOps is a multi-tenant inventory intelligence platform designed to:
 - Enterprise connectors are implemented and under continuous validation using synthetic enterprise-format data.
 - Forecasting can be tuned now on public datasets; some advanced models remain partially blocked pending production telemetry.
 
+Status taxonomy across readiness artifacts: `implemented`, `pilot_validated`, `partial`, `blocked`.
+
 ## Why SMB-First Is Intentional
 
 SMB/mid-market deployment has fewer integration dependencies and allows faster end-to-end validation of business workflows. Enterprise remains a core architectural track, but current positioning is “validated integration logic + pilot-style readiness,” not broad enterprise onboarding today.
@@ -65,7 +67,7 @@ Public datasets are used to improve training/evaluation robustness, not to popul
 
 ## Engineering Status (Current)
 
-See `docs/RELEASE_READINESS.md` for live status, but current baseline includes:
+See `docs/PRODUCTION_READINESS_BOARD.md` for canonical live status, with `docs/RELEASE_READINESS.md` as release gate detail:
 
 - backend test suite passing
 - lint/format passing
@@ -109,6 +111,7 @@ This project shows I can operate across the full stack and full lifecycle:
 
 - Root summary: `README.md`
 - Non-technical version: `docs/README_NON_TECHNICAL.md`
+- Canonical readiness board: `docs/PRODUCTION_READINESS_BOARD.md`
 - Known issues: `docs/KNOWN_ISSUES.md`
 - API contracts: `docs/API_CONTRACTS.md`
 - Roadmap: `docs/ROADMAP.md`
@@ -118,6 +121,9 @@ This project shows I can operate across the full stack and full lifecycle:
 - Model performance decision log: `docs/MODEL_PERFORMANCE_LOG.md`
 - Model readiness matrix: `docs/MODEL_READINESS_MATRIX.md`
 - Forecast tuning protocol: `docs/TUNING_PROTOCOL.md`
+- ML effectiveness report: `docs/ML_EFFECTIVENESS_REPORT.md`
+- Production decision log: `docs/PRODUCTION_DECISION_LOG.md`
+- Enterprise vs SMB architecture brief: `docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md`
 - Data contract specification: `docs/DATA_CONTRACT_SPEC.md`
 - SMB onboarding runbook: `docs/SMB_ONBOARDING_RUNBOOK.md`
 - Enterprise pilot readiness: `docs/ENTERPRISE_PILOT_READINESS.md`

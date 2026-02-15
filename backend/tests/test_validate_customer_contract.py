@@ -54,3 +54,5 @@ dq_thresholds:
     assert rc == 0
     assert out_json.exists()
     assert out_md.exists()
+    assert (tmp_path / "column_lineage_map.json").exists()
+    assert (tmp_path / "canonical_schema_snapshot.json").exists()

@@ -51,6 +51,32 @@ Returns:
 }
 ```
 
+### `GET /api/v1/ml/effectiveness`
+Returns rolling effectiveness metrics for operational monitoring:
+
+```json
+{
+  "window_days": 30,
+  "model_name": "demand_forecast",
+  "status": "ok",
+  "sample_count": 240,
+  "trend": "stable",
+  "confidence": "measured",
+  "metrics": {
+    "mae": 2.1431,
+    "mape_nonzero": 0.1221,
+    "coverage": 0.8917,
+    "stockout_miss_rate": 0.0417,
+    "overstock_rate": 0.3167
+  },
+  "by_version": [
+    {"model_version": "v12", "samples": 240, "mae": 2.1431, "mape_nonzero": 0.1221}
+  ],
+  "window_start": "2026-01-16",
+  "window_end": "2026-02-15"
+}
+```
+
 ### `GET /api/v1/ml/models/health`
 Returns champion/challenger summary plus computed retraining triggers:
 
