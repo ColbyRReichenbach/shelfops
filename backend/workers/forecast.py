@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 import structlog
-from sqlalchemy import delete, select, text
+from sqlalchemy import case, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
@@ -43,6 +43,64 @@ def _apply_future_temporal_columns(df: pd.DataFrame, target_date: date, day_offs
     if "days_since_last_sale" in out.columns:
         out["days_since_last_sale"] = pd.to_numeric(out["days_since_last_sale"], errors="coerce").fillna(0) + day_offset
     return out
+
+
+async def _load_db_transactions(
+    db: AsyncSession,
+    *,
+    customer_id: str,
+    customer_uuid: uuid.UUID,
+) -> pd.DataFrame:
+    """
+    Query tenant transactions within the active async session and normalize to
+    canonical train/predict columns.
+    """
+    from db.models import Product, Transaction
+
+    signed_quantity = case(
+        (Transaction.transaction_type == "sale", func.abs(Transaction.quantity)),
+        (Transaction.transaction_type == "return", -func.abs(Transaction.quantity)),
+        else_=0,
+    )
+    sales_date = func.date(Transaction.timestamp)
+    result = await db.execute(
+        select(
+            sales_date.label("date"),
+            Transaction.store_id.label("store_id"),
+            Transaction.product_id.label("product_id"),
+            func.sum(signed_quantity).label("quantity"),
+            func.max(Product.category).label("category"),
+            func.max(Product.unit_cost).label("unit_cost"),
+            func.max(Transaction.unit_price).label("unit_price"),
+        )
+        .join(Product, Product.product_id == Transaction.product_id)
+        .where(
+            Transaction.customer_id == customer_uuid,
+            Transaction.transaction_type.in_(["sale", "return"]),
+        )
+        .group_by(sales_date, Transaction.store_id, Transaction.product_id)
+        .order_by(sales_date.asc())
+    )
+    rows = result.all()
+    if not rows:
+        return pd.DataFrame()
+
+    return pd.DataFrame(
+        [
+            {
+                "date": row.date,
+                "store_id": str(row.store_id),
+                "product_id": str(row.product_id),
+                "quantity": float(row.quantity or 0.0),
+                "category": row.category or "unknown",
+                "unit_cost": float(row.unit_cost) if row.unit_cost is not None else None,
+                "unit_price": float(row.unit_price) if row.unit_price is not None else None,
+                "is_promotional": 0,
+                "is_holiday": 0,
+            }
+            for row in rows
+        ]
+    )
 
 
 async def _resolve_model_version(
@@ -104,7 +162,6 @@ def generate_forecasts(
     from db.models import DemandForecast
     from ml.features import create_features
     from ml.predict import load_models, predict_demand
-    from workers.retrain import _load_db_data
 
     settings = get_settings()
     run_id = self.request.id or "manual"
@@ -142,10 +199,11 @@ def generate_forecasts(
                 if not resolved_version:
                     return {"status": "skipped", "reason": "no_model_version_available"}
 
-                try:
-                    transactions_df = _load_db_data(customer_id, min_rows=1)
-                except ValueError as exc:
-                    return {"status": "skipped", "reason": str(exc)}
+                transactions_df = await _load_db_transactions(
+                    db,
+                    customer_id=customer_id,
+                    customer_uuid=customer_uuid,
+                )
                 if transactions_df.empty:
                     return {"status": "skipped", "reason": "no_transactions_available"}
 

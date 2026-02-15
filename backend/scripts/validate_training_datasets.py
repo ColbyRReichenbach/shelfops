@@ -4,7 +4,7 @@ Validate and summarize training dataset readiness for multi-domain modeling.
 
 Usage:
   python backend/scripts/validate_training_datasets.py
-  python backend/scripts/validate_training_datasets.py --base-dir data/kaggle --output docs/DATASET_VALIDATION_REPORT.md
+  python backend/scripts/validate_training_datasets.py --base-dir data/kaggle --output backend/reports/DATASET_VALIDATION_REPORT.md
 """
 
 from __future__ import annotations
@@ -129,8 +129,8 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=str,
-        default="docs/DATASET_VALIDATION_REPORT.md",
-        help="Output markdown report path (default: docs/DATASET_VALIDATION_REPORT.md)",
+        default="backend/reports/DATASET_VALIDATION_REPORT.md",
+        help="Output markdown report path (default: backend/reports/DATASET_VALIDATION_REPORT.md)",
     )
     args = parser.parse_args()
 

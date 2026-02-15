@@ -2,10 +2,14 @@
 Integrations Router — POS integration management + Square OAuth.
 """
 
+import base64
 import hashlib
 import hmac
 import json
+import time
+import uuid
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from uuid import UUID
 
 import httpx
@@ -23,6 +27,60 @@ from integrations.sla_policy import resolve_sla_hours
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 settings = get_settings()
+
+
+# ─── OAuth State Helpers ─────────────────────────────────────────────────────
+
+
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode().rstrip("=")
+
+
+def _b64url_decode(data: str) -> bytes:
+    padding = "=" * ((4 - len(data) % 4) % 4)
+    return base64.urlsafe_b64decode(data + padding)
+
+
+def _state_signing_key() -> bytes:
+    # Combine secrets to avoid accidental key reuse in other signatures.
+    return f"{settings.jwt_secret}:{settings.encryption_key}".encode()
+
+
+def _sign_square_oauth_state(customer_id: str) -> str:
+    payload = {
+        "customer_id": customer_id,
+        "nonce": uuid.uuid4().hex,
+        "exp": int(time.time()) + max(60, int(settings.square_oauth_state_ttl_seconds)),
+    }
+    payload_token = _b64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    signature = hmac.new(_state_signing_key(), payload_token.encode("utf-8"), hashlib.sha256).digest()
+    return f"{payload_token}.{_b64url_encode(signature)}"
+
+
+def _verify_square_oauth_state(state: str) -> str:
+    try:
+        payload_token, sig_token = state.split(".", 1)
+    except ValueError as exc:
+        raise ValueError("invalid_state_format") from exc
+
+    expected_sig = hmac.new(_state_signing_key(), payload_token.encode("utf-8"), hashlib.sha256).digest()
+    provided_sig = _b64url_decode(sig_token)
+    if not hmac.compare_digest(provided_sig, expected_sig):
+        raise ValueError("invalid_state_signature")
+
+    try:
+        payload = json.loads(_b64url_decode(payload_token))
+    except Exception as exc:
+        raise ValueError("invalid_state_payload") from exc
+
+    exp = int(payload.get("exp", 0))
+    if exp <= int(time.time()):
+        raise ValueError("expired_state")
+
+    customer_id = str(payload.get("customer_id", "")).strip()
+    if not customer_id:
+        raise ValueError("missing_customer_id")
+    return customer_id
 
 
 # ─── Schemas ────────────────────────────────────────────────────────────────
@@ -54,11 +112,12 @@ async def square_connect(
         if settings.square_environment == "sandbox"
         else "https://connect.squareup.com"
     )
+    state = _sign_square_oauth_state(str(user["customer_id"]))
     auth_url = (
         f"{base_url}/oauth2/authorize"
         f"?client_id={settings.square_client_id}"
         f"&scope=ITEMS_READ+INVENTORY_READ+ORDERS_READ+MERCHANT_PROFILE_READ"
-        f"&state={user['customer_id']}"
+        f"&state={quote(state, safe='')}"
     )
     return RedirectResponse(url=auth_url)
 
@@ -70,6 +129,11 @@ async def square_callback(
     db: AsyncSession = Depends(get_db),
 ):
     """Handle Square OAuth callback — exchange code for tokens."""
+    try:
+        customer_id = _verify_square_oauth_state(state)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid OAuth state: {exc}") from exc
+
     base_url = (
         "https://connect.squareupsandbox.com"
         if settings.square_environment == "sandbox"
@@ -93,7 +157,7 @@ async def square_callback(
     token_data = response.json()
 
     integration = Integration(
-        customer_id=state,
+        customer_id=customer_id,
         provider="square",
         access_token_encrypted=encrypt(token_data["access_token"]),
         refresh_token_encrypted=encrypt(token_data.get("refresh_token", "")),

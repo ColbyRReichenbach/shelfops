@@ -22,8 +22,8 @@ python scripts/generate_model_performance_log.py
 
 Default output:
 
-- `docs/DATASET_VALIDATION_REPORT.md`
-- `docs/MODEL_PERFORMANCE_LOG.md`
+- `backend/reports/DATASET_VALIDATION_REPORT.md`
+- `backend/reports/MODEL_PERFORMANCE_LOG.md`
 - `backend/reports/contract_validation_report.json`
 - `backend/reports/contract_validation_report.md`
 
@@ -36,7 +36,7 @@ This check validates canonical training-data contract readiness for:
 
 It is designed for model training/evaluation readiness, not live dashboard catalog population.
 
-`docs/MODEL_PERFORMANCE_LOG.md` is also auto-refreshed whenever a model is registered via `ml.experiment.register_model(...)`.
+`backend/reports/MODEL_PERFORMANCE_LOG.md` is auto-refreshed whenever a model is registered via `ml.experiment.register_model(...)`.
 
 ## Setup
 

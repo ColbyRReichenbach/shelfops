@@ -129,3 +129,40 @@ async def test_manual_promotion_admin_records_reason(client, mock_user, seeded_d
     model = result.scalar_one()
     assert model.status == "champion"
     assert (model.metrics or {}).get("last_manual_promotion", {}).get("reason") == reason
+
+
+@pytest.mark.asyncio
+async def test_manual_promotion_syncs_file_registry_state(client, mock_user, seeded_db, test_db, monkeypatch):
+    from db.models import ModelVersion
+
+    mock_user["roles"] = ["admin"]
+
+    customer_id = seeded_db["customer_id"]
+    test_db.add(
+        ModelVersion(
+            customer_id=customer_id,
+            model_name="demand_forecast",
+            version="v203",
+            status="candidate",
+            metrics={"mae": 9.6, "mape": 0.17},
+            smoke_test_passed=True,
+        )
+    )
+    await test_db.commit()
+
+    captured: dict[str, object] = {}
+
+    def _fake_sync(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("ml.experiment.sync_registry_with_runtime_state", _fake_sync)
+
+    response = await client.post(
+        "/api/v1/ml/models/v203/promote",
+        json={"promotion_reason": "Manual promotion after review."},
+    )
+    assert response.status_code == 200
+    assert captured["version"] == "v203"
+    assert captured["model_name"] == "demand_forecast"
+    assert captured["candidate_status"] == "champion"
+    assert captured["active_champion_version"] == "v203"

@@ -145,20 +145,26 @@ def predict_demand(
     xgb_preds = models["xgboost"].predict(X)
     xgb_preds = np.maximum(xgb_preds, 0)
 
-    # LSTM prediction (if available)
+    # LSTM prediction (if available and runtime metadata is present)
     if models.get("lstm") is not None:
         lstm_model = models["lstm"]
-        X_norm = (X.values - lstm_model._norm_mean) / lstm_model._norm_std
-        # For single-step prediction, use last sequence_length rows
-        seq_len = models["metadata"].get("lstm_metrics", {}).get("sequence_length", 30)
-        if len(X_norm) >= seq_len:
-            X_seq = np.array([X_norm[-seq_len:]])
-            lstm_pred = lstm_model.predict(X_seq, verbose=0).flatten()
-            lstm_pred = np.maximum(lstm_pred, 0)
-            # Broadcast last prediction
-            lstm_preds = np.full(len(xgb_preds), lstm_pred[-1])
-        else:
+        norm_mean = getattr(lstm_model, "_norm_mean", None)
+        norm_std = getattr(lstm_model, "_norm_std", None)
+        if norm_mean is None or norm_std is None:
+            logger.warning("predict.lstm_missing_norm_stats_fallback_xgb")
             lstm_preds = xgb_preds  # Fallback
+        else:
+            X_norm = (X.values - norm_mean) / norm_std
+            # For single-step prediction, use last sequence_length rows
+            seq_len = models["metadata"].get("lstm_metrics", {}).get("sequence_length", 30)
+            if len(X_norm) >= seq_len:
+                X_seq = np.array([X_norm[-seq_len:]])
+                lstm_pred = lstm_model.predict(X_seq, verbose=0).flatten()
+                lstm_pred = np.maximum(lstm_pred, 0)
+                # Broadcast last prediction
+                lstm_preds = np.full(len(xgb_preds), lstm_pred[-1])
+            else:
+                lstm_preds = xgb_preds  # Fallback
     else:
         lstm_preds = xgb_preds  # XGBoost-only fallback
 

@@ -40,6 +40,8 @@ class Settings(BaseSettings):
     auth0_domain: str = ""
     auth0_client_id: str = ""
     auth0_audience: str = ""
+    auth0_issuer: str = ""
+    auth0_jwks_cache_ttl_seconds: int = 300
     jwt_secret: str = DEFAULT_JWT_SECRET
     jwt_algorithm: str = "HS256"
 
@@ -48,6 +50,8 @@ class Settings(BaseSettings):
     square_client_secret: str = ""
     square_webhook_secret: str = ""
     square_environment: str = "sandbox"
+    square_oauth_state_ttl_seconds: int = 600
+    square_enable_demo_id_synthesis: bool = False
 
     # Shopify Integration (SMB tier)
     shopify_api_key: str = ""

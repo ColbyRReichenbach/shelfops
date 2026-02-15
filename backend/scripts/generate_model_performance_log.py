@@ -121,7 +121,10 @@ def render_markdown(entries: list[ModelEntry], generated_at: str) -> str:
         "## Rebuild Command",
         "",
         "```bash",
-        "PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py --output docs/MODEL_PERFORMANCE_LOG.md",
+        (
+            "PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py "
+            "--output backend/reports/MODEL_PERFORMANCE_LOG.md"
+        ),
         "```",
         "",
         "## Decision Log",
@@ -154,7 +157,12 @@ def render_markdown(entries: list[ModelEntry], generated_at: str) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate model performance log markdown")
     parser.add_argument("--project-root", type=str, default=".", help="Project root path")
-    parser.add_argument("--output", type=str, default="docs/MODEL_PERFORMANCE_LOG.md", help="Output markdown path")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="backend/reports/MODEL_PERFORMANCE_LOG.md",
+        help="Output markdown path",
+    )
     args = parser.parse_args()
 
     root = Path(args.project_root).resolve()

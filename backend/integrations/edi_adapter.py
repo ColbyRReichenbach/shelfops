@@ -227,8 +227,12 @@ class EDIX12Parser:
                     except ValueError:
                         pass
 
-            elif seg_id == "TD5" and len(elements) >= 5:
-                shipment.carrier = elements[3].strip()
+            elif seg_id == "TD5" and len(elements) >= 4:
+                # TD5 commonly carries both a carrier code and a service level.
+                # Prefer service level when present (e.g. "Ground"), else use code.
+                carrier_code = elements[3].strip()
+                carrier_service = elements[4].strip() if len(elements) >= 5 else ""
+                shipment.carrier = carrier_service or carrier_code
 
             elif seg_id == "REF" and len(elements) >= 3:
                 qualifier = elements[1].strip()

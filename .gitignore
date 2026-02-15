@@ -46,45 +46,23 @@ data/seed_smoke/edi/*
 !data/seed_smoke/edi/EDI850_20260215_001.edi
 !data/seed_smoke/edi/EDI856_20260215_001.edi
 
-# Documentation
-docs/*
-!docs/ROADMAP.md
-!docs/RELEASE_READINESS.md
-!docs/KNOWN_ISSUES.md
-!docs/API_CONTRACTS.md
-!docs/README_NON_TECHNICAL.md
-!docs/README_TECHNICAL.md
-!docs/PROJECT_DEEP_DIVE.md
-!docs/DATA_STRATEGY.md
-!docs/RESEARCH_SOURCES.md
-!docs/MODEL_READINESS_MATRIX.md
-!docs/TUNING_PROTOCOL.md
-!docs/AUDIT_EXECUTIVE_SUMMARY.md
-!docs/AUDIT_FINDINGS_REGISTER.md
-!docs/AUDIT_SCORECARD.md
-!docs/HIRING_DECISION_MEMO.md
-!docs/HARDENING_BASELINE_2026_02_15.md
-!docs/HARDENING_RUNBOOK.md
-!docs/HARDENING_TRACKER.md
-!docs/HARDENING_EVIDENCE_INDEX.md
-!docs/REMEDIATION_BASELINE_2026_02_15.md
-!docs/REMEDIATION_TRACKER.md
-!docs/REMEDIATION_EVIDENCE_INDEX.md
-!docs/PRODUCTION_READINESS_BOARD.md
-!docs/ML_EFFECTIVENESS_REPORT.md
-!docs/PRODUCTION_DECISION_LOG.md
-!docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md
-!docs/INTEGRATION_INCIDENT_RUNBOOK.md
-!docs/DEMO_SCRIPT_TECHNICAL.md
-!docs/DEMO_SCRIPT_RECRUITER.md
-!docs/PRODUCTIZATION_PLAN.md
-!docs/PRODUCTIZATION_TRACKER.md
-!docs/PRODUCTIZATION_EVIDENCE_INDEX.md
-!docs/OPERATIONS_SLO.md
-!docs/ROLLBACK_DRILL_REPORT_2026_02_15.md
-!docs/MODEL_STRATEGY_DECISION_2026_02_15.md
+# Documentation artifacts (curated snapshots only)
+docs/productization_artifacts/**
 !docs/productization_artifacts/
-!docs/productization_artifacts/**
+!docs/productization_artifacts/model_strategy_cycle.json
+!docs/productization_artifacts/model_strategy_cycle.md
+!docs/productization_artifacts/migration_rollout_validation.md
+!docs/productization_artifacts/staging_runtime_chain_validation.json
+!docs/productization_artifacts/staging_runtime_chain_validation.md
+!docs/productization_artifacts/replay_summary.json
+!docs/productization_artifacts/replay_summary.md
+!docs/productization_artifacts/replay_model_strategy_decision.md
+!docs/productization_artifacts/smb_tenant_a/
+!docs/productization_artifacts/smb_tenant_a/contract_validation_report.md
+!docs/productization_artifacts/smb_tenant_b/
+!docs/productization_artifacts/smb_tenant_b/contract_validation_report.md
+!docs/productization_artifacts/enterprise_like/
+!docs/productization_artifacts/enterprise_like/contract_validation_report.md
 
 # Test databases
 *.db

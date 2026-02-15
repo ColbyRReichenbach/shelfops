@@ -473,7 +473,7 @@ def compute_forecast_accuracy(
                             mae=mae,
                             mape=mape,
                             model_version=row.model_version,
-                            evaluated_at=datetime.now(timezone.utc),
+                            evaluated_at=datetime.utcnow(),
                         )
                     )
                     inserted += 1

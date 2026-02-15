@@ -350,6 +350,25 @@ def _load_db_data(
     return canonical
 
 
+def _apply_training_cutoff(transactions_df: pd.DataFrame, train_end_date: str) -> tuple[pd.DataFrame, str]:
+    """
+    Enforce a strict training cutoff date (inclusive).
+
+    Returns the filtered frame and normalized cutoff ISO date string.
+    """
+    cutoff = pd.to_datetime(train_end_date, errors="raise").date()
+    filtered = transactions_df[pd.to_datetime(transactions_df["date"]).dt.date <= cutoff].copy()
+    if filtered.empty:
+        raise ValueError(f"No training rows remain after applying train_end_date={cutoff.isoformat()}")
+
+    observed_max = pd.to_datetime(filtered["date"]).max().date()
+    if observed_max > cutoff:
+        raise ValueError(
+            f"Training cutoff integrity failure: observed max {observed_max.isoformat()} > {cutoff.isoformat()}"
+        )
+    return filtered, cutoff.isoformat()
+
+
 def _candidate_metrics_from_holdout(features_df: pd.DataFrame, ensemble_result: dict) -> dict:
     from ml.metrics_contract import compute_forecast_metrics, coverage_rate
     from ml.train import TARGET_COL
@@ -404,6 +423,84 @@ def _candidate_metrics_from_holdout(features_df: pd.DataFrame, ensemble_result: 
     }
 
 
+def _normalize_retrain_trigger(trigger: str) -> str:
+    mapping = {
+        "drift_detected": "drift",
+        "new_products": "new_data",
+    }
+    return mapping.get(trigger, trigger)
+
+
+def _record_retraining_event(
+    *,
+    customer_id: str,
+    model_name: str,
+    trigger: str,
+    trigger_metadata: dict | None,
+    status: str,
+    version_produced: str | None,
+    started_at: datetime,
+    completed_at: datetime,
+    run_id: str,
+    dataset_name: str,
+    error: str | None = None,
+) -> None:
+    """
+    Persist a retraining audit event for runtime/API visibility.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from db.models import ModelRetrainingLog
+
+    normalized_trigger = _normalize_retrain_trigger(trigger)
+    payload = {
+        "run_id": run_id,
+        "dataset_name": dataset_name,
+        "raw_trigger": trigger,
+    }
+    if trigger_metadata:
+        payload["trigger_metadata"] = trigger_metadata
+    if error:
+        payload["error"] = error
+
+    async def _write() -> None:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    # SQLite test harness does not support set_config.
+                    pass
+
+                db.add(
+                    ModelRetrainingLog(
+                        customer_id=uuid.UUID(customer_id),
+                        model_name=model_name,
+                        trigger_type=normalized_trigger,
+                        trigger_metadata=payload,
+                        status=status,
+                        version_produced=version_produced,
+                        started_at=started_at,
+                        completed_at=completed_at,
+                    )
+                )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_write())
+
+
 @celery_app.task(
     name="workers.retrain.retrain_forecast_model",
     bind=True,
@@ -425,6 +522,7 @@ def retrain_forecast_model(
     contract_path: str | None = None,
     sample_path: str | None = None,
     canonical_output_dir: str | None = None,
+    train_end_date: str | None = None,
 ):
     """
     Retrain demand forecast model with MLOps integration.
@@ -454,12 +552,14 @@ def retrain_forecast_model(
         contract_path: Optional YAML contract profile for tenant onboarding source mapping
         sample_path: Optional raw sample path (CSV/JSONL/directory) used with contract_path
         canonical_output_dir: Optional output directory for canonicalized CSV
+        train_end_date: Optional inclusive cutoff date (YYYY-MM-DD) for replay-safe training
     """
     from ml.features import create_features
     from ml.train import save_models, train_ensemble
 
     run_id = self.request.id or "manual"
     ver = version or _next_version()
+    task_started_at = datetime.utcnow()
 
     logger.info(
         "retrain.started",
@@ -509,6 +609,15 @@ def retrain_forecast_model(
                     categories=tier_categories,
                     rows=len(transactions_df),
                 )
+
+        cutoff_applied = None
+        if train_end_date:
+            transactions_df, cutoff_applied = _apply_training_cutoff(transactions_df, train_end_date)
+            logger.info(
+                "retrain.cutoff_applied",
+                train_end_date=cutoff_applied,
+                rows=len(transactions_df),
+            )
 
         # ── Step 2: Feature engineering ──────────────────────────────
         logger.info("retrain.creating_features", rows=len(transactions_df))
@@ -562,6 +671,7 @@ def retrain_forecast_model(
                 from core.config import get_settings
                 from db.models import ForecastAccuracy, ModelVersion
                 from ml.arena import evaluate_for_promotion, get_champion_model, register_model_version
+                from ml.experiment import sync_registry_with_runtime_state
                 from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
 
                 model_metrics = _candidate_metrics_from_holdout(features_df, ensemble_result)
@@ -579,6 +689,28 @@ def retrain_forecast_model(
                     try:
                         async_session = async_sessionmaker(engine, class_=AsyncSession)
                         async with async_session() as db:
+                            customer_uuid = uuid.UUID(customer_id)
+
+                            async def _attach_runtime_registry_state(payload: dict) -> dict:
+                                status_result = await db.execute(
+                                    select(ModelVersion.status)
+                                    .where(
+                                        ModelVersion.customer_id == customer_uuid,
+                                        ModelVersion.model_name == model_name,
+                                        ModelVersion.version == ver,
+                                    )
+                                    .limit(1)
+                                )
+                                candidate_status = status_result.scalar_one_or_none()
+                                champion = await get_champion_model(
+                                    db=db,
+                                    customer_id=customer_uuid,
+                                    model_name=model_name,
+                                )
+                                payload["candidate_status"] = str(candidate_status) if candidate_status else None
+                                payload["active_champion_version"] = champion["version"] if champion else None
+                                return payload
+
                             # Set tenant context for RLS
                             try:
                                 await db.execute(
@@ -592,7 +724,7 @@ def retrain_forecast_model(
                             # Register model version in DB
                             model_id = await register_model_version(
                                 db=db,
-                                customer_id=uuid.UUID(customer_id),
+                                customer_id=customer_uuid,
                                 model_name=model_name,
                                 version=ver,
                                 metrics=model_metrics,
@@ -602,7 +734,7 @@ def retrain_forecast_model(
 
                             readiness = await evaluate_and_persist_tenant_readiness(
                                 db=db,
-                                customer_id=uuid.UUID(customer_id),
+                                customer_id=customer_uuid,
                                 transactions_df=transactions_df,
                                 candidate_version=ver,
                                 model_name=model_name,
@@ -622,7 +754,7 @@ def retrain_forecast_model(
                                 await db.execute(
                                     update(ModelVersion)
                                     .where(
-                                        ModelVersion.customer_id == uuid.UUID(customer_id),
+                                        ModelVersion.customer_id == customer_uuid,
                                         ModelVersion.model_name == model_name,
                                         ModelVersion.version == ver,
                                     )
@@ -633,20 +765,22 @@ def retrain_forecast_model(
                                     )
                                 )
                                 await db.commit()
-                                return {
-                                    "model_id": str(model_id),
-                                    "readiness": readiness,
-                                    "promotion": {
-                                        "promoted": False,
-                                        "reason": "blocked_missing_business_metrics",
-                                    },
-                                }
+                                return await _attach_runtime_registry_state(
+                                    {
+                                        "model_id": str(model_id),
+                                        "readiness": readiness,
+                                        "promotion": {
+                                            "promoted": False,
+                                            "reason": "blocked_missing_business_metrics",
+                                        },
+                                    }
+                                )
 
                             # Auto-promote if better than champion (unless force-promote disabled)
                             if trigger in ("scheduled", "manual"):
                                 champion = await get_champion_model(
                                     db=db,
-                                    customer_id=uuid.UUID(customer_id),
+                                    customer_id=customer_uuid,
                                     model_name=model_name,
                                 )
                                 champion_version = champion["version"] if champion else None
@@ -658,7 +792,7 @@ def retrain_forecast_model(
                                         return 0
                                     result = await db.execute(
                                         select(func.count(ForecastAccuracy.id)).where(
-                                            ForecastAccuracy.customer_id == uuid.UUID(customer_id),
+                                            ForecastAccuracy.customer_id == customer_uuid,
                                             ForecastAccuracy.model_version == version,
                                             ForecastAccuracy.evaluated_at >= cutoff,
                                         )
@@ -686,7 +820,7 @@ def retrain_forecast_model(
                                     await db.execute(
                                         update(ModelVersion)
                                         .where(
-                                            ModelVersion.customer_id == uuid.UUID(customer_id),
+                                            ModelVersion.customer_id == customer_uuid,
                                             ModelVersion.model_name == model_name,
                                             ModelVersion.version == ver,
                                         )
@@ -697,36 +831,54 @@ def retrain_forecast_model(
                                         )
                                     )
                                     await db.commit()
-                                    return {
-                                        "model_id": str(model_id),
-                                        "readiness": readiness,
-                                        "promotion": {
-                                            "promoted": False,
-                                            "reason": "blocked_insufficient_accuracy_samples",
-                                            "details": blocked_metrics["promotion_block_details"],
-                                        },
-                                    }
+                                    return await _attach_runtime_registry_state(
+                                        {
+                                            "model_id": str(model_id),
+                                            "readiness": readiness,
+                                            "promotion": {
+                                                "promoted": False,
+                                                "reason": "blocked_insufficient_accuracy_samples",
+                                                "details": blocked_metrics["promotion_block_details"],
+                                            },
+                                        }
+                                    )
 
                                 promotion_result = await evaluate_for_promotion(
                                     db=db,
-                                    customer_id=uuid.UUID(customer_id),
+                                    customer_id=customer_uuid,
                                     model_name=model_name,
                                     candidate_version=ver,
                                     candidate_metrics=model_metrics,
                                 )
-                                return {"model_id": str(model_id), "promotion": promotion_result, "readiness": readiness}
+                                return await _attach_runtime_registry_state(
+                                    {"model_id": str(model_id), "promotion": promotion_result, "readiness": readiness}
+                                )
                             else:
                                 # Drift/new_products triggers → challenger only, no auto-promote
-                                return {
-                                    "model_id": str(model_id),
-                                    "readiness": readiness,
-                                    "promotion": {"promoted": False, "reason": f"trigger={trigger}"},
-                                }
+                                return await _attach_runtime_registry_state(
+                                    {
+                                        "model_id": str(model_id),
+                                        "readiness": readiness,
+                                        "promotion": {"promoted": False, "reason": f"trigger={trigger}"},
+                                    }
+                                )
 
                     finally:
                         await engine.dispose()
 
                 mlops_result = asyncio.run(register_and_evaluate())
+                try:
+                    if isinstance(mlops_result, dict) and "error" not in mlops_result:
+                        promotion_block = mlops_result.get("promotion") or {}
+                        sync_registry_with_runtime_state(
+                            version=ver,
+                            model_name=model_name,
+                            candidate_status=mlops_result.get("candidate_status"),
+                            active_champion_version=mlops_result.get("active_champion_version"),
+                            promotion_reason=promotion_block.get("reason"),
+                        )
+                except Exception as sync_exc:
+                    logger.warning("retrain.registry_runtime_sync_failed", error=str(sync_exc), exc_info=True)
                 logger.info("retrain.mlops_integration", **mlops_result)
 
             except Exception as mlops_exc:
@@ -773,13 +925,49 @@ def retrain_forecast_model(
             "forecast_generation": forecast_generation_result,
             "trigger": trigger,
             "trigger_metadata": trigger_metadata,
+            "train_end_date": cutoff_applied,
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
+
+        if customer_id:
+            try:
+                _record_retraining_event(
+                    customer_id=customer_id,
+                    model_name=model_name,
+                    trigger=trigger,
+                    trigger_metadata=trigger_metadata,
+                    status="completed",
+                    version_produced=ver,
+                    started_at=task_started_at,
+                    completed_at=datetime.utcnow(),
+                    run_id=run_id,
+                    dataset_name=dataset_name,
+                )
+            except Exception as retrain_log_exc:
+                logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
 
         logger.info("retrain.completed", **summary)
         return summary
 
     except Exception as exc:
+        if customer_id:
+            try:
+                _record_retraining_event(
+                    customer_id=customer_id,
+                    model_name=model_name,
+                    trigger=trigger,
+                    trigger_metadata=trigger_metadata,
+                    status="failed",
+                    version_produced=None,
+                    started_at=task_started_at,
+                    completed_at=datetime.utcnow(),
+                    run_id=run_id,
+                    dataset_name=dataset_name,
+                    error=str(exc),
+                )
+            except Exception as retrain_log_exc:
+                logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
+
         logger.error(
             "retrain.failed",
             run_id=run_id,

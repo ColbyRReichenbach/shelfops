@@ -2,8 +2,15 @@
 API Integration Tests — Integration management endpoints.
 """
 
+import hashlib
+import hmac
+import json
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 from httpx import AsyncClient
+
+from api.v1.routers import integrations as integrations_router
 
 
 @pytest.fixture
@@ -80,3 +87,48 @@ class TestIntegrationsAPI:
         assert "squareupsandbox.com" in resp.headers.get("location", "") or "squareup.com" in resp.headers.get(
             "location", ""
         )
+
+    async def test_square_connect_includes_signed_state(self, client: AsyncClient):
+        """Square connect should include a signed state token, not raw customer_id."""
+        resp = await client.get("/api/v1/integrations/square/connect", follow_redirects=False)
+        assert resp.status_code == 307
+        parsed = urlparse(resp.headers["location"])
+        state = parse_qs(parsed.query).get("state", [""])[0]
+        assert state
+        assert "." in state  # payload.signature
+        assert state != "00000000-0000-0000-0000-000000000001"
+
+    async def test_square_callback_rejects_invalid_state(self, client: AsyncClient):
+        """Unsigned/invalid callback state must be rejected before token exchange."""
+        resp = await client.get("/api/v1/integrations/square/callback?code=abc123&state=invalid")
+        assert resp.status_code == 400
+        assert "Invalid OAuth state" in resp.json()["detail"]
+
+
+def test_verify_square_oauth_state_rejects_tampered_signature():
+    state = integrations_router._sign_square_oauth_state("00000000-0000-0000-0000-000000000001")
+    payload_token, signature_token = state.split(".", 1)
+    tampered = f"{payload_token}.{signature_token[:-1]}{'A' if signature_token[-1] != 'A' else 'B'}"
+
+    with pytest.raises(ValueError, match="invalid_state_signature"):
+        integrations_router._verify_square_oauth_state(tampered)
+
+
+def test_verify_square_oauth_state_rejects_expired_payload():
+    payload = {
+        "customer_id": "00000000-0000-0000-0000-000000000001",
+        "nonce": "expirednonce",
+        "exp": 1,
+    }
+    payload_token = integrations_router._b64url_encode(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    signature = hmac.new(
+        integrations_router._state_signing_key(),
+        payload_token.encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+    state = f"{payload_token}.{integrations_router._b64url_encode(signature)}"
+
+    with pytest.raises(ValueError, match="expired_state"):
+        integrations_router._verify_square_oauth_state(state)

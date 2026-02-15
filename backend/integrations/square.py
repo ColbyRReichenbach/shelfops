@@ -60,19 +60,20 @@ class SquareClient:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     async def get_inventory_counts(self, location_ids: list[str]) -> list[dict]:
         """Fetch inventory counts for given locations."""
+        body = {"location_ids": location_ids} if location_ids else {}
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{SQUARE_BASE_URL}/inventory/batch-retrieve-counts",
                 headers=self.headers,
-                json={"location_ids": location_ids},
+                json=body,
             )
             response.raise_for_status()
             return response.json().get("counts", [])
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    async def get_orders(self, location_ids: list[str], cursor: str | None = None) -> dict:
+    async def get_orders(self, location_ids: list[str], cursor: str | None = None) -> list[dict]:
         """Fetch orders (transactions) from Square."""
-        body = {"location_ids": location_ids}
+        body = {"location_ids": location_ids} if location_ids else {}
         if cursor:
             body["cursor"] = cursor
         async with httpx.AsyncClient() as client:
@@ -82,7 +83,8 @@ class SquareClient:
                 json=body,
             )
             response.raise_for_status()
-            return response.json()
+            payload = response.json()
+            return payload.get("orders", [])
 
 
 def map_location_to_store(location: dict, customer_id: str) -> dict:

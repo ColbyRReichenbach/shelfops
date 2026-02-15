@@ -3,7 +3,7 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from workers.retrain import _load_db_data
+from workers.retrain import _apply_training_cutoff, _load_db_data
 
 
 def test_load_db_data_no_data_path_blocks():
@@ -77,3 +77,17 @@ def test_load_db_data_applies_return_sign_policy_from_contract():
     )
     assert out["quantity"].iloc[0] == 5
     assert out["quantity"].iloc[1] == -2
+
+
+def test_apply_training_cutoff_filters_future_rows():
+    raw = pd.DataFrame(
+        [
+            {"date": "2026-01-01", "store_id": "S1", "product_id": "P1", "quantity": 5},
+            {"date": "2026-01-10", "store_id": "S1", "product_id": "P1", "quantity": 6},
+            {"date": "2026-01-20", "store_id": "S1", "product_id": "P1", "quantity": 7},
+        ]
+    )
+    filtered, cutoff = _apply_training_cutoff(raw, "2026-01-10")
+    assert cutoff == "2026-01-10"
+    assert len(filtered) == 2
+    assert pd.to_datetime(filtered["date"]).max().date().isoformat() == "2026-01-10"

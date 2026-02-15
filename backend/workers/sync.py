@@ -9,12 +9,81 @@ Workers:
 
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 import structlog
 
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
+
+
+def _coerce_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, (int, float)):
+        return value != 0
+    return False
+
+
+def _coerce_uuid(value: Any) -> uuid.UUID | None:
+    if value is None:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _build_square_id_map(raw_mapping: Any) -> dict[str, uuid.UUID]:
+    if not isinstance(raw_mapping, dict):
+        return {}
+    result: dict[str, uuid.UUID] = {}
+    for external_id, internal_id in raw_mapping.items():
+        parsed = _coerce_uuid(internal_id)
+        if parsed is not None and external_id is not None:
+            result[str(external_id)] = parsed
+    return result
+
+
+def _resolve_external_uuid(external_id: Any, mapping: dict[str, uuid.UUID]) -> uuid.UUID | None:
+    if external_id is None:
+        return None
+    key = str(external_id)
+    if key in mapping:
+        return mapping[key]
+    return _coerce_uuid(external_id)
+
+
+def _should_synthesize_square_demo_mappings(settings: Any, integration_config: dict[str, Any]) -> bool:
+    global_flag = _coerce_bool(getattr(settings, "square_enable_demo_id_synthesis", False))
+    integration_flag = _coerce_bool(integration_config.get("square_synthesize_demo_mappings"))
+    return global_flag or integration_flag
+
+
+def _synthesize_square_id_map(
+    external_ids: set[str],
+    valid_internal_ids: set[str],
+    existing_mapping: dict[str, uuid.UUID],
+) -> dict[str, uuid.UUID]:
+    result = dict(existing_mapping)
+    if not external_ids or not valid_internal_ids:
+        return result
+
+    internal_uuids: list[uuid.UUID] = []
+    for raw_id in sorted(valid_internal_ids):
+        parsed = _coerce_uuid(raw_id)
+        if parsed is not None:
+            internal_uuids.append(parsed)
+    if not internal_uuids:
+        return result
+
+    unmapped_external_ids = sorted({str(raw) for raw in external_ids if raw is not None and str(raw) not in result})
+    for idx, external_id in enumerate(unmapped_external_ids):
+        result[external_id] = internal_uuids[idx % len(internal_uuids)]
+    return result
 
 
 async def run_edi_sync_pipeline(
@@ -187,7 +256,7 @@ def sync_square_inventory(self, customer_id: str):
 
     async def _sync():
         from core.config import get_settings
-        from db.models import Integration, InventoryLevel, Store
+        from db.models import Integration, InventoryLevel, Product, Store
         from integrations.square import SquareClient
 
         settings = get_settings()
@@ -210,17 +279,28 @@ def sync_square_inventory(self, customer_id: str):
                     logger.warning("sync.inventory.no_integration", customer_id=customer_id)
                     return {"status": "skipped", "reason": "no_square_integration"}
 
-                # Fetch store mappings (location_id → store_id)
-                stores_result = await db.execute(select(Store).where(Store.customer_id == customer_id))
-                stores = {str(s.store_id): s for s in stores_result.scalars().all()}
+                stores_result = await db.execute(select(Store.store_id).where(Store.customer_id == customer_id))
+                valid_store_ids = {str(row.store_id) for row in stores_result.all()}
+                products_result = await db.execute(select(Product.product_id).where(Product.customer_id == customer_id))
+                valid_product_ids = {str(row.product_id) for row in products_result.all()}
 
-                if not stores:
+                if not valid_store_ids:
                     logger.warning("sync.inventory.no_stores", customer_id=customer_id)
                     return {"status": "skipped", "reason": "no_stores"}
+                if not valid_product_ids:
+                    logger.warning("sync.inventory.no_products", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_products"}
+
+                integration_config = integration.config if isinstance(integration.config, dict) else {}
+                location_map = _build_square_id_map(integration_config.get("square_location_to_store"))
+                catalog_map = _build_square_id_map(integration_config.get("square_catalog_to_product"))
+                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(settings, integration_config)
+                initial_location_map_count = len(location_map)
+                initial_catalog_map_count = len(catalog_map)
 
                 # Init Square client and fetch counts
                 client = SquareClient(integration.access_token_encrypted)
-                location_ids = list(stores.keys())
+                location_ids = [] if synthesize_demo_mappings else list(location_map.keys())
 
                 try:
                     counts = await client.get_inventory_counts(location_ids)
@@ -232,23 +312,50 @@ def sync_square_inventory(self, customer_id: str):
                     )
                     raise self.retry(exc=exc)
 
+                if synthesize_demo_mappings:
+                    discovered_location_ids = {str(row.get("location_id")) for row in counts if row.get("location_id")}
+                    discovered_catalog_ids = {
+                        str(row.get("catalog_object_id")) for row in counts if row.get("catalog_object_id")
+                    }
+                    location_map = _synthesize_square_id_map(discovered_location_ids, valid_store_ids, location_map)
+                    catalog_map = _synthesize_square_id_map(discovered_catalog_ids, valid_product_ids, catalog_map)
+
                 # Upsert inventory levels
                 upserted = 0
+                skipped_unmapped_store = 0
+                skipped_unmapped_product = 0
+                skipped_unknown_store = 0
+                skipped_unknown_product = 0
+                synthesized_store_mappings = max(0, len(location_map) - initial_location_map_count)
+                synthesized_product_mappings = max(0, len(catalog_map) - initial_catalog_map_count)
                 now = datetime.now(timezone.utc)
+                customer_uuid = uuid.UUID(customer_id)
 
                 for count in counts:
                     location_id = count.get("location_id")
                     catalog_id = count.get("catalog_object_id", "unknown")
                     quantity = int(float(count.get("quantity", 0)))
 
-                    if location_id not in stores:
+                    store_uuid = _resolve_external_uuid(location_id, location_map)
+                    if store_uuid is None:
+                        skipped_unmapped_store += 1
+                        continue
+                    product_uuid = _resolve_external_uuid(catalog_id, catalog_map)
+                    if product_uuid is None:
+                        skipped_unmapped_product += 1
+                        continue
+                    if str(store_uuid) not in valid_store_ids:
+                        skipped_unknown_store += 1
+                        continue
+                    if str(product_uuid) not in valid_product_ids:
+                        skipped_unknown_product += 1
                         continue
 
                     level = InventoryLevel(
                         id=uuid.uuid4(),
-                        customer_id=customer_id,
-                        store_id=location_id,
-                        product_id=catalog_id,
+                        customer_id=customer_uuid,
+                        store_id=store_uuid,
+                        product_id=product_uuid,
                         timestamp=now,
                         quantity_on_hand=quantity,
                         quantity_available=quantity,
@@ -270,12 +377,24 @@ def sync_square_inventory(self, customer_id: str):
                     "sync.inventory.completed",
                     customer_id=customer_id,
                     records_upserted=upserted,
+                    skipped_unmapped_store=skipped_unmapped_store,
+                    skipped_unmapped_product=skipped_unmapped_product,
+                    skipped_unknown_store=skipped_unknown_store,
+                    skipped_unknown_product=skipped_unknown_product,
+                    synthesized_store_mappings=synthesized_store_mappings,
+                    synthesized_product_mappings=synthesized_product_mappings,
                 )
 
                 return {
                     "status": "success",
                     "customer_id": customer_id,
                     "records_upserted": upserted,
+                    "skipped_unmapped_store": skipped_unmapped_store,
+                    "skipped_unmapped_product": skipped_unmapped_product,
+                    "skipped_unknown_store": skipped_unknown_store,
+                    "skipped_unknown_product": skipped_unknown_product,
+                    "synthesized_store_mappings": synthesized_store_mappings,
+                    "synthesized_product_mappings": synthesized_product_mappings,
                     "synced_at": now.isoformat(),
                 }
         finally:
@@ -316,7 +435,7 @@ def sync_square_transactions(self, customer_id: str):
 
     async def _sync():
         from core.config import get_settings
-        from db.models import Integration, Transaction
+        from db.models import Integration, Product, Store, Transaction
         from integrations.square import SquareClient
 
         settings = get_settings()
@@ -339,10 +458,29 @@ def sync_square_transactions(self, customer_id: str):
                     logger.warning("sync.transactions.no_integration", customer_id=customer_id)
                     return {"status": "skipped", "reason": "no_square_integration"}
 
+                stores_result = await db.execute(select(Store.store_id).where(Store.customer_id == customer_id))
+                valid_store_ids = {str(row.store_id) for row in stores_result.all()}
+                products_result = await db.execute(select(Product.product_id).where(Product.customer_id == customer_id))
+                valid_product_ids = {str(row.product_id) for row in products_result.all()}
+                if not valid_store_ids:
+                    logger.warning("sync.transactions.no_stores", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_stores"}
+                if not valid_product_ids:
+                    logger.warning("sync.transactions.no_products", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_products"}
+
+                integration_config = integration.config if isinstance(integration.config, dict) else {}
+                location_map = _build_square_id_map(integration_config.get("square_location_to_store"))
+                catalog_map = _build_square_id_map(integration_config.get("square_catalog_to_product"))
+                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(settings, integration_config)
+                initial_location_map_count = len(location_map)
+                initial_catalog_map_count = len(catalog_map)
+
                 client = SquareClient(integration.access_token_encrypted)
+                location_ids = [] if synthesize_demo_mappings else list(location_map.keys())
 
                 try:
-                    orders = await client.get_orders(location_ids=[])
+                    orders = await client.get_orders(location_ids=location_ids)
                 except Exception as exc:
                     logger.error(
                         "sync.transactions.api_error",
@@ -350,6 +488,17 @@ def sync_square_transactions(self, customer_id: str):
                         error=str(exc),
                     )
                     raise self.retry(exc=exc)
+
+                if synthesize_demo_mappings:
+                    discovered_location_ids = {str(order.get("location_id")) for order in orders if order.get("location_id")}
+                    discovered_catalog_ids = {
+                        str(item.get("catalog_object_id"))
+                        for order in orders
+                        for item in order.get("line_items", [])
+                        if item.get("catalog_object_id")
+                    }
+                    location_map = _synthesize_square_id_map(discovered_location_ids, valid_store_ids, location_map)
+                    catalog_map = _synthesize_square_id_map(discovered_catalog_ids, valid_product_ids, catalog_map)
 
                 # Dedup: find existing external_ids
                 existing_ids_result = await db.execute(
@@ -362,11 +511,25 @@ def sync_square_transactions(self, customer_id: str):
 
                 # Insert new transactions
                 inserted = 0
+                skipped_unmapped_store = 0
+                skipped_unmapped_product = 0
+                skipped_unknown_store = 0
+                skipped_unknown_product = 0
+                synthesized_store_mappings = max(0, len(location_map) - initial_location_map_count)
+                synthesized_product_mappings = max(0, len(catalog_map) - initial_catalog_map_count)
                 now = datetime.now(timezone.utc)
+                customer_uuid = uuid.UUID(customer_id)
 
                 for order in orders:
                     order_id = order.get("id", "")
                     location_id = order.get("location_id", "")
+                    store_uuid = _resolve_external_uuid(location_id, location_map)
+                    if store_uuid is None:
+                        skipped_unmapped_store += 1
+                        continue
+                    if str(store_uuid) not in valid_store_ids:
+                        skipped_unknown_store += 1
+                        continue
 
                     for item in order.get("line_items", []):
                         external_id = f"{order_id}:{item.get('uid', '')}"
@@ -374,16 +537,24 @@ def sync_square_transactions(self, customer_id: str):
                             continue
 
                         catalog_id = item.get("catalog_object_id", "unknown")
-                        quantity = int(item.get("quantity", "1"))
+                        product_uuid = _resolve_external_uuid(catalog_id, catalog_map)
+                        if product_uuid is None:
+                            skipped_unmapped_product += 1
+                            continue
+                        if str(product_uuid) not in valid_product_ids:
+                            skipped_unknown_product += 1
+                            continue
+
+                        quantity = int(float(item.get("quantity", "1")))
                         unit_price = int(item.get("base_price_money", {}).get("amount", 0)) / 100
                         total = int(item.get("total_money", {}).get("amount", 0)) / 100
                         discount = int(item.get("total_discount_money", {}).get("amount", 0)) / 100
 
                         txn = Transaction(
                             transaction_id=uuid.uuid4(),
-                            customer_id=customer_id,
-                            store_id=location_id,
-                            product_id=catalog_id,
+                            customer_id=customer_uuid,
+                            store_id=store_uuid,
+                            product_id=product_uuid,
                             timestamp=now,
                             quantity=quantity,
                             unit_price=unit_price,
@@ -394,6 +565,7 @@ def sync_square_transactions(self, customer_id: str):
                         )
                         db.add(txn)
                         inserted += 1
+                        existing_ids.add(external_id)
 
                 # Update last_sync_at
                 await db.execute(
@@ -409,12 +581,24 @@ def sync_square_transactions(self, customer_id: str):
                     customer_id=customer_id,
                     transactions_inserted=inserted,
                     duplicates_skipped=len(existing_ids),
+                    skipped_unmapped_store=skipped_unmapped_store,
+                    skipped_unmapped_product=skipped_unmapped_product,
+                    skipped_unknown_store=skipped_unknown_store,
+                    skipped_unknown_product=skipped_unknown_product,
+                    synthesized_store_mappings=synthesized_store_mappings,
+                    synthesized_product_mappings=synthesized_product_mappings,
                 )
 
                 return {
                     "status": "success",
                     "customer_id": customer_id,
                     "transactions_inserted": inserted,
+                    "skipped_unmapped_store": skipped_unmapped_store,
+                    "skipped_unmapped_product": skipped_unmapped_product,
+                    "skipped_unknown_store": skipped_unknown_store,
+                    "skipped_unknown_product": skipped_unknown_product,
+                    "synthesized_store_mappings": synthesized_store_mappings,
+                    "synthesized_product_mappings": synthesized_product_mappings,
                     "synced_at": now.isoformat(),
                 }
         finally:

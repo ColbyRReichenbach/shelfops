@@ -348,6 +348,24 @@ async def promote_model(
         )
     )
     await db.commit()
+    try:
+        from ml.experiment import sync_registry_with_runtime_state
+
+        sync_registry_with_runtime_state(
+            version=version,
+            model_name="demand_forecast",
+            candidate_status="champion",
+            active_champion_version=version,
+            promotion_reason="manual_promotion",
+        )
+    except Exception as exc:
+        logger.warning(
+            "models.manual_promotion_registry_sync_failed",
+            customer_id=str(customer_id),
+            version=version,
+            error=str(exc),
+            exc_info=True,
+        )
 
     logger.info(
         "models.manual_promotion",

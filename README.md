@@ -1,102 +1,64 @@
 # ShelfOps
 
-AI-powered inventory intelligence platform I built to combine practical store-level retail operations with modern ML and enterprise integration patterns.
+ShelfOps is an inventory intelligence platform focused on SMB launch-candidate workflows with enterprise-oriented integration design.
 
-## About Me
+## Current Readiness
 
-I’m **Colby Reichenbach**, a **UNC Chapel Hill graduate** with **4+ years in inventory operations at Target (store level)**. I built ShelfOps to show both:
+- Last verified date: February 15, 2026
+- Current readiness: pre-production hardening for SMB launch-candidate workflows.
+- Enterprise integration paths are in production code and validated in deterministic tests, but enterprise onboarding is not commercially available (non-GA).
+- Status taxonomy used across docs: `implemented`, `pilot_validated`, `partial`, `blocked`.
 
-- my real-world retail judgment
-- my ability to turn that judgment into production-quality software using AI-assisted development workflows
+## Capability Snapshot
 
-## Why I Built This
+| Capability | Status | Notes |
+|---|---|---|
+| Forecast train/register loop | `implemented` | Retrain worker and model registration paths are active in backend code. |
+| Runtime forecast and accuracy loop | `implemented` | Forecast generation and accuracy backfill are implemented in worker paths. |
+| Promotion gates (business + DS) | `implemented` | Fail-closed policy is enforced in model arena logic. |
+| Contract-driven onboarding | `implemented` | Versioned YAML profiles and validation mapping paths are active. |
+| Enterprise EDI/SFTP/event integration validation | `pilot_validated` | Deterministic fixture and CI validation are present. |
+| Broad enterprise onboarding availability | `blocked` | Non-GA by product policy. |
 
-I built ShelfOps for two reasons:
+## Stack (Code-Verified)
 
-1. **Product opportunity**: give mid-size and smaller retailers access to smart inventory tooling they usually cannot afford or build in-house.
-2. **Enterprise credibility**: demonstrate I can design systems aligned to large-company requirements (EDI, auditability, reliability, operational controls).
+- Backend: FastAPI, SQLAlchemy async, Celery
+- Data: PostgreSQL/Timescale pattern, Alembic, Redis
+- Streaming/integration: Redpanda/Kafka-compatible flow, EDI, SFTP adapters
+- ML: XGBoost/LSTM training paths, metrics contract, model lifecycle APIs
+- Frontend: React + TypeScript + Vite
 
-## What ShelfOps Does
+## Docs Start Here
 
-- Predicts demand and stockout risk.
-- Supports reorder workflows and transfer optimization logic.
-- Surfaces assumption/confidence metadata in recommendation rationale for operational transparency.
-- Tracks anomalies and alert outcomes.
-- Includes enterprise data exchange foundations (especially EDI-oriented workflows).
-- Supports contract-driven onboarding for heterogeneous SMB and enterprise source schemas.
-- Provides API + dashboard visibility into inventory health and sync health.
+- Documentation index: `docs/README.md`
+- Executive overview: `docs/overview/executive_overview.md`
+- Technical overview: `docs/overview/technical_overview.md`
+- Production readiness: `docs/product/production_readiness.md`
+- API contracts: `docs/engineering/api_contracts.md`
 
-## Who This Is For
-
-- **Small/mid-market retailers** that still run manual or reactive inventory processes.
-- **Enterprise hiring teams** evaluating me for data/ML/product engineering roles in retail or supply chain.
-
-## Where We Are In Production
-
-- ShelfOps is in **pre-production hardening**.
-- **SMB/mid-market workflows are the launch target**.
-- Enterprise connectors are implemented and under continuous validation using synthetic enterprise-format data.
-- Forecasting can be tuned now on public datasets; some advanced models remain partially blocked pending production telemetry.
-
-Status labels across project docs use: `implemented`, `pilot_validated`, `partial`, `blocked`.
-
-## Why SMB-First
-
-SMB/mid-market teams can adopt decision workflows faster with fewer integration dependencies, which makes them the practical first deployment path. Enterprise capabilities are still core to the architecture, but are positioned as pilot-ready logic and validation work rather than full enterprise onboarding readiness today.
-
-## Read This Next
-
-- **Non-technical overview (recruiters / business stakeholders):** `docs/README_NON_TECHNICAL.md`
-- **Technical overview (engineering / data hiring managers):** `docs/README_TECHNICAL.md`
-- **Current readiness and delivery status:** `docs/RELEASE_READINESS.md`
-- **Canonical production status board:** `docs/PRODUCTION_READINESS_BOARD.md`
-- **Data strategy and model-readiness gates:** `docs/DATA_STRATEGY.md`
-- **Data contract specification (SMB + enterprise):** `docs/DATA_CONTRACT_SPEC.md`
-- **SMB onboarding runbook:** `docs/SMB_ONBOARDING_RUNBOOK.md`
-- **Enterprise pilot readiness gates:** `docs/ENTERPRISE_PILOT_READINESS.md`
-- **Known gaps and priorities:** `docs/KNOWN_ISSUES.md`
-- **API contract reference:** `docs/API_CONTRACTS.md`
-- **Roadmap:** `docs/ROADMAP.md`
-- **Productization execution plan:** `docs/PRODUCTIZATION_PLAN.md`
-- **Productization tracker:** `docs/PRODUCTIZATION_TRACKER.md`
-- **Productization evidence index:** `docs/PRODUCTIZATION_EVIDENCE_INDEX.md`
-- **Operations SLO policy:** `docs/OPERATIONS_SLO.md`
-- **Production decision log:** `docs/PRODUCTION_DECISION_LOG.md`
-- **ML effectiveness report:** `docs/ML_EFFECTIVENESS_REPORT.md`
-- **Enterprise vs SMB architecture brief:** `docs/ENTERPRISE_VS_SMB_ARCHITECTURE_BRIEF.md`
-- **Integration incident runbook:** `docs/INTEGRATION_INCIDENT_RUNBOOK.md`
-- **External research sources (filings + industry):** `docs/RESEARCH_SOURCES.md`
-- **Model readiness matrix:** `docs/MODEL_READINESS_MATRIX.md`
-- **Forecast tuning protocol:** `docs/TUNING_PROTOCOL.md`
-- **Full legacy deep-dive (archived from old README):** `docs/PROJECT_DEEP_DIVE.md`
-
-## Current Status
-
-ShelfOps is in **pre-production hardening**.
-
-- Backend tests passing
-- Lint/format gates passing
-- Frontend build passing
-- Enterprise EDI readiness is the active priority
-
-## Quick Start
+## Quick Verification Commands
 
 ```bash
-# backend
-cd backend
-python3 -m pytest tests -q
+# Backend checks
+PYTHONPATH=backend python3 -m pytest backend/tests -q
+ruff check backend/ --config pyproject.toml
+ruff format --check backend/ --config pyproject.toml
 
-# frontend
-cd ../frontend
-npm run lint
-npm run build
+# Frontend checks
+npm --prefix frontend run lint
+npm --prefix frontend run build
+
+# Docs checks
+bash scripts/validate_docs.sh
 ```
 
-## Note on Scope
+## Positioning
 
-This repo is both:
+- SMB shipping target: practical onboarding and decision workflows first.
+- Enterprise posture: integration architecture and validation depth are present, but onboarding remains non-GA.
 
-- a working product foundation
-- a portfolio artifact demonstrating end-to-end ownership across retail domain logic, ML workflows, API/backend engineering, and delivery discipline
+## Boundaries
 
-Industry-level numbers are context; company-specific figures come from each company’s own 10-K disclosures (see `docs/RESEARCH_SOURCES.md`).
+- Public datasets are used for development and evaluation workflows.
+- Live tenant behavior must be calibrated from tenant telemetry and validated onboarding flows.
+- This repository does not claim broad enterprise production availability.

@@ -47,7 +47,7 @@ MODEL_DIR = Path(__file__).parent.parent / "models"
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DOCS_DIR = PROJECT_ROOT / "docs"
-MODEL_PERFORMANCE_LOG_PATH = DOCS_DIR / "MODEL_PERFORMANCE_LOG.md"
+MODEL_PERFORMANCE_LOG_PATH = REPORTS_DIR / "MODEL_PERFORMANCE_LOG.md"
 
 # Legacy alias
 EXPERIMENT_NAME = DEFAULT_EXPERIMENT_NAME
@@ -154,7 +154,7 @@ def _refresh_model_performance_log(registry: dict[str, Any] | None = None) -> No
         ]
     )
 
-    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    MODEL_PERFORMANCE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     MODEL_PERFORMANCE_LOG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
     logger.info("model.performance_log_refreshed", path=str(MODEL_PERFORMANCE_LOG_PATH))
 
@@ -202,6 +202,85 @@ def register_model(
     except Exception as e:
         logger.warning("model.performance_log_refresh_failed", error=str(e))
     logger.info("model.registered", version=version, status=entry["status"])
+
+
+def sync_registry_with_runtime_state(
+    *,
+    version: str,
+    model_name: str,
+    candidate_status: str | None,
+    active_champion_version: str | None,
+    promotion_reason: str | None = None,
+) -> None:
+    """
+    Reconcile file-based registry/champion artifacts with DB runtime state.
+
+    This keeps `registry.json`, `champion.json`, and the generated model
+    performance log aligned with Postgres model lifecycle truth.
+    """
+    registry = _load_registry()
+    models = registry.get("models", [])
+
+    target_row = None
+    for row in reversed(models):
+        if row.get("version") == version and row.get("model_name", "demand_forecast") == model_name:
+            target_row = row
+            break
+
+    if target_row is None:
+        logger.warning(
+            "model.registry_sync_missing_version",
+            version=version,
+            model_name=model_name,
+        )
+        return
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if candidate_status:
+        target_row["status"] = candidate_status
+        if candidate_status == "champion":
+            target_row["promoted_at"] = target_row.get("promoted_at") or now_iso
+        elif candidate_status in {"candidate", "challenger", "shadow", "archived"}:
+            target_row["promoted_at"] = None
+
+    if promotion_reason:
+        target_row["promotion_reason"] = promotion_reason
+
+    champion_promoted_at = None
+    for row in models:
+        if row.get("model_name", "demand_forecast") != model_name:
+            continue
+        if active_champion_version and row.get("version") == active_champion_version:
+            row["status"] = "champion"
+            row["promoted_at"] = row.get("promoted_at") or now_iso
+            champion_promoted_at = row["promoted_at"]
+        elif row.get("status") == "champion":
+            row["status"] = "archived"
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    champion_path = MODEL_DIR / "champion.json"
+    if active_champion_version:
+        champion_payload = {
+            "version": active_champion_version,
+            "promoted_at": champion_promoted_at or now_iso,
+        }
+        champion_path.write_text(json.dumps(champion_payload, indent=2), encoding="utf-8")
+    elif champion_path.exists():
+        champion_path.unlink()
+
+    _save_registry(registry)
+    try:
+        _refresh_model_performance_log(registry)
+    except Exception as e:
+        logger.warning("model.performance_log_refresh_failed", error=str(e))
+
+    logger.info(
+        "model.registry_synced_with_runtime",
+        version=version,
+        model_name=model_name,
+        candidate_status=candidate_status,
+        active_champion_version=active_champion_version,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────

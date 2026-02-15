@@ -23,5 +23,5 @@ known-first-party = ["db", "api", "ml", "core", "workers", "alerts", "integratio
 quote-style = "double"
 
 [tool.pytest.ini_options]
-testpaths = ["backend/tests"]
+testpaths = ["backend/tests", "tests"]
 asyncio_mode = "auto"

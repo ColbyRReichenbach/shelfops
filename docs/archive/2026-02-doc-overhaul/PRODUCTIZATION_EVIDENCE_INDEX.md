@@ -11,36 +11,46 @@ _Last updated: February 15, 2026_
 - `docs/README_TECHNICAL.md`
 - `docs/README_NON_TECHNICAL.md`
 
-### PZ-003: Migration rollout validation (local constraints)
+### PZ-003: Migration rollout validation
 
 Executed:
 
 ```bash
-cd backend && alembic heads
-cd backend && PYTHONPATH=. alembic current
-cd backend && PYTHONPATH=. alembic upgrade head
+PGPASSWORD=dev_password psql -h localhost -p 5432 -U shelfops -d postgres -c "DROP DATABASE IF EXISTS shelfops_audit;"
+PGPASSWORD=dev_password psql -h localhost -p 5432 -U shelfops -d postgres -c "CREATE DATABASE shelfops_audit;"
+cd backend && PYTHONPATH=. DATABASE_URL='postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops_audit' alembic upgrade head
+cd backend && PYTHONPATH=. DATABASE_URL='postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops_audit' alembic current
 ```
 
 Result:
 
-- Migration graph head resolves to `007`.
-- Local upgrade/current blocked due unavailable local PostgreSQL service in this environment.
+- Fresh Postgres database upgraded successfully through `007 (head)`.
+- Migration artifact: `docs/productization_artifacts/migration_rollout_validation.md`.
 - Readiness schema behavior validated via tests: `backend/tests/test_readiness_state_machine.py`.
 
 ## Week 2
 
-### PZ-004: Runtime chain validation (test depth)
+### PZ-004: Runtime chain validation (staging harness + tests)
 
 Executed:
 
 ```bash
-PYTHONPATH=backend python3 -m pytest \
-  backend/tests/test_models_api.py::test_models_health_uses_real_drift_and_data_signals \
-  backend/tests/test_ml_effectiveness_api.py::test_ml_effectiveness_endpoint_returns_rolling_metrics \
-  backend/tests/test_readiness_state_machine.py::test_readiness_reaches_production_tier_active_with_accuracy_samples -q
+cd backend && DATABASE_URL='postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops_audit' PYTHONPATH=. python3 scripts/seed_test_data.py
+cd backend && DATABASE_URL='postgresql+asyncpg://shelfops:dev_password@localhost:5432/shelfops_audit' PYTHONPATH=. python3 - <<'PY'
+# Runs retrain -> generate_forecasts -> backfill historical forecasts (staging harness)
+# -> compute_forecast_accuracy -> writes docs/productization_artifacts/staging_runtime_chain_validation.json/md
+PY
 ```
 
-Result: `3 passed`
+Result:
+
+- Runtime chain completed with worker outputs: retrain `success`, forecast generation `success`, accuracy compute `success`.
+- Artifact evidence: `docs/productization_artifacts/staging_runtime_chain_validation.md`.
+- Machine-readable output: `docs/productization_artifacts/staging_runtime_chain_validation.json`.
+- Supporting tests:
+  - `backend/tests/test_ml_pipeline.py::TestPredictDemand::test_predict_demand_lstm_missing_norm_stats_falls_back`
+  - `backend/tests/test_scheduler_dispatch.py::test_dispatch_active_tenants_fans_out_only_active_and_trial`
+  - `backend/tests/test_ml_effectiveness_api.py::test_ml_effectiveness_endpoint_returns_rolling_metrics`
 
 ### PZ-005: Multi-tenant dispatch validation
 
@@ -148,3 +158,46 @@ Decision artifact:
 - `README.md`
 - `docs/PRODUCTION_READINESS_BOARD.md`
 - `docs/RELEASE_READINESS.md`
+
+## Replay Demo Hardening
+
+### Time-Travel replay implementation (Favorita-first contract)
+
+Implemented:
+
+- `backend/ml/replay_partition.py`
+- `backend/ml/replay_hitl_policy.py`
+- `backend/scripts/run_replay_simulation.py`
+
+Validation:
+
+```bash
+cd backend
+PYTHONPATH=. pytest -q \
+  tests/test_replay_partition.py \
+  tests/test_replay_hitl_policy.py \
+  tests/test_replay_simulation_script.py
+```
+
+Sample artifact run (seed synthetic smoke replay):
+
+```bash
+cd backend
+PYTHONPATH=. python3 scripts/run_replay_simulation.py \
+  --dataset-dir ../data/seed \
+  --holdout-days 30 \
+  --max-replay-days 14 \
+  --max-training-rows 20000 \
+  --portfolio-mode auto \
+  --dry-run \
+  --output-dir ../docs/productization_artifacts
+```
+
+Generated artifacts:
+
+- `docs/productization_artifacts/replay_partition_manifest.json`
+- `docs/productization_artifacts/replay_daily_log.jsonl`
+- `docs/productization_artifacts/replay_summary.json`
+- `docs/productization_artifacts/replay_summary.md`
+- `docs/productization_artifacts/replay_hitl_decisions.json`
+- `docs/productization_artifacts/replay_model_strategy_decision.md`
