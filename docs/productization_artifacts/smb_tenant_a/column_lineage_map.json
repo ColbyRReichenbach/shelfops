@@ -1,0 +1,14 @@
+{
+  "date": [
+    "sale_date"
+  ],
+  "product_id": [
+    "sku"
+  ],
+  "quantity": [
+    "qty"
+  ],
+  "store_id": [
+    "store"
+  ]
+}

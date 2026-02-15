@@ -8,6 +8,7 @@ ShelfOps is in **pre-production hardening**. Core functionality is implemented a
 
 Canonical status source: `docs/PRODUCTION_READINESS_BOARD.md`.
 Execution source: `docs/PRODUCTIZATION_PLAN.md` and `docs/PRODUCTIZATION_TRACKER.md`.
+Execution evidence source: `docs/PRODUCTIZATION_EVIDENCE_INDEX.md`.
 
 Status taxonomy used across docs:
 
@@ -45,7 +46,9 @@ Status taxonomy used across docs:
 ## Launch Blockers
 
 1. Enforce enterprise CI checks as required branch protection on `main` (`enterprise-seed-validation`, `postgres-parity`, `edi-fixture-e2e`, `contract-validation-suite`).
-2. Remove legacy API aliases after sunset window (`docs/API_DEPRECATION_SCHEDULE.md`).
+2. Complete one staging run for runtime chain (`retrain -> forecast -> accuracy -> promotion`) and attach evidence.
+3. Validate Alembic migration rollout in PostgreSQL environment and attach run log.
+4. Remove legacy API aliases after sunset window (`docs/API_DEPRECATION_SCHEDULE.md`).
 
 ## Branch Protection Requirement
 

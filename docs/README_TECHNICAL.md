@@ -114,6 +114,8 @@ This project shows I can operate across the full stack and full lifecycle:
 - Canonical readiness board: `docs/PRODUCTION_READINESS_BOARD.md`
 - Productization execution plan: `docs/PRODUCTIZATION_PLAN.md`
 - Productization tracker: `docs/PRODUCTIZATION_TRACKER.md`
+- Productization evidence index: `docs/PRODUCTIZATION_EVIDENCE_INDEX.md`
+- Operations SLO policy: `docs/OPERATIONS_SLO.md`
 - Known issues: `docs/KNOWN_ISSUES.md`
 - API contracts: `docs/API_CONTRACTS.md`
 - Roadmap: `docs/ROADMAP.md`

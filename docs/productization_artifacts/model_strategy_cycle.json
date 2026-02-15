@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-02-15T14:59:11.632838+00:00",
+  "data_dir": "data/seed",
+  "rows_used": 20000,
+  "feature_count": 27,
+  "xgboost_metrics": {
+    "mae": 36.358488,
+    "mape": 1.124552
+  },
+  "lstm_metrics": {
+    "available": true,
+    "mae": 55.932977,
+    "mape": 1.915169,
+    "error": null
+  },
+  "weight_sweep": [
+    {
+      "xgboost_weight": 1.0,
+      "lstm_weight": 0.0,
+      "estimated_mae": 36.358488,
+      "estimated_mape": 1.124552
+    },
+    {
+      "xgboost_weight": 0.9,
+      "lstm_weight": 0.1,
+      "estimated_mae": 38.315937,
+      "estimated_mape": 1.203613
+    },
+    {
+      "xgboost_weight": 0.8,
+      "lstm_weight": 0.2,
+      "estimated_mae": 40.273386,
+      "estimated_mape": 1.282675
+    },
+    {
+      "xgboost_weight": 0.7,
+      "lstm_weight": 0.3,
+      "estimated_mae": 42.230835,
+      "estimated_mape": 1.361737
+    },
+    {
+      "xgboost_weight": 0.65,
+      "lstm_weight": 0.35,
+      "estimated_mae": 43.209559,
+      "estimated_mape": 1.401268
+    },
+    {
+      "xgboost_weight": 0.6,
+      "lstm_weight": 0.4,
+      "estimated_mae": 44.188284,
+      "estimated_mape": 1.440799
+    },
+    {
+      "xgboost_weight": 0.5,
+      "lstm_weight": 0.5,
+      "estimated_mae": 46.145732,
+      "estimated_mape": 1.51986
+    }
+  ],
+  "decision": {
+    "recommended_mode": "single_xgboost",
+    "recommended_weights": {
+      "xgboost": 1.0,
+      "lstm": 0.0
+    },
+    "promotion_status": "hold_as_challenger",
+    "promotion_reason": "business_metrics_not_available_in_this_cycle"
+  }
+}

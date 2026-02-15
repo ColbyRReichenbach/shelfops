@@ -11,6 +11,7 @@ _Last updated: February 15, 2026_
 - Canonical status board: `docs/PRODUCTION_READINESS_BOARD.md`
 - Productization execution plan: `docs/PRODUCTIZATION_PLAN.md`
 - Productization tracker: `docs/PRODUCTIZATION_TRACKER.md`
+- Productization evidence index: `docs/PRODUCTIZATION_EVIDENCE_INDEX.md`
 
 ## Completed Hardening (This Cycle)
 

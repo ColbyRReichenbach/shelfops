@@ -79,6 +79,12 @@ docs/*
 !docs/DEMO_SCRIPT_RECRUITER.md
 !docs/PRODUCTIZATION_PLAN.md
 !docs/PRODUCTIZATION_TRACKER.md
+!docs/PRODUCTIZATION_EVIDENCE_INDEX.md
+!docs/OPERATIONS_SLO.md
+!docs/ROLLBACK_DRILL_REPORT_2026_02_15.md
+!docs/MODEL_STRATEGY_DECISION_2026_02_15.md
+!docs/productization_artifacts/
+!docs/productization_artifacts/**
 
 # Test databases
 *.db

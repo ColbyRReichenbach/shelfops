@@ -1,0 +1,14 @@
+{
+  "date": [
+    "event_date"
+  ],
+  "product_id": [
+    "item_code"
+  ],
+  "quantity": [
+    "qty_tens"
+  ],
+  "store_id": [
+    "location_id"
+  ]
+}

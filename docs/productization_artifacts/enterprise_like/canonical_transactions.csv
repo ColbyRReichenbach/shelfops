@@ -1,0 +1,3 @@
+date,store_id,product_id,quantity,tenant_id,source_type,frequency,country_code,unit_cost,unit_price,on_hand_qty,on_order_qty,is_promotional,is_holiday,category
+2026-01-01,WH-001,111222333,5.0,productization-enterprise-like,enterprise_event,daily,US,,3.99,,,0,0,
+2026-01-02,WH-001,111222333,-1.0,productization-enterprise-like,enterprise_event,daily,US,,3.99,,,0,0,
