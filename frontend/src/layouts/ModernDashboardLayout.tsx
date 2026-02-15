@@ -13,6 +13,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Settings,
+    Brain,
 } from 'lucide-react'
 import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -26,6 +27,7 @@ const navItems = [
     { to: '/inventory', icon: Warehouse, label: 'Inventory' },
     { to: '/stores', icon: Store, label: 'Stores' },
     { to: '/integrations', icon: Link2, label: 'Integrations' },
+    { to: '/ml-ops', icon: Brain, label: 'ML Ops' },
 ]
 
 export default function ModernDashboardLayout() {

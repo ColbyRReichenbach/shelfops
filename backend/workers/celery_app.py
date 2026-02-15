@@ -130,6 +130,40 @@ celery_app.conf.update(
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
             "options": {"queue": "sync"},
         },
+        # ── Category Model Retraining ────────────────────────────────
+        "retrain-category-models-weekly": {
+            "task": "workers.retrain.retrain_forecast_model",
+            "schedule": crontab(hour=3, minute=0, day_of_week="sunday"),  # After global retrain
+            "kwargs": {
+                "promote": True,
+                "model_name": "demand_forecast_fresh",
+                "category_tier": "fresh",
+                "trigger": "scheduled",
+            },
+            "options": {"queue": "ml"},
+        },
+        "retrain-gm-models-weekly": {
+            "task": "workers.retrain.retrain_forecast_model",
+            "schedule": crontab(hour=3, minute=30, day_of_week="sunday"),
+            "kwargs": {
+                "promote": True,
+                "model_name": "demand_forecast_gm",
+                "category_tier": "general_merchandise",
+                "trigger": "scheduled",
+            },
+            "options": {"queue": "ml"},
+        },
+        "retrain-hardware-models-weekly": {
+            "task": "workers.retrain.retrain_forecast_model",
+            "schedule": crontab(hour=4, minute=0, day_of_week="sunday"),
+            "kwargs": {
+                "promote": True,
+                "model_name": "demand_forecast_hardware",
+                "category_tier": "hardware",
+                "trigger": "scheduled",
+            },
+            "options": {"queue": "ml"},
+        },
     },
 )
 

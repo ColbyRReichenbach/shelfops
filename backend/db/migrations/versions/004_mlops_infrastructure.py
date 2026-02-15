@@ -14,8 +14,8 @@ Tables:
   - model_experiments: Human-led hypothesis testing
 """
 
-from alembic import op
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # Revision identifiers
@@ -48,7 +48,12 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["customer_id"], ["customers.customer_id"], ondelete="CASCADE"),
     )
     op.create_index("idx_model_versions_customer_status", "model_versions", ["customer_id", "model_name", "status"])
-    op.create_index("idx_model_versions_customer_name_version", "model_versions", ["customer_id", "model_name", "version"], unique=True)
+    op.create_index(
+        "idx_model_versions_customer_name_version",
+        "model_versions",
+        ["customer_id", "model_name", "version"],
+        unique=True,
+    )
 
     # Enable RLS
     op.execute("ALTER TABLE model_versions ENABLE ROW LEVEL SECURITY")
@@ -75,7 +80,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["customer_id"], ["customers.customer_id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["model_id"], ["model_versions.model_id"], ondelete="CASCADE"),
     )
-    op.create_index("idx_backtest_customer_model_date", "backtest_results", ["customer_id", "model_id", "forecast_date"])
+    op.create_index(
+        "idx_backtest_customer_model_date", "backtest_results", ["customer_id", "model_id", "forecast_date"]
+    )
 
     # Enable RLS
     op.execute("ALTER TABLE backtest_results ENABLE ROW LEVEL SECURITY")
@@ -104,9 +111,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["store_id"], ["stores.store_id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["product_id"], ["products.product_id"], ondelete="CASCADE"),
     )
-    op.create_index(
-        "idx_shadow_predictions_customer_date", "shadow_predictions", ["customer_id", "forecast_date"]
-    )
+    op.create_index("idx_shadow_predictions_customer_date", "shadow_predictions", ["customer_id", "forecast_date"])
 
     # Enable RLS
     op.execute("ALTER TABLE shadow_predictions ENABLE ROW LEVEL SECURITY")
@@ -129,15 +134,15 @@ def upgrade() -> None:
             nullable=False,
         ),  # 'scheduled', 'drift', 'new_data', 'manual'
         sa.Column("trigger_metadata", postgresql.JSONB, nullable=True),  # {drift_pct: 0.18, new_products: 73}
-        sa.Column("status", sa.String(20), nullable=False, server_default="running"),  # 'running', 'completed', 'failed'
+        sa.Column(
+            "status", sa.String(20), nullable=False, server_default="running"
+        ),  # 'running', 'completed', 'failed'
         sa.Column("version_produced", sa.String(20), nullable=True),
         sa.Column("started_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("completed_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["customer_id"], ["customers.customer_id"], ondelete="CASCADE"),
     )
-    op.create_index(
-        "idx_model_retraining_log_customer_model", "model_retraining_log", ["customer_id", "model_name"]
-    )
+    op.create_index("idx_model_retraining_log_customer_model", "model_retraining_log", ["customer_id", "model_name"])
 
     # Enable RLS
     op.execute("ALTER TABLE model_retraining_log ENABLE ROW LEVEL SECURITY")
@@ -153,12 +158,16 @@ def upgrade() -> None:
         "ml_alerts",
         sa.Column("ml_alert_id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("customer_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("alert_type", sa.String(50), nullable=False),  # 'drift_detected', 'promotion_pending', 'backtest_degradation', 'experiment_complete'
+        sa.Column(
+            "alert_type", sa.String(50), nullable=False
+        ),  # 'drift_detected', 'promotion_pending', 'backtest_degradation', 'experiment_complete'
         sa.Column("severity", sa.String(20), nullable=False),  # 'info', 'warning', 'critical'
         sa.Column("title", sa.String(255), nullable=False),
         sa.Column("message", sa.Text, nullable=False),
         sa.Column("alert_metadata", postgresql.JSONB, nullable=True),  # {model_version, drift_pct, action_required}
-        sa.Column("status", sa.String(20), nullable=False, server_default="unread"),  # 'unread', 'read', 'actioned', 'dismissed'
+        sa.Column(
+            "status", sa.String(20), nullable=False, server_default="unread"
+        ),  # 'unread', 'read', 'actioned', 'dismissed'
         sa.Column("action_url", sa.String(500), nullable=True),  # Link to review page
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("read_at", sa.TIMESTAMP(timezone=True), nullable=True),
@@ -183,14 +192,20 @@ def upgrade() -> None:
         sa.Column("customer_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("experiment_name", sa.String(255), nullable=False),
         sa.Column("hypothesis", sa.Text, nullable=False),  # "Department-tiered models will improve MAE by 10-15%"
-        sa.Column("experiment_type", sa.String(50), nullable=False),  # 'feature_engineering', 'model_architecture', 'data_source', 'segmentation'
+        sa.Column(
+            "experiment_type", sa.String(50), nullable=False
+        ),  # 'feature_engineering', 'model_architecture', 'data_source', 'segmentation'
         sa.Column("model_name", sa.String(50), nullable=False),  # 'demand_forecast', 'promo_lift', etc.
         sa.Column("baseline_version", sa.String(20), nullable=True),  # Champion version at experiment start
         sa.Column("experimental_version", sa.String(20), nullable=True),  # Version produced by experiment
-        sa.Column("status", sa.String(20), nullable=False, server_default="proposed"),  # 'proposed', 'approved', 'in_progress', 'shadow_testing', 'completed', 'rejected', 'rolled_back'
+        sa.Column(
+            "status", sa.String(20), nullable=False, server_default="proposed"
+        ),  # 'proposed', 'approved', 'in_progress', 'shadow_testing', 'completed', 'rejected', 'rolled_back'
         sa.Column("proposed_by", sa.String(255), nullable=False),  # User ID or email
         sa.Column("approved_by", sa.String(255), nullable=True),
-        sa.Column("results", postgresql.JSONB, nullable=True),  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2, decision: 'promote'}
+        sa.Column(
+            "results", postgresql.JSONB, nullable=True
+        ),  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2, decision: 'promote'}
         sa.Column("decision_rationale", sa.Text, nullable=True),  # Why approved/rejected
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("approved_at", sa.TIMESTAMP(timezone=True), nullable=True),

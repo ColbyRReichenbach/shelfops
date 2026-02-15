@@ -42,9 +42,15 @@ except ImportError:
 # ──────────────────────────────────────────────────────────────────────
 
 TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-EXPERIMENT_NAME = "shelfops_demand_forecast"
+DEFAULT_EXPERIMENT_NAME = "shelfops_demand_forecast"
 MODEL_DIR = Path(__file__).parent.parent / "models"
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DOCS_DIR = PROJECT_ROOT / "docs"
+MODEL_PERFORMANCE_LOG_PATH = DOCS_DIR / "MODEL_PERFORMANCE_LOG.md"
+
+# Legacy alias
+EXPERIMENT_NAME = DEFAULT_EXPERIMENT_NAME
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -67,6 +73,92 @@ def _save_registry(registry: dict[str, Any]) -> None:
     (MODEL_DIR / "registry.json").write_text(json.dumps(registry, indent=2, default=str))
 
 
+def _refresh_model_performance_log(registry: dict[str, Any] | None = None) -> None:
+    """
+    Auto-generate the model performance decision log markdown.
+
+    This runs on every model registration so champion/challenger state and
+    promotion decisions are always tracked without manual steps.
+    """
+    if registry is None:
+        registry = _load_registry()
+
+    champion_path = MODEL_DIR / "champion.json"
+    champion = {}
+    if champion_path.exists():
+        champion = json.loads(champion_path.read_text(encoding="utf-8"))
+    champion_version = champion.get("version")
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+
+    lines = [
+        "# Model Performance Log",
+        "",
+        f"_Generated at: {generated_at}_",
+        "",
+        "This file is auto-generated during model registration (`register_model`).",
+        "",
+        "## Data Sources",
+        "",
+        "- `backend/models/registry.json`",
+        "- `backend/models/champion.json`",
+        "",
+        "## Decision Log",
+        "",
+        "| order | version | model_name | dataset | tier | rows_trained | mae | mape | status | trained_at | promoted_at | decision | decision_basis |",
+        "|---:|---|---|---|---|---:|---:|---:|---|---|---|---|---|",
+    ]
+
+    rows = registry.get("models", [])
+    for idx, row in enumerate(rows, start=1):
+        status = row.get("status", "unknown")
+        version = row.get("version", "unknown")
+
+        if status == "champion" and version == champion_version:
+            decision = "promoted_to_champion"
+            basis = "status=champion and champion pointer matches"
+        elif status == "champion":
+            decision = "historic_champion"
+            basis = "status=champion in registry"
+        elif status == "candidate":
+            decision = "candidate_pending"
+            basis = "registered but not promoted yet"
+        elif status == "challenger":
+            decision = "challenger_shadow"
+            basis = "candidate held for challenger/shadow evaluation"
+        elif status == "archived":
+            decision = "archived"
+            basis = "superseded by newer champion"
+        else:
+            decision = "unknown"
+            basis = "status not mapped"
+
+        mae = row.get("mae")
+        mape = row.get("mape")
+        mae_s = f"{mae:.6f}" if isinstance(mae, (int, float)) else "-"
+        mape_s = f"{mape:.6f}" if isinstance(mape, (int, float)) else "-"
+
+        lines.append(
+            f"| {idx} | {version} | {row.get('model_name', 'demand_forecast')} | {row.get('dataset', 'unknown')} | "
+            f"{row.get('feature_tier', 'unknown')} | {row.get('rows_trained', '-')} | {mae_s} | {mape_s} | "
+            f"{status} | {row.get('trained_at', '-')} | {row.get('promoted_at', '-')} | {decision} | {basis} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            "- This log is append-only through `registry.json` updates.",
+            "- Runtime champion/challenger truth in production comes from Postgres model tables.",
+        ]
+    )
+
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    MODEL_PERFORMANCE_LOG_PATH.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    logger.info("model.performance_log_refreshed", path=str(MODEL_PERFORMANCE_LOG_PATH))
+
+
 def register_model(
     version: str,
     feature_tier: str,
@@ -74,12 +166,14 @@ def register_model(
     rows_trained: int,
     metrics: dict[str, float],
     promote: bool = False,
+    model_name: str = "demand_forecast",
 ) -> None:
     """Add a model version to the registry."""
     registry = _load_registry()
 
     entry = {
         "version": version,
+        "model_name": model_name,
         "feature_tier": feature_tier,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset": dataset,
@@ -92,6 +186,7 @@ def register_model(
 
     # Demote existing champion if promoting new one
     if promote:
+        MODEL_DIR.mkdir(parents=True, exist_ok=True)
         for m in registry["models"]:
             if m["status"] == "champion":
                 m["status"] = "archived"
@@ -102,6 +197,10 @@ def register_model(
 
     registry["models"].append(entry)
     _save_registry(registry)
+    try:
+        _refresh_model_performance_log(registry)
+    except Exception as e:
+        logger.warning("model.performance_log_refresh_failed", error=str(e))
     logger.info("model.registered", version=version, status=entry["status"])
 
 
@@ -117,8 +216,9 @@ class ExperimentTracker:
     Falls back to local JSON logging if MLflow is unavailable.
     """
 
-    def __init__(self, experiment_name: str = EXPERIMENT_NAME):
-        self.experiment_name = experiment_name
+    def __init__(self, experiment_name: str | None = None, model_name: str = "demand_forecast"):
+        self.model_name = model_name
+        self.experiment_name = experiment_name or f"shelfops_{model_name}"
         self.run = None
         self.start_time = None
         self.local_log: dict[str, Any] = {}
@@ -221,8 +321,9 @@ class ExperimentTracker:
             # Sort descending
             importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True))
 
-            REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-            out_path = REPORTS_DIR / "feature_importance.json"
+            report_dir = REPORTS_DIR / self.model_name
+            report_dir.mkdir(parents=True, exist_ok=True)
+            out_path = report_dir / "feature_importance.json"
             out_path.write_text(json.dumps(importance, indent=2))
             self.log_artifact(out_path)
             return out_path
@@ -232,13 +333,15 @@ class ExperimentTracker:
             return None
 
     def _save_local_log(self) -> None:
-        """Save run log to local JSON as fallback."""
-        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+        """Save run log to model-specific report directory."""
+        report_dir = REPORTS_DIR / self.model_name
+        report_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        log_path = REPORTS_DIR / f"run_{timestamp}.json"
+        log_path = report_dir / f"run_{timestamp}.json"
         self.local_log["timestamp"] = timestamp
         self.local_log["experiment"] = self.experiment_name
+        self.local_log["model_name"] = self.model_name
         if self.run:
             self.local_log["mlflow_run_id"] = self.run.info.run_id
         log_path.write_text(json.dumps(self.local_log, indent=2, default=str))
-        logger.info("experiment.local_log_saved", path=str(log_path))
+        logger.info("experiment.local_log_saved", path=str(log_path), model_name=self.model_name)

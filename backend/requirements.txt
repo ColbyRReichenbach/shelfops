@@ -43,6 +43,7 @@ sendgrid>=6.11.0
 
 # Observability
 structlog>=24.1.0
+PyYAML>=6.0.1
 
 # Testing
 pytest>=7.4.0

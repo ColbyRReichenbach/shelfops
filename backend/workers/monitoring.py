@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from workers.celery_app import celery_app
@@ -291,7 +291,10 @@ def run_daily_backtest(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Get champion model
                 champion = await get_champion_model(
@@ -369,7 +372,10 @@ def run_weekly_backtest(self, customer_id: str, lookback_days: int = 90):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Get champion model
                 champion = await get_champion_model(
@@ -614,7 +620,10 @@ def detect_anomalies_ml(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Run anomaly detection
                 result = await detect_func(
@@ -681,7 +690,10 @@ def detect_ghost_stock(self, customer_id: str):
 
             async with async_session() as db:
                 # Set tenant context for RLS
-                await db.execute(f"SET app.current_customer_id = '{customer_id}'")
+                await db.execute(
+                    text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                    {"customer_id": customer_id},
+                )
 
                 # Run ghost stock detection
                 result = await detect_func(

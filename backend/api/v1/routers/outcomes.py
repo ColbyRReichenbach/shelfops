@@ -10,7 +10,7 @@ Endpoints:
 """
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,13 +29,19 @@ router = APIRouter(prefix="/outcomes", tags=["outcomes"])
 
 
 class AlertOutcomeRequest(BaseModel):
-    outcome: str  # true_positive, false_positive, prevented_stockout, etc.
+    outcome: Literal[
+        "true_positive",
+        "false_positive",
+        "prevented_stockout",
+        "prevented_overstock",
+        "ghost_stock_confirmed",
+    ]
     outcome_notes: str | None = None
     prevented_loss: float | None = None
 
 
 class AnomalyOutcomeRequest(BaseModel):
-    outcome: str  # true_positive, false_positive, resolved, investigating
+    outcome: Literal["true_positive", "false_positive", "resolved", "investigating"]
     outcome_notes: str | None = None
     action_taken: str | None = None  # cycle_count, price_adjustment, restock, etc.
 
@@ -78,7 +84,8 @@ async def record_alert_outcome(
     )
 
     if result["status"] == "error":
-        raise HTTPException(status_code=404, detail=result["message"])
+        status_code = 404 if result["message"] == "Alert not found" else 400
+        raise HTTPException(status_code=status_code, detail=result["message"])
 
     return result
 
@@ -117,7 +124,8 @@ async def record_anomaly_outcome(
     )
 
     if result["status"] == "error":
-        raise HTTPException(status_code=404, detail=result["message"])
+        status_code = 404 if result["message"] == "Anomaly not found" else 400
+        raise HTTPException(status_code=status_code, detail=result["message"])
 
     return result
 

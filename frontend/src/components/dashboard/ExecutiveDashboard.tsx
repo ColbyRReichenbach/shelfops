@@ -75,7 +75,7 @@ export default function ExecutiveDashboard() {
                 description: accuracyData.length > 0 ? `Based on ${accuracyData.length} product forecasts` : 'No accuracy data yet'
             }
         ]
-    }, [alertSummary, accuracyData])
+    }, [alertSummary, accuracyData, inventorySummary])
 
     // Build chart data from forecast records grouped by date — no random values
     const chartData = useMemo(() => {

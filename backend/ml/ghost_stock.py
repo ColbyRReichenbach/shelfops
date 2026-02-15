@@ -115,7 +115,7 @@ async def detect_ghost_stock(
         )
         sales_by_date = {}
         for txn in txn_result.all():
-            txn_date = txn.timestamp.date() if hasattr(txn.timestamp, 'date') else txn.timestamp
+            txn_date = txn.timestamp.date() if hasattr(txn.timestamp, "date") else txn.timestamp
             sales_by_date[txn_date] = sales_by_date.get(txn_date, 0) + txn.quantity
 
         # Check consecutive days with low sales
@@ -134,9 +134,7 @@ async def detect_ghost_stock(
         if len(low_sales_days) >= consecutive_days_threshold:
             # Get product details
             prod_result = await db.execute(
-                select(Product.name, Product.unit_price, Product.category).where(
-                    Product.product_id == product_id
-                )
+                select(Product.name, Product.unit_price, Product.category).where(Product.product_id == product_id)
             )
             product = prod_result.first()
 
@@ -167,7 +165,7 @@ async def detect_ghost_stock(
                     product_id=product_id,
                     anomaly_type="inventory_discrepancy",
                     severity="warning" if ghost_probability > 0.7 else "info",
-                    description=f"Ghost stock suspected: {quantity_on_hand} units ({ghost_probability*100:.0f}% confidence). Forecast vs actual sales mismatch for {len(low_sales_days)} days.",
+                    description=f"Ghost stock suspected: {quantity_on_hand} units ({ghost_probability * 100:.0f}% confidence). Forecast vs actual sales mismatch for {len(low_sales_days)} days.",
                     anomaly_metadata={
                         "quantity_on_hand": quantity_on_hand,
                         "ghost_value": float(ghost_value),
@@ -255,9 +253,7 @@ async def recommend_cycle_counts(
             priority = "medium"
 
         # Get product name
-        prod_result = await db.execute(
-            select(Product.name).where(Product.product_id == anomaly.product_id)
-        )
+        prod_result = await db.execute(select(Product.name).where(Product.product_id == anomaly.product_id))
         product = prod_result.first()
         product_name = product.name if product else "Unknown"
 
@@ -267,7 +263,7 @@ async def recommend_cycle_counts(
                 "product_id": str(anomaly.product_id),
                 "product_name": product_name,
                 "priority": priority,
-                "reason": f"Ghost stock detected (${ghost_value:,.0f} value, {ghost_prob*100:.0f}% confidence)",
+                "reason": f"Ghost stock detected (${ghost_value:,.0f} value, {ghost_prob * 100:.0f}% confidence)",
                 "anomaly_id": str(anomaly.anomaly_id),
             }
         )

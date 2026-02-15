@@ -39,6 +39,7 @@ from db.models import (
     Product,
     ReorderHistory,
     ReorderPoint,
+    Store,
     Supplier,
 )
 from supply_chain.sourcing import LeadTimeEstimate, SourcingDecision, SourcingEngine
@@ -154,12 +155,19 @@ class InventoryOptimizer:
         z_score = get_z_score(service_level)
 
         # Safety stock accounts for BOTH demand variability AND lead time variability
-        # SS = Z × √( LT × σ_demand² + D² × σ_LT² ) × reliability_multiplier
+        # SS = Z × √( LT × σ_demand² + D² × σ_LT² ) × reliability_multiplier × cluster_multiplier
         demand_component = lead_time * (demand_std_dev**2)
         leadtime_component = (avg_daily_demand**2) * (lead_time_var**2)
         combined_std = math.sqrt(demand_component + leadtime_component)
 
-        safety_stock = max(1, round(z_score * combined_std * reliability_multiplier))
+        # Cluster-aware multiplier: high-volume stores (tier 0) get +15%,
+        # low-volume stores (tier 2) get -15% to optimize holding costs
+        store = await self.db.get(Store, store_id)
+        cluster_tier = store.cluster_tier if store and store.cluster_tier is not None else 1
+        cluster_multipliers = {0: 1.15, 1: 1.00, 2: 0.85}
+        cluster_multiplier = cluster_multipliers.get(cluster_tier, 1.00)
+
+        safety_stock = max(1, round(z_score * combined_std * reliability_multiplier * cluster_multiplier))
 
         # 5. Calculate reorder point
         reorder_point = max(1, round(avg_daily_demand * lead_time + safety_stock))
@@ -187,10 +195,12 @@ class InventoryOptimizer:
             "z_score": z_score,
             "vendor_reliability": vendor_reliability,
             "reliability_multiplier": reliability_multiplier,
+            "cluster_tier": cluster_tier,
+            "cluster_multiplier": cluster_multiplier,
             "safety_stock_formula": (
                 f"Z({z_score:.3f}) × √(LT({lead_time}) × σd²({demand_std_dev:.1f}) "
                 f"+ D²({avg_daily_demand:.1f}) × σLT²({lead_time_var})) "
-                f"× reliability({reliability_multiplier})"
+                f"× reliability({reliability_multiplier}) × cluster({cluster_multiplier})"
             ),
             "holding_cost_annual": round(holding_cost, 2),
             "cost_per_order": cost_per_order,

@@ -29,8 +29,23 @@ backend/models/*.h5
 backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
 
-# Documentation (User Requested)
-docs/
+# Documentation
+docs/*
+!docs/ROADMAP.md
+!docs/RELEASE_READINESS.md
+!docs/KNOWN_ISSUES.md
+!docs/API_CONTRACTS.md
+!docs/README_NON_TECHNICAL.md
+!docs/README_TECHNICAL.md
+!docs/PROJECT_DEEP_DIVE.md
+!docs/DATA_STRATEGY.md
+!docs/RESEARCH_SOURCES.md
+!docs/MODEL_READINESS_MATRIX.md
+!docs/TUNING_PROTOCOL.md
+!docs/AUDIT_EXECUTIVE_SUMMARY.md
+!docs/AUDIT_FINDINGS_REGISTER.md
+!docs/AUDIT_SCORECARD.md
+!docs/HIRING_DECISION_MEMO.md
 
 # Test databases
 *.db
