@@ -6,6 +6,8 @@ import AlertsPage from '@/pages/AlertsPage'
 import StoreView from '@/pages/StoreView'
 import ProductDetailPage from '@/pages/ProductDetailPage'
 import ForecastsPage from '@/pages/ForecastsPage'
+import MLOpsPage from '@/pages/MLOpsPage'
+import BuyCenterPage from '@/pages/BuyCenterPage'
 import ProductsPage from '@/pages/ProductsPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
 import InventoryPage from '@/pages/InventoryPage'
@@ -42,6 +44,8 @@ export default function App() {
                     <Route index element={<DashboardPage />} />
                     <Route path="alerts" element={<AlertsPage />} />
                     <Route path="forecasts" element={<ForecastsPage />} />
+                    <Route path="mlops" element={<MLOpsPage />} />
+                    <Route path="buy" element={<BuyCenterPage />} />
 
                     {/* Product Routes */}
                     <Route path="products/:productId" element={<ProductDetailPage />} />

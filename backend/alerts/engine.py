@@ -301,12 +301,16 @@ async def create_alerts(
             alert_type=alert_data["alert_type"],
             severity=alert_data["severity"],
             message=alert_data["message"],
-            metadata_=alert_data.get("metadata", {}),
+            alert_metadata=alert_data.get("metadata", {}),
         )
         db.add(alert)
         created.append(alert)
 
     await db.commit()
+    # Async sessions expire ORM state on commit by default; refresh so publish step
+    # can read IDs/timestamps without triggering lazy-load outside greenlet context.
+    for alert in created:
+        await db.refresh(alert)
     return created
 
 

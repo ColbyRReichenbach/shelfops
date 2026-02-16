@@ -1,0 +1,24 @@
+version: "1.0"
+tenant_id: "productization-smb-a"
+profile: "smb_csv"
+source_type: "smb_csv"
+frequency: "daily"
+required_fields:
+  - date
+  - store_id
+  - product_id
+  - quantity
+field_mapping:
+  date: sale_date
+  store_id: store
+  product_id: sku
+  quantity: qty
+dq_thresholds:
+  min_date_parse_success: 0.99
+  min_quantity_parse_success: 0.995
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  max_future_days: 7
+  max_history_years: 15
+  max_store_ref_missing_rate: 0.0
+  max_product_ref_missing_rate: 0.0

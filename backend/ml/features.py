@@ -180,25 +180,38 @@ def _sales_history_features(
     group = [store_col, product_col]
     txn_df = txn_df.sort_values(group + [date_col])
 
+    # Shift by one day so all history features are strictly from prior periods.
     grp = txn_df.groupby(group)[qty_col]
+    txn_df["_lag_qty"] = grp.shift(1)
+    lag_grp = txn_df.groupby(group)["_lag_qty"]
 
-    txn_df["sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).sum())
-    txn_df["sales_14d"] = grp.transform(lambda x: x.rolling(14, min_periods=1).sum())
-    txn_df["sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).sum())
-    txn_df["sales_90d"] = grp.transform(lambda x: x.rolling(90, min_periods=1).sum())
+    txn_df["sales_7d"] = lag_grp.transform(lambda x: x.rolling(7, min_periods=1).sum())
+    txn_df["sales_14d"] = lag_grp.transform(lambda x: x.rolling(14, min_periods=1).sum())
+    txn_df["sales_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=1).sum())
+    txn_df["sales_90d"] = lag_grp.transform(lambda x: x.rolling(90, min_periods=1).sum())
 
-    txn_df["avg_daily_sales_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=1).mean())
-    txn_df["avg_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).mean())
+    txn_df["avg_daily_sales_7d"] = lag_grp.transform(lambda x: x.rolling(7, min_periods=1).mean())
+    txn_df["avg_daily_sales_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=1).mean())
 
-    # Trend: slope proxy via diff of rolling means
-    txn_df["sales_trend_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).mean().diff())
-    txn_df["sales_trend_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).mean().diff())
+    # Trend: slope proxy via diff of rolling means.
+    txn_df["sales_trend_7d"] = lag_grp.transform(lambda x: x.rolling(7, min_periods=2).mean().diff())
+    txn_df["sales_trend_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=2).mean().diff())
 
-    txn_df["sales_volatility_7d"] = grp.transform(lambda x: x.rolling(7, min_periods=2).std())
-    txn_df["sales_volatility_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=2).std())
+    txn_df["sales_volatility_7d"] = lag_grp.transform(lambda x: x.rolling(7, min_periods=2).std())
+    txn_df["sales_volatility_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=2).std())
 
-    txn_df["max_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).max())
-    txn_df["min_daily_sales_30d"] = grp.transform(lambda x: x.rolling(30, min_periods=1).min())
+    txn_df["max_daily_sales_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=1).max())
+    txn_df["min_daily_sales_30d"] = lag_grp.transform(lambda x: x.rolling(30, min_periods=1).min())
+
+    # Days since prior positive sale for this store-product (point-in-time safe).
+    txn_df["_date"] = pd.to_datetime(txn_df[date_col], errors="coerce")
+    txn_df["_sale_date"] = txn_df["_date"].where(txn_df[qty_col] > 0)
+    txn_df["_prev_sale_date"] = txn_df.groupby(group)["_sale_date"].transform(lambda s: s.ffill().shift(1))
+    txn_df["days_since_last_sale"] = (
+        (txn_df["_date"] - txn_df["_prev_sale_date"]).dt.days.fillna(0).clip(lower=0).astype(int)
+    )
+
+    txn_df = txn_df.drop(columns=["_lag_qty", "_date", "_sale_date", "_prev_sale_date"])
 
     return txn_df
 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: timescale/timescaledb:latest-pg15
@@ -53,7 +51,9 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v2.10.0
     ports:
-      - "5000:5000"
+      # Override host port if 5000 is occupied:
+      # MLFLOW_HOST_PORT=5001 docker compose up -d mlflow
+      - "${MLFLOW_HOST_PORT:-5000}:5000"
     command: >
       mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow/mlflow.db --default-artifact-root /mlflow/artifacts
     volumes:
@@ -76,6 +76,11 @@ services:
       redis:
         condition: service_healthy
     env_file: .env
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@db:5432/shelfops
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
     volumes:
       - ./backend:/app
       - edi_data:/data/edi # EDI X12 file staging
@@ -87,6 +92,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.ml
+      args:
+        INSTALL_LSTM: ${ML_WORKER_INSTALL_LSTM:-0}
     depends_on:
       db:
         condition: service_healthy
@@ -96,11 +103,59 @@ services:
         condition: service_healthy
     env_file: .env
     environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@db:5432/shelfops
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
       MLFLOW_TRACKING_URI: http://mlflow:5000
+      ML_ENABLE_LSTM: ${ML_ENABLE_LSTM:-false}
     volumes:
       - ./backend:/app
       - ./backend/models:/app/models
       - ./backend/reports:/app/reports
+    command: celery -A workers.celery_app worker -Q ml --concurrency=2 --loglevel=info --include workers.retrain,workers.monitoring,workers.inventory_optimizer
+
+  # ── Sync Worker (Celery on "sync" queue) ───────────────────────
+  sync-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@db:5432/shelfops
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
+    volumes:
+      - ./backend:/app
+      - edi_data:/data/edi
+      - sftp_data:/data/sftp
+    command: celery -A workers.celery_app worker -Q sync --concurrency=2 --loglevel=info
+
+  # ── Celery Beat Scheduler ───────────────────────────────────────
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      PYTHONPATH: /app
+      DATABASE_URL: postgresql+asyncpg://shelfops:dev_password@db:5432/shelfops
+      REDIS_URL: redis://redis:6379/0
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:29092
+    volumes:
+      - ./backend:/app
+    command: celery -A workers.celery_app beat --loglevel=info
 
 volumes:
   pgdata:

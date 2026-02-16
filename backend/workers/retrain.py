@@ -4,7 +4,7 @@ ML Retraining Workers — Scheduled model retraining.
 Runs the full ML pipeline:
   1. Load training data (CSV cold-start or DB query)
   2. Feature engineering (auto-detects tier)
-  3. Train XGBoost + LSTM ensemble
+  3. Train XGBoost model (default) with optional LSTM ensemble
   4. Save models + register in model registry
   5. Refresh alerts with updated forecasts
 """
@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import pandas as pd
 import structlog
 
+from core.config import get_settings
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
@@ -45,15 +46,46 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
     synthetic seed data. Returns a unified DataFrame with columns:
     (store_id, product_id, date, quantity, category).
     """
-    csv_files = glob.glob(os.path.join(data_dir, "*.csv"))
+    # Recursively scan directory so callers can point at data/seed root.
+    csv_files = sorted(glob.glob(os.path.join(data_dir, "**", "*.csv"), recursive=True))
     if not csv_files:
         raise FileNotFoundError(f"No CSV files found in {data_dir}")
 
     frames = []
+    date_aliases = ("date", "trans_date", "transaction_date")
+    qty_aliases = ("quantity", "qty_sold", "quantity_sold", "sales", "weekly_sales")
+    store_aliases = ("store_id", "store_nbr", "store", "store_code")
+    skipped_files = 0
+    skipped_examples: list[str] = []
+
     for f in csv_files:
-        df = pd.read_csv(f, parse_dates=["date"] if "date" in pd.read_csv(f, nrows=0).columns else False)
+        header_cols = pd.read_csv(f, nrows=0).columns.tolist()
+        cols_lower = {c.lower(): c for c in header_cols}
+
+        has_date = any(alias in cols_lower for alias in date_aliases)
+        has_qty = any(alias in cols_lower for alias in qty_aliases)
+        has_store = any(alias in cols_lower for alias in store_aliases)
+
+        # Skip non-transaction files (e.g., product/store master, inventory snapshots).
+        if not (has_date and has_qty and has_store):
+            skipped_files += 1
+            if len(skipped_examples) < 5:
+                skipped_examples.append(os.path.basename(f))
+            continue
+
+        parse_date_col = next((cols_lower[a] for a in date_aliases if a in cols_lower), None)
+        df = pd.read_csv(f, parse_dates=[parse_date_col] if parse_date_col else False)
         frames.append(df)
         logger.info("retrain.loaded_csv", file=os.path.basename(f), rows=len(df))
+
+    if not frames:
+        raise FileNotFoundError(f"No transaction-like CSV files found in {data_dir}")
+    if skipped_files:
+        logger.info(
+            "retrain.skipped_csv_summary",
+            skipped_files=skipped_files,
+            examples=skipped_examples,
+        )
 
     combined = pd.concat(frames, ignore_index=True)
 
@@ -64,10 +96,22 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
     # Favorita: store_nbr → store_id, family → category, sales → quantity
     if "store_nbr" in cols_lower:
         rename_map[cols_lower["store_nbr"]] = "store_id"
+    if "store_code" in cols_lower and "store_id" not in cols_lower:
+        rename_map[cols_lower["store_code"]] = "store_id"
     if "family" in cols_lower and "category" not in cols_lower:
         rename_map[cols_lower["family"]] = "category"
     if "sales" in cols_lower and "quantity" not in cols_lower:
         rename_map[cols_lower["sales"]] = "quantity"
+    if "quantity_sold" in cols_lower and "quantity" not in cols_lower:
+        rename_map[cols_lower["quantity_sold"]] = "quantity"
+    if "qty_sold" in cols_lower and "quantity" not in cols_lower:
+        rename_map[cols_lower["qty_sold"]] = "quantity"
+    if "transaction_date" in cols_lower and "date" not in cols_lower:
+        rename_map[cols_lower["transaction_date"]] = "date"
+    if "trans_date" in cols_lower and "date" not in cols_lower:
+        rename_map[cols_lower["trans_date"]] = "date"
+    if "item_nbr" in cols_lower and "product_id" not in cols_lower:
+        rename_map[cols_lower["item_nbr"]] = "product_id"
     # Walmart: Store → store_id, Dept → category, Weekly_Sales → quantity
     if "store" in cols_lower and "store_id" not in cols_lower:
         rename_map[cols_lower["store"]] = "store_id"
@@ -101,9 +145,13 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
     # Ensure date column is datetime
     if not pd.api.types.is_datetime64_any_dtype(combined["date"]):
         combined["date"] = pd.to_datetime(combined["date"], errors="coerce")
-        combined = combined.dropna(subset=["date"])
+    combined = combined.dropna(subset=["date"])
 
-    # Cast store_id and product_id to strings
+    # Ensure quantity is numeric and drop invalid rows from mixed-source files.
+    combined["quantity"] = pd.to_numeric(combined["quantity"], errors="coerce")
+    combined = combined.dropna(subset=["store_id", "quantity"])
+
+    # Cast identifiers to strings
     combined["store_id"] = combined["store_id"].astype(str)
     combined["product_id"] = combined["product_id"].astype(str)
 
@@ -202,22 +250,35 @@ def retrain_forecast_model(
             "retrain.features_created",
             rows=len(features_df),
             columns=len(features_df.columns),
-            tier=getattr(features_df, "_feature_tier", "unknown"),
+            tier=features_df.attrs.get("feature_tier", "unknown"),
         )
 
-        # ── Step 3: Train ensemble ───────────────────────────────────
-        logger.info("retrain.training", version=ver, dataset=dataset_name)
+        # ── Step 3: Train model ──────────────────────────────────────
+        settings = get_settings()
+        xgb_only_mode = not settings.ml_enable_lstm
+        logger.info(
+            "retrain.training",
+            version=ver,
+            dataset=dataset_name,
+            xgb_only=xgb_only_mode,
+        )
         ensemble_result = train_ensemble(
             features_df=features_df,
             dataset_name=dataset_name,
             version=ver,
+            xgb_only=xgb_only_mode,
         )
-
-        metrics = ensemble_result.get("metrics", {})
+        ensemble_info = ensemble_result.get("ensemble", {})
+        xgb_metrics = ensemble_result.get("xgboost", {}).get("metrics", {})
+        metrics = {
+            "ensemble_mae": ensemble_info.get("estimated_mae"),
+            "ensemble_mape": ensemble_info.get("estimated_mape", xgb_metrics.get("mape")),
+            "coverage_90": ensemble_info.get("estimated_coverage_90", xgb_metrics.get("coverage_90")),
+        }
         logger.info(
             "retrain.trained",
             version=ver,
-            tier=ensemble_result.get("tier", "unknown"),
+            tier=ensemble_info.get("feature_tier", "unknown"),
             mae=metrics.get("ensemble_mae"),
             mape=metrics.get("ensemble_mape"),
         )
@@ -228,6 +289,7 @@ def retrain_forecast_model(
             version=ver,
             dataset_name=dataset_name,
             promote=promote,
+            rows_trained=len(features_df),
         )
         logger.info("retrain.saved", version=ver, promoted=promote)
 
@@ -255,8 +317,8 @@ def retrain_forecast_model(
                             model_metrics = {
                                 "mae": metrics.get("ensemble_mae"),
                                 "mape": metrics.get("ensemble_mape"),
-                                "coverage": 1.0,  # Future: calculate actual coverage
-                                "tier": ensemble_result.get("tier", "unknown"),
+                                "coverage": metrics.get("coverage_90", 0.0) or 0.0,
+                                "tier": ensemble_info.get("feature_tier", "unknown"),
                             }
 
                             model_id = await register_model_version(
@@ -300,10 +362,11 @@ def retrain_forecast_model(
             "status": "success",
             "version": ver,
             "dataset": dataset_name,
-            "tier": ensemble_result.get("tier", "unknown"),
+            "tier": ensemble_info.get("feature_tier", "unknown"),
             "rows_trained": len(features_df),
             "mae": metrics.get("ensemble_mae"),
             "mape": metrics.get("ensemble_mape"),
+            "coverage": metrics.get("coverage_90"),
             "promoted": promote,
             "mlops": mlops_result,
             "trigger": trigger,

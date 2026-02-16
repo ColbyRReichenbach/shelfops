@@ -147,6 +147,39 @@ class TestSalesHistoryFeatures:
         for col in expected_cols:
             assert col in result.columns
 
+    def test_sales_history_uses_only_prior_days(self):
+        from ml.features import _sales_history_features
+
+        df = pd.DataFrame(
+            {
+                "store_id": ["S1"] * 3,
+                "product_id": ["P1"] * 3,
+                "date": pd.date_range("2025-01-01", periods=3),
+                "quantity": [10.0, 20.0, 30.0],
+            }
+        )
+        result = _sales_history_features(df)
+
+        # No same-day leakage: day N features only reflect days < N.
+        assert result["sales_7d"].fillna(0).tolist() == [0.0, 10.0, 30.0]
+        assert result["avg_daily_sales_7d"].fillna(0).tolist() == [0.0, 10.0, 15.0]
+
+    def test_days_since_last_sale_is_point_in_time_safe(self):
+        from ml.features import _sales_history_features
+
+        df = pd.DataFrame(
+            {
+                "store_id": ["S1"] * 5,
+                "product_id": ["P1"] * 5,
+                "date": pd.date_range("2025-01-01", periods=5),
+                "quantity": [0.0, 5.0, 0.0, 0.0, 2.0],
+            }
+        )
+        result = _sales_history_features(df)
+
+        # Current-day sales should not reset the counter until next row.
+        assert result["days_since_last_sale"].tolist() == [0, 0, 1, 2, 3]
+
 
 class TestValidation:
     """Test Pandera validation schemas."""

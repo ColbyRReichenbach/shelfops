@@ -30,15 +30,22 @@ export default function StoreTable({ stores }: StoreTableProps) {
                         {stores.map((store) => {
                             const status = statusConfig[store.status] ?? { icon: AlertTriangle, color: 'text-gray-700', bg: 'bg-gray-100', label: store.status }
                             const StatusIcon = status.icon
+                            const healthScore = typeof store.health_score === 'number'
+                                ? Math.max(0, Math.min(100, Math.round(store.health_score)))
+                                : null
 
                             // Health Score Color Logic
-                            const healthColor = (store.health_score ?? 0) >= 90 ? 'text-green-600'
-                                : (store.health_score ?? 0) >= 70 ? 'text-yellow-600'
-                                    : 'text-red-600'
+                            const healthColor = healthScore == null
+                                ? 'text-shelf-foreground/50'
+                                : healthScore >= 90 ? 'text-green-600'
+                                    : healthScore >= 70 ? 'text-yellow-600'
+                                        : 'text-red-600'
 
-                            const healthBg = (store.health_score ?? 0) >= 90 ? 'bg-green-600'
-                                : (store.health_score ?? 0) >= 70 ? 'bg-yellow-600'
-                                    : 'bg-red-600'
+                            const healthBg = healthScore == null
+                                ? 'bg-shelf-foreground/20'
+                                : healthScore >= 90 ? 'bg-green-600'
+                                    : healthScore >= 70 ? 'bg-yellow-600'
+                                        : 'bg-red-600'
 
                             return (
                                 <tr key={store.store_id} className="group hover:bg-shelf-primary/5 transition-colors duration-200">
@@ -64,10 +71,12 @@ export default function StoreTable({ stores }: StoreTableProps) {
                                             <div className="flex-1 h-1.5 w-16 bg-shelf-foreground/10 rounded-full overflow-hidden">
                                                 <div
                                                     className={`h-full rounded-full ${healthBg}`}
-                                                    style={{ width: `${store.health_score}%` }}
+                                                    style={{ width: `${healthScore ?? 0}%` }}
                                                 />
                                             </div>
-                                            <span className={`text-xs font-bold ${healthColor}`}>{store.health_score}%</span>
+                                            <span className={`text-xs font-bold ${healthColor}`}>
+                                                {healthScore == null ? 'N/A' : `${healthScore}/100`}
+                                            </span>
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-shelf-foreground/60 font-mono text-xs">

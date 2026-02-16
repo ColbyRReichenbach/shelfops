@@ -27,6 +27,7 @@ backend/reports/
 backend/models/*.joblib
 backend/models/*.h5
 backend/models/*.pkl
+backend/models/registry.lock
 notebooks/.ipynb_checkpoints/
 
 # Documentation (User Requested)

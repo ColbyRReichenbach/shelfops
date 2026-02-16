@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     gcp_project_id: str = ""
     vertex_ai_region: str = "us-central1"
 
+    # ML runtime toggles
+    ml_enable_lstm: bool = False
+
     # Encryption
     encryption_key: str = "dev-encryption-key-change-in-production"
 

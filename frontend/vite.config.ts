@@ -16,6 +16,26 @@ export default defineConfig({
                 target: 'http://localhost:8000',
                 changeOrigin: true,
             },
+            '/models': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/ml-alerts': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/experiments': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/outcomes': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
+            '/anomalies': {
+                target: 'http://localhost:8000',
+                changeOrigin: true,
+            },
             '/ws': {
                 target: 'ws://localhost:8000',
                 ws: true,

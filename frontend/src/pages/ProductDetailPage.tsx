@@ -1,7 +1,8 @@
+import { useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Package, Truck, AlertTriangle, Loader2, AlertCircle } from 'lucide-react'
 import ForecastChart from '@/components/dashboard/ForecastChart'
-import { useProduct, useForecasts, useAlerts } from '@/hooks/useShelfOps'
+import { useProduct, useForecasts, useAlerts, useForecastAccuracyTrend } from '@/hooks/useShelfOps'
 
 export default function ProductDetailPage() {
     const { productId } = useParams()
@@ -12,19 +13,64 @@ export default function ProductDetailPage() {
     const { data: forecasts = [] } = useForecasts(
         productId ? { product_id: productId } : undefined
     )
+    const { data: accuracyTrend = [] } = useForecastAccuracyTrend(
+        productId ? { product_id: productId, limit: 90 } : undefined
+    )
 
     const { data: alerts = [] } = useAlerts(
         productId ? { status: 'open' } : undefined
     )
     const productAlerts = alerts.filter(a => a.product_id === productId)
 
-    // Transform forecast data for the chart
-    const chartData = forecasts.map(f => ({
-        date: f.forecast_date,
-        forecast: Math.round(f.forecasted_demand),
-        lower: f.lower_bound != null ? Math.round(f.lower_bound) : undefined,
-        upper: f.upper_bound != null ? Math.round(f.upper_bound) : undefined,
-    }))
+    // Merge trend (forecast vs actual) with forecast interval data by date.
+    const chartData = useMemo(() => {
+        const normalizeDate = (value: string) => value.slice(0, 10)
+        const forecastByDate = new Map<
+            string,
+            {
+                forecast: number
+                lower: number | undefined
+                upper: number | undefined
+            }
+        >()
+        forecasts.forEach((f) => {
+            const key = normalizeDate(f.forecast_date)
+            const current = forecastByDate.get(key) ?? {
+                forecast: 0,
+                lower: undefined,
+                upper: undefined,
+            }
+            current.forecast += f.forecasted_demand
+            current.lower = (current.lower ?? 0) + (f.lower_bound ?? 0)
+            current.upper = (current.upper ?? 0) + (f.upper_bound ?? 0)
+            forecastByDate.set(key, current)
+        })
+
+        const trendByDate = new Map(
+            accuracyTrend.map((point) => [normalizeDate(point.forecast_date), point])
+        )
+
+        const dateKeys = new Set<string>([
+            ...forecastByDate.keys(),
+            ...trendByDate.keys(),
+        ])
+
+        return Array.from(dateKeys)
+            .sort((a, b) => a.localeCompare(b))
+            .map((date) => {
+                const trend = trendByDate.get(date)
+                const forecast = forecastByDate.get(date)
+                const hasForecast = forecast != null || ((trend?.forecasted_demand ?? 0) > 0)
+                const forecastDemand = trend?.forecasted_demand ?? forecast?.forecast
+                return {
+                    date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                    forecast: hasForecast && forecastDemand != null ? Math.round(forecastDemand) : null,
+                    actual: trend?.actual_demand == null ? null : Math.round(trend.actual_demand),
+                    lower: forecast?.lower != null ? Math.round(forecast.lower) : undefined,
+                    upper: forecast?.upper != null ? Math.round(forecast.upper) : undefined,
+                }
+            })
+    }, [forecasts, accuracyTrend])
 
     if (productLoading) {
         return (

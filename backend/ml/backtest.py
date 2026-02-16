@@ -18,7 +18,6 @@ Skill: ml-forecasting
 import uuid
 from datetime import date, datetime, timedelta, timezone
 
-import pandas as pd
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +59,8 @@ async def run_continuous_backtest(
     Returns:
         dict with {windows_tested, avg_mae, avg_mape, results: [...]}
     """
+    import pandas as pd
+
     from db.models import Base, Transaction
 
     logger.info(

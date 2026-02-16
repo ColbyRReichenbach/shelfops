@@ -16,6 +16,12 @@ celery_app = Celery(
     "shelfops",
     broker=settings.redis_url,
     backend=settings.redis_url,
+    include=[
+        "workers.sync",
+        "workers.inventory_optimizer",
+        "workers.vendor_metrics",
+        "workers.promo_tracking",
+    ],
 )
 
 celery_app.conf.update(
@@ -30,7 +36,7 @@ celery_app.conf.update(
         "workers.sync.*": {"queue": "sync"},
         "workers.retrain.*": {"queue": "ml"},
         "workers.inventory_optimizer.*": {"queue": "ml"},
-        "workers.monitoring.*": {"queue": "sync"},
+        "workers.monitoring.*": {"queue": "ml"},
         "workers.vendor_metrics.*": {"queue": "sync"},
         "workers.promo_tracking.*": {"queue": "sync"},
     },
@@ -77,32 +83,32 @@ celery_app.conf.update(
             "task": "workers.monitoring.detect_model_drift",
             "schedule": crontab(hour=3, minute=0),
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         "data-freshness-hourly": {
             "task": "workers.monitoring.check_data_freshness",
             "schedule": crontab(minute=30),  # Offset from alert check
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         "opportunity-cost-daily": {
             "task": "workers.monitoring.calculate_opportunity_cost",
             "schedule": crontab(hour=4, minute=0),
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         # ── MLOps - Backtesting ────────────────────────────────────
         "backtest-daily": {
             "task": "workers.monitoring.run_daily_backtest",
             "schedule": crontab(hour=6, minute=0),  # After opportunity cost
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         "backtest-weekly": {
             "task": "workers.monitoring.run_weekly_backtest",
             "schedule": crontab(hour=4, minute=0, day_of_week="sunday"),  # After retrain
             "kwargs": {"customer_id": DEV_CUSTOMER_ID, "lookback_days": 90},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         # ── Vendor & Promotions ────────────────────────────────────
         "update-vendor-scorecards-daily": {
@@ -122,13 +128,13 @@ celery_app.conf.update(
             "task": "workers.monitoring.detect_anomalies_ml",
             "schedule": crontab(minute=0, hour="*/6"),  # Every 6 hours
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
         "detect-ghost-stock-daily": {
             "task": "workers.monitoring.detect_ghost_stock",
             "schedule": crontab(hour=4, minute=30),  # After opportunity cost
             "kwargs": {"customer_id": DEV_CUSTOMER_ID},
-            "options": {"queue": "sync"},
+            "options": {"queue": "ml"},
         },
     },
 )

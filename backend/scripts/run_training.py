@@ -15,6 +15,7 @@ import argparse
 import os
 import sys
 import time
+from typing import Any
 
 # Add backend to path so imports work
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -28,6 +29,9 @@ def main():
 Examples:
   # Train on synthetic seed data
   python scripts/run_training.py --data-dir data/seed --version v1
+
+  # Train with optional LSTM ensemble
+  python scripts/run_training.py --data-dir data/seed --version v1 --with-lstm
 
   # Train on Kaggle Favorita data
   python scripts/run_training.py --data-dir data/kaggle --dataset favorita --promote
@@ -65,8 +69,60 @@ Examples:
         default=None,
         help="Force feature tier (default: auto-detect)",
     )
+    parser.add_argument(
+        "--xgb-param",
+        action="append",
+        default=[],
+        help="Override XGBoost param as key=value (repeatable), e.g. --xgb-param max_depth=4",
+    )
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        "--xgb-only",
+        dest="xgb_only",
+        action="store_true",
+        help="Train/evaluate with XGBoost only (default).",
+    )
+    mode_group.add_argument(
+        "--with-lstm",
+        dest="xgb_only",
+        action="store_false",
+        help="Enable TensorFlow LSTM training and weighted ensemble.",
+    )
+    parser.set_defaults(xgb_only=True)
 
     args = parser.parse_args()
+
+    def parse_xgb_params(param_items: list[str]) -> dict[str, Any]:
+        """Parse repeated key=value args into typed dict."""
+        parsed: dict[str, Any] = {}
+        for item in param_items:
+            if "=" not in item:
+                raise ValueError(f"Invalid --xgb-param '{item}'. Expected key=value.")
+
+            key, raw_value = item.split("=", 1)
+            key = key.strip()
+            raw_value = raw_value.strip()
+            if not key:
+                raise ValueError(f"Invalid --xgb-param '{item}'. Key cannot be empty.")
+
+            low = raw_value.lower()
+            if low == "true":
+                value: Any = True
+            elif low == "false":
+                value = False
+            else:
+                try:
+                    value = int(raw_value)
+                except ValueError:
+                    try:
+                        value = float(raw_value)
+                    except ValueError:
+                        value = raw_value
+
+            parsed[key] = value
+        return parsed
+
+    xgb_param_overrides = parse_xgb_params(args.xgb_param)
 
     # ── Import ML modules ────────────────────────────────────────────
     try:
@@ -123,6 +179,8 @@ Examples:
     print(f"  Version:   {version}")
     print(f"  Promote:   {args.promote}")
     print(f"  Tier:      {args.tier or 'auto-detect'}")
+    print(f"  XGB Only:  {args.xgb_only}")
+    print(f"  XGB Params:{xgb_param_overrides if xgb_param_overrides else '<defaults>'}")
     print()
 
     start = time.time()
@@ -142,16 +200,22 @@ Examples:
         transactions_df=transactions_df,
         force_tier=args.tier,
     )
-    tier = getattr(features_df, "_feature_tier", "unknown")
+    tier = features_df.attrs.get("feature_tier", "unknown")
     print(f"  ✓ Created {len(features_df.columns)} features ({tier} tier)")
     print(f"  ✓ {len(features_df):,} training rows")
 
-    # Step 3: Train ensemble
-    print("\nStep 3/4: Training XGBoost + LSTM ensemble...")
+    # Step 3: Train model
+    print("\nStep 3/4: Training model...")
+    if args.xgb_only:
+        print("  Mode: XGBoost only")
+    else:
+        print("  Mode: XGBoost + LSTM ensemble")
     ensemble_result = train_ensemble(
         features_df=features_df,
         dataset_name=args.dataset,
         version=version,
+        xgb_params=xgb_param_overrides or None,
+        xgb_only=args.xgb_only,
     )
 
     xgb_metrics = ensemble_result.get("xgboost", {}).get("metrics", {})
@@ -170,6 +234,7 @@ Examples:
         version=version,
         dataset_name=args.dataset,
         promote=args.promote,
+        rows_trained=len(features_df),
     )
 
     elapsed = time.time() - start

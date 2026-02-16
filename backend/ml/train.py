@@ -57,7 +57,7 @@ def train_xgboost(
     target_col: str = TARGET_COL,
     params: dict[str, Any] | None = None,
     feature_cols: list[str] | None = None,
-) -> tuple[xgb.XGBRegressor, dict[str, float]]:
+) -> tuple[xgb.XGBRegressor, dict[str, Any], dict[str, Any]]:
     """
     Train XGBoost baseline model with time-series cross-validation.
 
@@ -65,7 +65,7 @@ def train_xgboost(
         feature_cols: Override feature list. If None, auto-detects tier.
 
     Returns:
-        (model, metrics_dict)
+        (model, metrics_dict, params_dict)
     """
     if feature_cols is None:
         tier = detect_feature_tier(features_df)
@@ -92,7 +92,7 @@ def train_xgboost(
 
     # Time-series split: 5 folds
     tscv = TimeSeriesSplit(n_splits=5)
-    maes, mapes = [], []
+    maes, mapes, coverages = [], [], []
 
     for train_idx, val_idx in tscv.split(X):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
@@ -115,6 +115,13 @@ def train_xgboost(
         if nonzero_mask.sum() > 0:
             mapes.append(mean_absolute_percentage_error(y_val[nonzero_mask], preds[nonzero_mask]))
 
+        # Approximate 90% interval coverage from fold residual dispersion.
+        residual_std = float(np.std(y_val - preds))
+        z_90 = 1.645
+        lower = np.maximum(preds - z_90 * residual_std, 0)
+        upper = preds + z_90 * residual_std
+        coverages.append(float(np.mean((y_val >= lower) & (y_val <= upper))))
+
     # Train final model on all data
     final_model = xgb.XGBRegressor(**{k: v for k, v in default_params.items() if k != "early_stopping_rounds"})
     final_model.fit(X, y, verbose=False)
@@ -122,6 +129,7 @@ def train_xgboost(
     metrics = {
         "mae": np.mean(maes),
         "mape": np.mean(mapes) if mapes else 0.0,
+        "coverage_90": np.mean(coverages) if coverages else 0.0,
         "cv_folds": 5,
         "model_type": "xgboost",
         "feature_tier": tier,
@@ -129,7 +137,7 @@ def train_xgboost(
         "feature_cols": list(X.columns),
     }
 
-    return final_model, metrics
+    return final_model, metrics, default_params.copy()
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -145,12 +153,12 @@ def train_lstm(
     batch_size: int = 64,
     feature_cols: list[str] | None = None,
     max_samples: int = 50_000,
-) -> tuple[Any, dict[str, float]]:
+) -> tuple[Any, dict[str, Any], dict[str, Any]]:
     """
     Train LSTM model on time-series sequences.
 
     Expects features_df sorted by (store_id, product_id, date).
-    Returns (model, metrics_dict).
+    Returns (model, metrics_dict, config_dict).
     """
     try:
         import tensorflow as tf
@@ -245,7 +253,13 @@ def train_lstm(
         "feature_cols": cols,
     }
 
-    return model, metrics
+    config = {
+        "sequence_length": sequence_length,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "max_samples": max_samples,
+    }
+    return model, metrics, config
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -260,14 +274,17 @@ def train_ensemble(
     target_col: str = TARGET_COL,
     dataset_name: str = "unknown",
     version: str | None = None,
+    xgb_params: dict[str, Any] | None = None,
+    xgb_only: bool = True,
 ) -> dict[str, Any]:
     """
-    Train LSTM + XGBoost ensemble with full MLOps instrumentation.
+    Train forecasting model with XGBoost-default and optional LSTM ensemble.
 
     Auto-detects feature tier from the data. Both models use the
     same tier so their feature sets are aligned.
 
     Ensemble weights: 35% LSTM, 65% XGBoost (per workflow spec).
+    If xgb_only=True (default), skips LSTM and uses 100% XGBoost.
 
     Integrations:
       - MLflow experiment tracking (params, metrics, artifacts)
@@ -278,12 +295,14 @@ def train_ensemble(
     Returns dict with models, metrics, weights, and tier.
     """
     # Auto-detect once, pass to both models
-    tier = detect_feature_tier(features_df)
+    tier = features_df.attrs.get("feature_tier") or detect_feature_tier(features_df)
     feature_cols = get_feature_cols(tier)
 
     # ── Validation gate ────────────────────────────────────────────
     features_df = validate_features(features_df, tier=tier, raise_on_error=False)
     logger.info("train.validated", tier=tier, rows=len(features_df))
+
+    effective_weights = {"xgboost": 1.0, "lstm": 0.0} if xgb_only else ENSEMBLE_WEIGHTS
 
     # ── Experiment tracking ────────────────────────────────────────
     with ExperimentTracker() as tracker:
@@ -293,8 +312,9 @@ def train_ensemble(
                 "n_features": len(feature_cols),
                 "dataset": dataset_name,
                 "n_rows": len(features_df),
-                "ensemble_weight_xgb": ENSEMBLE_WEIGHTS["xgboost"],
-                "ensemble_weight_lstm": ENSEMBLE_WEIGHTS["lstm"],
+                "ensemble_weight_xgb": effective_weights["xgboost"],
+                "ensemble_weight_lstm": effective_weights["lstm"],
+                "xgb_only": xgb_only,
             }
         )
         tracker.log_tags(
@@ -305,41 +325,70 @@ def train_ensemble(
         )
 
         # ── Train XGBoost ──────────────────────────────────────────
-        xgb_model, xgb_metrics = train_xgboost(
+        xgb_model, xgb_metrics, xgb_params = train_xgboost(
             features_df,
             target_col,
+            params=xgb_params,
             feature_cols=feature_cols,
         )
+        tracker.log_params({f"xgb_{k}": v for k, v in xgb_params.items()})
         tracker.log_metrics({f"xgb_{k}": v for k, v in xgb_metrics.items() if isinstance(v, (int, float))})
         tracker.log_model(xgb_model, "xgboost")
         tracker.log_feature_importance(xgb_model, feature_cols)
 
         # ── Train LSTM ─────────────────────────────────────────────
-        try:
-            lstm_model, lstm_metrics = train_lstm(
-                features_df,
-                target_col,
-                feature_cols=feature_cols,
-            )
-            lstm_available = True
-            tracker.log_metrics({f"lstm_{k}": v for k, v in lstm_metrics.items() if isinstance(v, (int, float))})
-        except ImportError:
+        if xgb_only:
             lstm_model, lstm_metrics = (
                 None,
                 {
-                    "mae": float("inf"),
-                    "mape": float("inf"),
+                    "mae": None,
+                    "mape": None,
                     "model_type": "lstm",
                     "feature_tier": tier,
+                    "skipped": True,
                 },
             )
+            lstm_config = {
+                "sequence_length": 30,
+                "epochs": 20,
+                "batch_size": 64,
+                "max_samples": 50_000,
+            }
             lstm_available = False
-            logger.warning("train.lstm_unavailable")
+            logger.info("train.lstm_skipped_xgb_only")
+        else:
+            try:
+                lstm_model, lstm_metrics, lstm_config = train_lstm(
+                    features_df,
+                    target_col,
+                    feature_cols=feature_cols,
+                )
+                tracker.log_params({f"lstm_{k}": v for k, v in lstm_config.items()})
+                lstm_available = True
+                tracker.log_metrics({f"lstm_{k}": v for k, v in lstm_metrics.items() if isinstance(v, (int, float))})
+            except ImportError:
+                lstm_model, lstm_metrics = (
+                    None,
+                    {
+                        "mae": float("inf"),
+                        "mape": float("inf"),
+                        "model_type": "lstm",
+                        "feature_tier": tier,
+                    },
+                )
+                lstm_config = {
+                    "sequence_length": 30,
+                    "epochs": 20,
+                    "batch_size": 64,
+                    "max_samples": 50_000,
+                }
+                lstm_available = False
+                logger.warning("train.lstm_unavailable")
 
         # ── Ensemble metrics ───────────────────────────────────────
         if lstm_available:
             ensemble_mae = (
-                ENSEMBLE_WEIGHTS["xgboost"] * xgb_metrics["mae"] + ENSEMBLE_WEIGHTS["lstm"] * lstm_metrics["mae"]
+                effective_weights["xgboost"] * xgb_metrics["mae"] + effective_weights["lstm"] * lstm_metrics["mae"]
             )
         else:
             ensemble_mae = xgb_metrics["mae"]
@@ -348,6 +397,7 @@ def train_ensemble(
             {
                 "ensemble_mae": ensemble_mae,
                 "ensemble_mape": xgb_metrics.get("mape", 0),
+                "ensemble_coverage_90": xgb_metrics.get("coverage_90", 0),
             }
         )
 
@@ -399,13 +449,25 @@ def train_ensemble(
             logger.warning("train.charts_failed", error=str(e))
 
     return {
-        "xgboost": {"model": xgb_model, "metrics": xgb_metrics},
-        "lstm": {"model": lstm_model, "metrics": lstm_metrics, "available": lstm_available},
+        "xgboost": {
+            "model": xgb_model,
+            "metrics": xgb_metrics,
+            "params": xgb_params,
+        },
+        "lstm": {
+            "model": lstm_model,
+            "metrics": lstm_metrics,
+            "available": lstm_available,
+            "config": lstm_config,
+        },
         "ensemble": {
-            "weights": ENSEMBLE_WEIGHTS,
+            "weights": effective_weights,
             "estimated_mae": ensemble_mae,
+            "estimated_mape": xgb_metrics.get("mape", 0),
+            "estimated_coverage_90": xgb_metrics.get("coverage_90", 0),
             "feature_tier": tier,
             "feature_cols": feature_cols,
+            "xgb_only": xgb_only,
         },
     }
 
@@ -415,6 +477,7 @@ def save_models(
     version: str,
     dataset_name: str = "unknown",
     promote: bool = False,
+    rows_trained: int | None = None,
 ) -> str:
     """
     Save trained models, metadata (JSON), and register in model registry.
@@ -442,15 +505,22 @@ def save_models(
     # ── Human-readable JSON metadata (was .joblib) ─────────────────
     tier = ensemble_result["ensemble"].get("feature_tier", "production")
     feature_cols = ensemble_result["ensemble"].get("feature_cols", FEATURE_COLS)
+    rows_trained_value = rows_trained if rows_trained is not None else len(feature_cols)
 
     meta = {
         "version": version,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset": dataset_name,
+        "rows_trained": rows_trained_value,
+        "xgb_only": ensemble_result["ensemble"].get("xgb_only", False),
         "weights": ensemble_result["ensemble"]["weights"],
+        "xgboost_params": ensemble_result["xgboost"].get("params", {}),
         "xgboost_metrics": ensemble_result["xgboost"]["metrics"],
+        "lstm_config": ensemble_result["lstm"].get("config", {}),
         "lstm_metrics": ensemble_result["lstm"]["metrics"],
         "ensemble_mae": ensemble_result["ensemble"]["estimated_mae"],
+        "ensemble_mape": ensemble_result["ensemble"].get("estimated_mape"),
+        "ensemble_coverage_90": ensemble_result["ensemble"].get("estimated_coverage_90"),
         "feature_tier": tier,
         "feature_cols": feature_cols,
     }
@@ -466,7 +536,7 @@ def save_models(
             version=version,
             feature_tier=tier,
             dataset=dataset_name,
-            rows_trained=len(feature_cols),  # Approximation — caller should pass actual
+            rows_trained=rows_trained_value,
             metrics={
                 "mae": ensemble_result["xgboost"]["metrics"].get("mae", 0),
                 "mape": ensemble_result["xgboost"]["metrics"].get("mape", 0),

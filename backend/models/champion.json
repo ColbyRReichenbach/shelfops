@@ -1,4 +1,5 @@
 {
-  "version": "v1",
-  "promoted_at": "2026-02-10T13:57:51.974341+00:00"
+  "version": "v_subset_xgb_only_01",
+  "promoted_at": "2026-02-16T02:20:09.001371+00:00",
+  "note": "Promoted for MLOps dashboard population."
 }

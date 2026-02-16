@@ -1,13 +1,21 @@
 import { useState, useMemo } from 'react'
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
+import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts'
 import { ArrowUpRight, ArrowDownRight, Filter, Loader2, AlertCircle } from 'lucide-react'
-import { useForecasts, useProducts } from '@/hooks/useShelfOps'
+import { useForecasts, useProducts, useForecastAccuracyTrend, useForecastAccuracyByCategory } from '@/hooks/useShelfOps'
 
 export default function ForecastsPage() {
     const [activeCategory, setActiveCategory] = useState('All')
 
-    const { data: forecasts = [], isLoading, isError } = useForecasts()
+    const { data: forecasts = [], isLoading: forecastsLoading, isError } = useForecasts({
+        limit: 5000,
+    })
     const { data: products = [] } = useProducts()
+    const { data: trendAccuracy = [], isLoading: trendLoading } = useForecastAccuracyTrend({
+        limit: 90,
+        category: activeCategory !== 'All' ? activeCategory : undefined,
+    })
+    const { data: categoryAccuracy = [], isLoading: byCategoryLoading } = useForecastAccuracyByCategory({ limit: 8 })
+    const isLoading = forecastsLoading || trendLoading || byCategoryLoading
 
     // Build a product lookup
     const productMap = useMemo(() => {
@@ -18,6 +26,14 @@ export default function ForecastsPage() {
 
     // Aggregate forecasts by date for trend chart
     const trendData = useMemo(() => {
+        if (trendAccuracy.length > 0) {
+            return trendAccuracy.map((row) => ({
+                date: new Date(row.forecast_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                forecast: Math.round(row.forecasted_demand),
+                actual: row.actual_demand == null ? null : Math.round(row.actual_demand),
+            }))
+        }
+
         const byDate = new Map<string, number>()
         forecasts.forEach(f => {
             const product = productMap.get(f.product_id)
@@ -29,12 +45,24 @@ export default function ForecastsPage() {
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([date, demand]) => ({
                 date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-                demand: Math.round(demand),
+                forecast: Math.round(demand),
+                actual: null,
             }))
-    }, [forecasts, productMap, activeCategory])
+    }, [trendAccuracy, forecasts, productMap, activeCategory])
 
     // Aggregate forecasts by product category for bar chart
     const categoryData = useMemo(() => {
+        if (categoryAccuracy.length > 0) {
+            return categoryAccuracy
+                .map((row) => ({
+                    name: row.category || 'Unknown',
+                    forecast: Math.round(row.forecasted_demand),
+                    actual: row.actual_demand == null ? null : Math.round(row.actual_demand),
+                }))
+                .sort((a, b) => b.forecast - a.forecast)
+                .slice(0, 8)
+        }
+
         const byCategory = new Map<string, number>()
         forecasts.forEach(f => {
             const product = productMap.get(f.product_id)
@@ -44,8 +72,8 @@ export default function ForecastsPage() {
         return Array.from(byCategory.entries())
             .sort(([, a], [, b]) => b - a)
             .slice(0, 8)
-            .map(([name, value]) => ({ name, value: Math.round(value) }))
-    }, [forecasts, productMap])
+            .map(([name, value]) => ({ name, forecast: Math.round(value), actual: null }))
+    }, [categoryAccuracy, forecasts, productMap])
 
     // Get unique categories from products
     const categories = useMemo(() => {
@@ -70,6 +98,8 @@ export default function ForecastsPage() {
 
     const topMovers = productForecasts.slice(0, 3)
     const bottomMovers = productForecasts.slice(-3).reverse()
+    const hasTrendActual = trendData.some((point) => point.actual != null)
+    const hasCategoryActual = categoryData.some((point) => point.actual != null)
 
     return (
         <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
@@ -144,6 +174,14 @@ export default function ForecastsPage() {
                                             <XAxis dataKey="date" tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} dy={10} />
                                             <YAxis tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
                                             <Tooltip
+                                                cursor={{ stroke: 'rgba(62,109,150,0.22)', strokeWidth: 1.5, strokeDasharray: '4 4' }}
+                                                labelFormatter={(label) => `Date: ${label}`}
+                                                formatter={(value: number | string, name: string) => {
+                                                    if (value === null || value === undefined) return ['N/A', name]
+                                                    const numeric = typeof value === 'number' ? value : Number(value)
+                                                    if (Number.isNaN(numeric)) return ['N/A', name]
+                                                    return [`${Math.round(numeric).toLocaleString()} units`, name]
+                                                }}
                                                 contentStyle={{
                                                     backgroundColor: 'rgba(255, 255, 255, 0.95)',
                                                     border: '1px solid rgba(255, 255, 255, 0.5)',
@@ -153,7 +191,30 @@ export default function ForecastsPage() {
                                                     color: '#4e5274'
                                                 }}
                                             />
-                                            <Area type="monotone" dataKey="demand" stroke="#3e6d96" fill="url(#colorDemand)" name="Demand" />
+                                            <Area
+                                                type="monotone"
+                                                dataKey="forecast"
+                                                stroke="#3e6d96"
+                                                fill="url(#colorDemand)"
+                                                name="Forecast"
+                                                isAnimationActive
+                                                animationDuration={450}
+                                                animationEasing="ease-out"
+                                            />
+                                            {hasTrendActual && (
+                                                <Line
+                                                    type="monotone"
+                                                    dataKey="actual"
+                                                    stroke="#5ba2b6"
+                                                    strokeWidth={2}
+                                                    dot={false}
+                                                    connectNulls
+                                                    name="Actual"
+                                                    isAnimationActive
+                                                    animationDuration={450}
+                                                    animationEasing="ease-out"
+                                                />
+                                            )}
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 ) : (
@@ -175,13 +236,37 @@ export default function ForecastsPage() {
                                             <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#4e5274', fontSize: 11 }} axisLine={false} tickLine={false} />
                                             <Tooltip
                                                 cursor={{ fill: 'rgba(0,0,0,0.02)' }}
+                                                labelFormatter={(label) => `Category: ${label}`}
+                                                formatter={(value: number | string, name: string) => {
+                                                    if (value === null || value === undefined) return ['N/A', name]
+                                                    const numeric = typeof value === 'number' ? value : Number(value)
+                                                    if (Number.isNaN(numeric)) return ['N/A', name]
+                                                    return [`${Math.round(numeric).toLocaleString()} units`, name]
+                                                }}
                                                 contentStyle={{ borderRadius: '8px' }}
                                             />
-                                            <Bar dataKey="value" barSize={20} radius={[0, 4, 4, 0]}>
-                                                {categoryData.map((_, index) => (
-                                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#3e6d96' : '#5ba2b6'} />
-                                                ))}
-                                            </Bar>
+                                            <Bar
+                                                dataKey="forecast"
+                                                name="Forecast"
+                                                barSize={10}
+                                                radius={[3, 3, 0, 0]}
+                                                fill="#3e6d96"
+                                                isAnimationActive
+                                                animationDuration={450}
+                                                animationEasing="ease-out"
+                                            />
+                                            {hasCategoryActual && (
+                                                <Bar
+                                                    dataKey="actual"
+                                                    name="Actual"
+                                                    barSize={10}
+                                                    radius={[3, 3, 0, 0]}
+                                                    fill="#5ba2b6"
+                                                    isAnimationActive
+                                                    animationDuration={450}
+                                                    animationEasing="ease-out"
+                                                />
+                                            )}
                                         </BarChart>
                                     </ResponsiveContainer>
                                 ) : (

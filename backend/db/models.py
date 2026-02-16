@@ -100,6 +100,18 @@ def UUID(as_uuid=True):
     return GUID()
 
 
+class JSONBCompat(TypeDecorator):
+    """Use PostgreSQL JSONB in prod and generic JSON in SQLite-based tests."""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(JSONB())
+        return dialect.type_descriptor(JSON())
+
+
 from sqlalchemy.orm import relationship
 
 from db.session import Base
@@ -564,7 +576,7 @@ class Anomaly(Base):
     expected_value = Column(Float)
     actual_value = Column(Float)
     z_score = Column(Float)
-    anomaly_metadata = Column(JSONB, nullable=True)  # Rich context for ML-detected anomalies
+    anomaly_metadata = Column(JSONBCompat, nullable=True)  # Rich context for ML-detected anomalies
     status = Column(String(20), nullable=False, default="detected")
 
     __table_args__ = (
@@ -1017,7 +1029,7 @@ class ModelVersion(Base):
     routing_weight = Column(Float, default=0.0)  # For canary: 0.05 = 5% traffic
     promoted_at = Column(DateTime, nullable=True)
     archived_at = Column(DateTime, nullable=True)
-    metrics = Column(JSONB, nullable=True)  # {mae, mape, coverage, ...}
+    metrics = Column(JSONBCompat, nullable=True)  # {mae, mape, coverage, ...}
     smoke_test_passed = Column(Boolean, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -1108,7 +1120,7 @@ class ModelRetrainingLog(Base):
     customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     trigger_type = Column(String(50), nullable=False)  # 'scheduled', 'drift', 'new_data', 'manual'
-    trigger_metadata = Column(JSONB, nullable=True)  # {drift_pct: 0.18, new_products: 73}
+    trigger_metadata = Column(JSONBCompat, nullable=True)  # {drift_pct: 0.18, new_products: 73}
     status = Column(String(20), nullable=False, default="running")  # 'running', 'completed', 'failed'
     version_produced = Column(String(20), nullable=True)
     started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -1139,7 +1151,7 @@ class MLAlert(Base):
     severity = Column(String(20), nullable=False)  # 'info', 'warning', 'critical'
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
-    alert_metadata = Column(JSONB, nullable=True)  # {model_version, drift_pct, action_required}
+    alert_metadata = Column(JSONBCompat, nullable=True)  # {model_version, drift_pct, action_required}
     status = Column(String(20), nullable=False, default="unread")  # 'unread', 'read', 'actioned', 'dismissed'
     action_url = Column(String(500), nullable=True)  # Link to review page
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
@@ -1179,7 +1191,7 @@ class ModelExperiment(Base):
     status = Column(String(20), nullable=False, default="proposed")
     proposed_by = Column(String(255), nullable=False)  # User ID or email
     approved_by = Column(String(255), nullable=True)
-    results = Column(JSONB, nullable=True)  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2}
+    results = Column(JSONBCompat, nullable=True)  # {baseline_mae: 12.3, experimental_mae: 10.8, improvement_pct: 12.2}
     decision_rationale = Column(Text, nullable=True)  # Why approved/rejected
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     approved_at = Column(DateTime, nullable=True)

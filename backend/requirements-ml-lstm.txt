@@ -1,0 +1,3 @@
+# Optional LSTM profile for ML worker builds that need TensorFlow.
+-r requirements-ml.txt
+tensorflow>=2.15.0

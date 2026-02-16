@@ -46,6 +46,11 @@ EXPERIMENT_NAME = "shelfops_demand_forecast"
 MODEL_DIR = Path(__file__).parent.parent / "models"
 REPORTS_DIR = Path(__file__).parent.parent / "reports"
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX fallback
+    fcntl = None
+
 
 # ──────────────────────────────────────────────────────────────────────
 # Registry Helpers
@@ -67,6 +72,27 @@ def _save_registry(registry: dict[str, Any]) -> None:
     (MODEL_DIR / "registry.json").write_text(json.dumps(registry, indent=2, default=str))
 
 
+@contextmanager
+def _registry_lock():
+    """
+    Acquire exclusive lock for registry read-modify-write operations.
+
+    Prevents concurrent training runs from dropping model entries.
+    """
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    if fcntl is None:
+        yield
+        return
+
+    lock_path = MODEL_DIR / "registry.lock"
+    with lock_path.open("w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
 def register_model(
     version: str,
     feature_tier: str,
@@ -76,32 +102,33 @@ def register_model(
     promote: bool = False,
 ) -> None:
     """Add a model version to the registry."""
-    registry = _load_registry()
+    with _registry_lock():
+        registry = _load_registry()
 
-    entry = {
-        "version": version,
-        "feature_tier": feature_tier,
-        "trained_at": datetime.now(timezone.utc).isoformat(),
-        "dataset": dataset,
-        "rows_trained": rows_trained,
-        "mae": metrics.get("mae"),
-        "mape": metrics.get("mape"),
-        "status": "champion" if promote else "candidate",
-        "promoted_at": datetime.now(timezone.utc).isoformat() if promote else None,
-    }
+        entry = {
+            "version": version,
+            "feature_tier": feature_tier,
+            "trained_at": datetime.now(timezone.utc).isoformat(),
+            "dataset": dataset,
+            "rows_trained": rows_trained,
+            "mae": metrics.get("mae"),
+            "mape": metrics.get("mape"),
+            "status": "champion" if promote else "candidate",
+            "promoted_at": datetime.now(timezone.utc).isoformat() if promote else None,
+        }
 
-    # Demote existing champion if promoting new one
-    if promote:
-        for m in registry["models"]:
-            if m["status"] == "champion":
-                m["status"] = "archived"
-        # Update champion pointer
-        (MODEL_DIR / "champion.json").write_text(
-            json.dumps({"version": version, "promoted_at": entry["promoted_at"]}, indent=2)
-        )
+        # Demote existing champion if promoting new one
+        if promote:
+            for m in registry["models"]:
+                if m["status"] == "champion":
+                    m["status"] = "archived"
+            # Update champion pointer
+            (MODEL_DIR / "champion.json").write_text(
+                json.dumps({"version": version, "promoted_at": entry["promoted_at"]}, indent=2)
+            )
 
-    registry["models"].append(entry)
-    _save_registry(registry)
+        registry["models"].append(entry)
+        _save_registry(registry)
     logger.info("model.registered", version=version, status=entry["status"])
 
 

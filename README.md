@@ -532,6 +532,15 @@ Mount cameras on shelves to detect out-of-stocks visually in real-time.
 
 **See**: [docs/ROADMAP.md](docs/ROADMAP.md) for 8-week implementation plan
 
+### External Demo Package (Audited)
+
+Use the audited, no-hallucination demo assets under `docs/demo/`:
+- `docs/demo/DEMO_RUNBOOK.md` (exact command flow)
+- `docs/demo/VALIDATION_GATES.md` (must-pass checks)
+- `docs/demo/CLAIMS_LEDGER.md` (claim -> code/test/artifact mapping)
+- `docs/demo/SLIDE_DECK_OUTLINE.md` and `docs/demo/VIDEO_SCRIPT_10MIN.md`
+- `docs/demo/ONE_PAGER_HIRING.md` and `docs/demo/ONE_PAGER_SMB_PILOT.md`
+
 ### Architecture Decision Log
 
 | Decision | Choice | Why |

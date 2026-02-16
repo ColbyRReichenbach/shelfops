@@ -141,7 +141,8 @@ class EDIX12Parser:
                 # Start a new item
                 # LIN*1*UP*012345678901*IN*GTIN14DIGIT~
                 current_item = {"gtin": "", "upc": ""}
-                for i in range(1, len(elements) - 1, 2):
+                # Skip LIN01 (line counter); qualifier/value pairs start at LIN02.
+                for i in range(2, len(elements) - 1, 2):
                     qualifier = elements[i].strip()
                     value = elements[i + 1].strip() if i + 1 < len(elements) else ""
                     if qualifier == "UP":
@@ -213,7 +214,8 @@ class EDIX12Parser:
                         pass
 
             elif seg_id == "TD5" and len(elements) >= 5:
-                shipment.carrier = elements[3].strip()
+                # Prefer human-readable routing description (e.g., "Ground").
+                shipment.carrier = elements[4].strip()
 
             elif seg_id == "REF" and len(elements) >= 3:
                 qualifier = elements[1].strip()
@@ -226,7 +228,8 @@ class EDIX12Parser:
                 if current_item.get("gtin"):
                     shipment.items.append(current_item)
                 current_item = {}
-                for i in range(1, len(elements) - 1, 2):
+                # Skip LIN01 (line counter); qualifier/value pairs start at LIN02.
+                for i in range(2, len(elements) - 1, 2):
                     qualifier = elements[i].strip()
                     value = elements[i + 1].strip() if i + 1 < len(elements) else ""
                     if qualifier in ("UP", "IN"):
@@ -281,7 +284,8 @@ class EDIX12Parser:
                     "unit_price": unit_price,
                     "line_total": qty * unit_price,
                 }
-                for i in range(5, len(elements) - 1, 2):
+                # In IT1, product qualifier/value pairs start at element 6.
+                for i in range(6, len(elements) - 1, 2):
                     qualifier = elements[i].strip()
                     value = elements[i + 1].strip() if i + 1 < len(elements) else ""
                     if qualifier in ("UP", "IN"):

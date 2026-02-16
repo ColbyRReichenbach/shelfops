@@ -38,7 +38,9 @@ jobs:
         env:
           PYTHONPATH: backend
           DATABASE_URL: sqlite+aiosqlite:///test.db
-        run: python -m pytest backend/tests/ -v --tb=short
+        run: |
+          python -m pytest backend/tests/ -v --tb=short
+          python -m pytest tests/test_enterprise_integrations.py -v --tb=short
 
   frontend-lint:
     name: Frontend Lint

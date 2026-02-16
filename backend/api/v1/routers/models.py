@@ -187,7 +187,7 @@ async def get_backtest_time_series(
         ]
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")
@@ -231,7 +231,7 @@ async def promote_model(
     Use with caution — should only be done after manual review.
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")
@@ -299,7 +299,7 @@ async def get_model_history(
         ]
     """
     # Get current customer_id
-    result = await db.execute("SELECT current_setting('app.current_customer_id', TRUE)")
+    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
     customer_id_str = result.scalar()
     if not customer_id_str:
         raise HTTPException(status_code=401, detail="No customer context set")

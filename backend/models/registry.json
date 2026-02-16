@@ -1,16 +1,137 @@
 {
   "models": [
     {
-      "version": "v1",
+      "version": "v_subset_01_baseline",
       "feature_tier": "cold_start",
-      "trained_at": "2026-02-10T13:57:51.974315+00:00",
-      "dataset": "favorita",
-      "rows_trained": 27,
-      "mae": 41.97858802699905,
-      "mape": 0.2854896065857254,
+      "trained_at": "2026-02-15T22:12:04.966222+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.58377575142813,
+      "mape": 0.3897196603722792,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_auto_01_t001",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:18:20.960913+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.611369208840458,
+      "mape": 0.38496144401761334,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_auto_01_t002",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:30:19.565616+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.58986212302901,
+      "mape": 0.38451048469972837,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_auto_01_t003",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:40:18.393704+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.74622313162364,
+      "mape": 0.3982699252375997,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_01",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:49:04.630565+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.58377575142813,
+      "mape": 0.3897196603722792,
       "status": "champion",
-      "promoted_at": "2026-02-10T13:57:51.974341+00:00"
+      "promoted_at": "2026-02-16T02:20:09.000144+00:00"
+    },
+    {
+      "version": "v_subset_xgb_only_02_tuned",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:50:07.140781+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.58986212302901,
+      "mape": 0.38451048469972837,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t001",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:52:15.523479+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.611369208840458,
+      "mape": 0.38496144401761334,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t002",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:53:15.160168+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.58986212302901,
+      "mape": 0.38451048469972837,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t003",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:54:29.537028+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.74622313162364,
+      "mape": 0.3982699252375997,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t004",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:55:35.237111+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.62485097965008,
+      "mape": 0.39511190652602846,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t005",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:56:27.838941+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.609662998116427,
+      "mape": 0.3928970049802981,
+      "status": "candidate",
+      "promoted_at": null
+    },
+    {
+      "version": "v_subset_xgb_only_auto_01_t006",
+      "feature_tier": "cold_start",
+      "trained_at": "2026-02-15T22:57:12.092114+00:00",
+      "dataset": "exploration_subset",
+      "rows_trained": 399948,
+      "mae": 21.657155354759286,
+      "mape": 0.39196705673911686,
+      "status": "candidate",
+      "promoted_at": null
     }
   ],
-  "updated_at": "2026-02-10T13:57:51.975248+00:00"
+  "updated_at": "2026-02-15T22:57:12.092192+00:00"
 }

@@ -1,0 +1,27 @@
+version: "1.0"
+tenant_id: "productization-enterprise-like"
+profile: "enterprise_like"
+source_type: "enterprise_event"
+frequency: "daily"
+required_fields:
+  - date
+  - store_id
+  - product_id
+  - quantity
+field_mapping:
+  date: timestamp
+  store_id: store_id
+  product_id: sku
+  quantity: quantity
+optional_fields:
+  unit_price: unit_price
+  transaction_type: transaction_type
+dq_thresholds:
+  min_date_parse_success: 0.99
+  min_quantity_parse_success: 0.995
+  max_required_null_rate: 0.005
+  max_duplicate_rate: 0.01
+  max_future_days: 7
+  max_history_years: 15
+  max_store_ref_missing_rate: 0.0
+  max_product_ref_missing_rate: 0.0
