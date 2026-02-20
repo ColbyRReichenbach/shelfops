@@ -190,6 +190,8 @@ class Product(Base):
     unit_cost = Column(Float)
     unit_price = Column(Float)
     weight = Column(Float)
+    case_pack_size = Column(Integer, nullable=False, default=1)
+    moq = Column(Integer, nullable=False, default=0)
     shelf_life_days = Column(Integer)
     is_seasonal = Column(Boolean, default=False)
     is_perishable = Column(Boolean, default=False)

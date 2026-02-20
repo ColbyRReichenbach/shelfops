@@ -30,9 +30,12 @@ from db.models import (
     InventoryLevel,
     Product,
     ReorderPoint,
+    Anomaly,
 )
 from retail.planogram import is_product_active_in_store
 from retail.shrinkage import apply_shrinkage_adjustment, get_shrink_rate
+from ml.ghost_stock import detect_ghost_stock
+from ml.backroom_trapped import detect_backroom_trapped
 
 settings = get_settings()
 
@@ -233,6 +236,12 @@ async def detect_reorder_needed(
             product_name = product.name if product else "Unknown"
             suggested_qty = rp.economic_order_qty
 
+            if product:
+                suggested_qty = max(suggested_qty, product.moq)
+                if product.case_pack_size > 1:
+                    import math
+                    suggested_qty = math.ceil(suggested_qty / product.case_pack_size) * product.case_pack_size
+
             alerts.append(
                 {
                     "customer_id": customer_id,
@@ -356,18 +365,46 @@ async def publish_alerts(alerts: list[Alert]) -> int:
 async def run_alert_pipeline(db: AsyncSession, customer_id: str) -> dict[str, int]:
     """
     Full alert pipeline:
-    1. Detect stockouts
-    2. Detect reorder needs
+    1. Detect stockouts & reorders
+    2. Detect anomalies (Ghost Stock & Backroom Trapped)
     3. Deduplicate
     4. Persist
     5. Publish via Redis
 
     Returns counts of alerts created by type.
     """
+    cust_uuid = uuid.UUID(customer_id)
+    
+    # Run anomaly detection models (these save to Anomaly table)
+    await detect_ghost_stock(db, cust_uuid)
+    await detect_backroom_trapped(db, cust_uuid)
+
+    # Convert recent anomalies into alerts
+    recent_cutoff = datetime.utcnow() - timedelta(hours=24)
+    anomaly_result = await db.execute(
+        select(Anomaly).where(
+            Anomaly.customer_id == cust_uuid,
+            Anomaly.detected_at >= recent_cutoff
+        )
+    )
+    anomalies = anomaly_result.scalars().all()
+    anomaly_alerts = []
+    
+    for an in anomalies:
+        anomaly_alerts.append({
+            "customer_id": customer_id,
+            "store_id": str(an.store_id),
+            "product_id": str(an.product_id),
+            "alert_type": "anomaly_detected",
+            "severity": an.severity,
+            "message": an.description,
+            "metadata": an.anomaly_metadata
+        })
+
     # 1 + 2: Detect
     stockout_alerts = await detect_stockouts(db, customer_id)
     reorder_alerts = await detect_reorder_needed(db, customer_id)
-    all_new = stockout_alerts + reorder_alerts
+    all_new = stockout_alerts + reorder_alerts + anomaly_alerts
 
     # 3: Dedup
     unique_alerts = await deduplicate_alerts(db, all_new)
@@ -381,5 +418,6 @@ async def run_alert_pipeline(db: AsyncSession, customer_id: str) -> dict[str, in
     return {
         "stockout_predicted": sum(1 for a in created if a.alert_type == "stockout_predicted"),
         "reorder_recommended": sum(1 for a in created if a.alert_type == "reorder_recommended"),
+        "anomaly_detected": sum(1 for a in created if a.alert_type == "anomaly_detected"),
         "total": len(created),
     }

@@ -264,6 +264,9 @@ async def get_accuracy_trend(
             )
             if trend_date in actual_by_date:
                 base_row["actual_demand"], base_row["actual_revenue"] = actual_by_date[trend_date]
+            elif trend_date < date.today():
+                base_row["actual_demand"] = 0.0
+                base_row["actual_revenue"] = 0.0
             normalized_rows.append(base_row)
     else:
         normalized_rows.sort(key=lambda r: r["forecast_date"])

@@ -17,7 +17,10 @@ import numpy as np
 import pandas as pd
 
 from ml.features import FEATURE_COLS, get_feature_cols
-from ml.train import ENSEMBLE_WEIGHTS, MODEL_DIR, TARGET_COL
+from ml.train import MODEL_DIR, TARGET_COL
+
+# Default ensemble weights
+ENSEMBLE_WEIGHTS = {"xgboost": 0.65, "lstm": 0.35}
 
 # Confidence interval z-scores
 Z_SCORES = {0.80: 1.28, 0.85: 1.44, 0.90: 1.645, 0.95: 1.96}
@@ -42,11 +45,17 @@ def load_models(version: str) -> dict[str, Any]:
         try:
             import tensorflow as tf
 
-            result["lstm"] = tf.keras.models.load_model(lstm_path)
+            result["lstm"] = tf.keras.models.load_model(lstm_path, compile=False)
         except ImportError:
             result["lstm"] = None
     else:
         result["lstm"] = None
+
+    poisson_path = os.path.join(version_dir, "poisson.joblib")
+    if os.path.exists(poisson_path):
+        result["poisson"] = joblib.load(poisson_path)
+    else:
+        result["poisson"] = None
 
     return result
 
@@ -72,43 +81,98 @@ def predict_demand(
     # Use the feature set the model was trained on
     feature_cols = models.get("feature_cols", FEATURE_COLS)
     X = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0)
+    
+    # Segment SKUs loaded from training metadata (or default all to B)
+    segments = models.get("metadata", {}).get("segments", {})
+    if not segments:
+        segments = {"A": [], "B": features_df["product_id"].unique().tolist(), "C": []}
+    
+    # Pre-allocate
+    forecasted = np.zeros(len(features_df))
+    lower_bound = np.zeros(len(features_df))
+    upper_bound = np.zeros(len(features_df))
+    z = Z_SCORES.get(confidence_level, 1.645)
 
-    # XGBoost prediction
+    # 1. XGBoost prediction
     xgb_preds = models["xgboost"].predict(X)
-    xgb_preds = np.maximum(xgb_preds, 0)
+    if xgb_preds.ndim == 2 and xgb_preds.shape[1] == 3:
+        xgb_lower, xgb_mid, xgb_upper = np.maximum(xgb_preds[:, 0], 0), np.maximum(xgb_preds[:, 1], 0), np.maximum(xgb_preds[:, 2], 0)
+    else:
+        xgb_mid = np.maximum(xgb_preds, 0)
+        residual_std = np.std(xgb_mid) * 0.2
+        xgb_lower = np.maximum(xgb_mid - z * residual_std, 0)
+        xgb_upper = xgb_mid + z * residual_std
 
-    # LSTM prediction (if available)
+    # 2. LSTM prediction
+    lstm_valid = False
     if models.get("lstm") is not None:
         lstm_model = models["lstm"]
         X_norm = (X.values - lstm_model._norm_mean) / lstm_model._norm_std
-        # For single-step prediction, use last sequence_length rows
         seq_len = models["metadata"].get("lstm_metrics", {}).get("sequence_length", 30)
         if len(X_norm) >= seq_len:
+            lstm_valid = True
             X_seq = np.array([X_norm[-seq_len:]])
-            lstm_pred = lstm_model.predict(X_seq, verbose=0).flatten()
-            lstm_pred = np.maximum(lstm_pred, 0)
-            # Broadcast last prediction
-            lstm_preds = np.full(len(xgb_preds), lstm_pred[-1])
-        else:
-            lstm_preds = xgb_preds  # Fallback
+            lstm_pred = lstm_model.predict(X_seq, verbose=0)
+            if lstm_pred.ndim == 2 and lstm_pred.shape[1] == 3:
+                lstm_lower = np.full(len(xgb_mid), np.maximum(lstm_pred[0, 0], 0))
+                lstm_mid = np.full(len(xgb_mid), np.maximum(lstm_pred[0, 1], 0))
+                lstm_upper = np.full(len(xgb_mid), np.maximum(lstm_pred[0, 2], 0))
+            else:
+                lstm_pred = lstm_pred.flatten()
+                lstm_mid = np.full(len(xgb_mid), np.maximum(lstm_pred[-1], 0))
+                lstm_lower = np.maximum(lstm_mid - z * np.std(xgb_mid - lstm_mid), 0)
+                lstm_upper = lstm_mid + z * np.std(xgb_mid - lstm_mid)
+
+    # 3. Poisson prediction
+    poisson_valid = False
+    if models.get("poisson") is not None:
+        poisson_preds = models["poisson"].predict(X)
+        poisson_mid = np.maximum(poisson_preds, 0)
+        poisson_lower = np.maximum(poisson_mid - z * np.sqrt(poisson_mid), 0)
+        poisson_upper = poisson_mid + z * np.sqrt(poisson_mid)
+        poisson_valid = True
+
+    # Build Segment masks
+    a_mask = features_df["product_id"].isin(segments.get("A", []))
+    b_mask = features_df["product_id"].isin(segments.get("B", []))
+    c_mask = features_df["product_id"].isin(segments.get("C", []))
+    default_mask = ~(a_mask | b_mask | c_mask)
+
+    # Apply Router Logic
+    
+    # C-Items -> Poisson (fallback to XGBoost)
+    if poisson_valid:
+        forecasted = np.where(c_mask, poisson_mid, forecasted)
+        lower_bound = np.where(c_mask, poisson_lower, lower_bound)
+        upper_bound = np.where(c_mask, poisson_upper, upper_bound)
     else:
-        lstm_preds = xgb_preds  # XGBoost-only fallback
+        forecasted = np.where(c_mask, xgb_mid, forecasted)
+        lower_bound = np.where(c_mask, xgb_lower, lower_bound)
+        upper_bound = np.where(c_mask, xgb_upper, upper_bound)
 
-    # Weighted ensemble
-    weights = models.get("metadata", {}).get("weights", ENSEMBLE_WEIGHTS)
-    ensemble_preds = weights.get("xgboost", 0.65) * xgb_preds + weights.get("lstm", 0.35) * lstm_preds
-    ensemble_preds = np.maximum(ensemble_preds, 0)
+    # B-Items & defaults -> XGBoost
+    forecasted = np.where(b_mask | default_mask, xgb_mid, forecasted)
+    lower_bound = np.where(b_mask | default_mask, xgb_lower, lower_bound)
+    upper_bound = np.where(b_mask | default_mask, xgb_upper, upper_bound)
 
-    # Prediction intervals using residual-based approach
-    residual_std = np.std(xgb_preds - lstm_preds) if models.get("lstm") else np.std(xgb_preds) * 0.2
-    z = Z_SCORES.get(confidence_level, 1.645)
-    lower = np.maximum(ensemble_preds - z * residual_std, 0)
-    upper = ensemble_preds + z * residual_std
+    # A-Items -> LSTM ensemble (fallback to XGBoost)
+    if lstm_valid:
+        weights = models.get("metadata", {}).get("weights", ENSEMBLE_WEIGHTS)
+        w_xgb = weights.get("xgboost", 0.65)
+        w_lstm = weights.get("lstm", 0.35)
+        
+        forecasted = np.where(a_mask, w_xgb * xgb_mid + w_lstm * lstm_mid, forecasted)
+        lower_bound = np.where(a_mask, w_xgb * xgb_lower + w_lstm * lstm_lower, lower_bound)
+        upper_bound = np.where(a_mask, w_xgb * xgb_upper + w_lstm * lstm_upper, upper_bound)
+    else:
+        forecasted = np.where(a_mask, xgb_mid, forecasted)
+        lower_bound = np.where(a_mask, xgb_lower, lower_bound)
+        upper_bound = np.where(a_mask, xgb_upper, upper_bound)
 
     result = features_df[["store_id", "product_id", "date"]].copy()
-    result["forecasted_demand"] = np.round(ensemble_preds, 1)
-    result["lower_bound"] = np.round(lower, 1)
-    result["upper_bound"] = np.round(upper, 1)
+    result["forecasted_demand"] = np.round(forecasted, 1)
+    result["lower_bound"] = np.round(lower_bound, 1)
+    result["upper_bound"] = np.round(upper_bound, 1)
     result["confidence"] = confidence_level
 
     return result

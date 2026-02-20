@@ -48,6 +48,42 @@ MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Utilities & Wrappers
+# ──────────────────────────────────────────────────────────────────────────
+
+class QuantileXGBoost:
+    """Wrapper for multi-quantile XGBoost predictions (P10, P50, P90)."""
+    def __init__(self, p10_model, p50_model, p90_model):
+        self.p10 = p10_model
+        self.p50 = p50_model
+        self.p90 = p90_model
+
+    def predict(self, X):
+        return np.column_stack([
+            np.maximum(self.p10.predict(X), 0),
+            np.maximum(self.p50.predict(X), 0),
+            np.maximum(self.p90.predict(X), 0)
+        ])
+
+def segment_skus(features_df: pd.DataFrame, target_col: str = TARGET_COL) -> dict[str, list[str]]:
+    """Segment SKUs into A (Fast), B (Steady), C (Slow) based on cumulative sales volume."""
+    if "product_id" not in features_df.columns:
+        return {"A": [], "B": [], "C": []}
+    
+    sku_sales = features_df.groupby("product_id")[target_col].sum().sort_values(ascending=False)
+    if sku_sales.empty or sku_sales.sum() == 0:
+        return {"A": list(sku_sales.index), "B": [], "C": []}
+        
+    cum_sales = sku_sales.cumsum() / sku_sales.sum()
+    
+    a_items = cum_sales[cum_sales <= 0.7].index.tolist()
+    b_items = cum_sales[(cum_sales > 0.7) & (cum_sales <= 0.9)].index.tolist()
+    c_items = cum_sales[cum_sales > 0.9].index.tolist()
+    
+    return {"A": a_items, "B": b_items, "C": c_items}
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # XGBoost
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -122,9 +158,22 @@ def train_xgboost(
         upper = preds + z_90 * residual_std
         coverages.append(float(np.mean((y_val >= lower) & (y_val <= upper))))
 
-    # Train final model on all data
-    final_model = xgb.XGBRegressor(**{k: v for k, v in default_params.items() if k != "early_stopping_rounds"})
-    final_model.fit(X, y, verbose=False)
+    # Train quantiles on all data
+    models = {}
+    for alpha, name in zip([0.1, 0.5, 0.9], ["p10", "p50", "p90"]):
+        params_q = {k: v for k, v in default_params.items() if k != "early_stopping_rounds"}
+        params_q["objective"] = "reg:quantileerror"
+        params_q["quantile_alpha"] = alpha
+        m = xgb.XGBRegressor(**params_q)
+        try:
+            # Silence internal warnings during fallback checks if version is old
+            m.fit(X, y, verbose=False)
+        except Exception:
+            m = xgb.XGBRegressor(**{k: v for k, v in default_params.items() if k != "early_stopping_rounds"})
+            m.fit(X, y, verbose=False)
+        models[name] = m
+
+    final_model = QuantileXGBoost(models["p10"], models["p50"], models["p90"])
 
     metrics = {
         "mae": np.mean(maes),
@@ -138,6 +187,33 @@ def train_xgboost(
     }
 
     return final_model, metrics, default_params.copy()
+
+
+def train_poisson(
+    features_df: pd.DataFrame,
+    target_col: str = TARGET_COL,
+    feature_cols: list[str] | None = None,
+) -> tuple[xgb.XGBRegressor, dict[str, Any], dict[str, Any]]:
+    """Train a Poisson regression model for slow-moving C-items."""
+    if feature_cols is None:
+        tier = detect_feature_tier(features_df)
+        feature_cols = get_feature_cols(tier)
+    else:
+        tier = "production" if len(feature_cols) > 30 else "cold_start"
+
+    X = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0)
+    y = features_df[target_col]
+
+    model = xgb.XGBRegressor(objective="count:poisson", n_estimators=100, learning_rate=0.05, max_depth=4)
+    model.fit(X, y)
+    
+    metrics = {
+        "model_type": "poisson_xgboost",
+        "feature_tier": tier,
+        "n_features": X.shape[1],
+        "feature_cols": list(X.columns),
+    }
+    return model, metrics, {}
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -166,6 +242,12 @@ def train_lstm(
     except ImportError:
         raise ImportError("TensorFlow required for LSTM. Install: pip install tensorflow")
 
+    def multi_quantile_loss(y_true, y_pred):
+        q = tf.constant([0.1, 0.5, 0.9], dtype=tf.float32)
+        y_true = tf.reshape(y_true, [-1, 1])
+        e = y_true - y_pred
+        return tf.reduce_mean(tf.maximum(q * e, (q - 1.0) * e))
+
     if feature_cols is None:
         tier = detect_feature_tier(features_df)
         feature_cols = get_feature_cols(tier)
@@ -174,36 +256,36 @@ def train_lstm(
 
     cols = [c for c in feature_cols if c in features_df.columns]
 
-    # Cap data size to prevent OOM on large datasets.
-    # Take the most recent rows to preserve time-series continuity.
-    if len(features_df) > max_samples:
-        logger.info(
-            "train.lstm_sampling",
-            original_rows=len(features_df),
-            sampled_rows=max_samples,
-        )
-        features_df = features_df.tail(max_samples)
-
     X_all = features_df[cols].fillna(0).values
     y_all = features_df[target_col].values
 
-    # Normalize features
-    mean = X_all.mean(axis=0)
-    std = X_all.std(axis=0) + 1e-8
+    num_sequences = len(X_all) - sequence_length
+    split = int(num_sequences * 0.8)
+
+    # Compute normalization parameters only on the training portion to prevent data leakage.
+    train_end_idx = split + sequence_length - 1
+    mean = X_all[:train_end_idx].mean(axis=0)
+    std = X_all[:train_end_idx].std(axis=0) + 1e-8
     X_norm = (X_all - mean) / std
 
-    # Create sequences
-    X_seq, y_seq = [], []
-    for i in range(len(X_norm) - sequence_length):
-        X_seq.append(X_norm[i : i + sequence_length])
-        y_seq.append(y_all[i + sequence_length])
-    X_seq = np.array(X_seq)
-    y_seq = np.array(y_seq)
+    # Use timeseries_dataset_from_array for efficient streaming and low memory usage (removes arbitrary capping)
+    train_dataset = tf.keras.utils.timeseries_dataset_from_array(
+        data=X_norm[:-1],
+        targets=y_all[sequence_length:],
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        end_index=split
+    )
+    
+    val_dataset = tf.keras.utils.timeseries_dataset_from_array(
+        data=X_norm[:-1],
+        targets=y_all[sequence_length:],
+        sequence_length=sequence_length,
+        batch_size=batch_size,
+        start_index=split
+    )
 
-    # Train/val split (last 20%)
-    split = int(len(X_seq) * 0.8)
-    X_train, X_val = X_seq[:split], X_seq[split:]
-    y_train, y_val = y_seq[:split], y_seq[split:]
+    y_val = y_all[sequence_length + split :]
 
     # Build LSTM model
     n_features = len(cols)
@@ -214,30 +296,29 @@ def train_lstm(
             layers.LSTM(32),
             layers.Dropout(0.2),
             layers.Dense(16, activation="relu"),
-            layers.Dense(1),
+            layers.Dense(3),  # P10, P50, P90
         ]
     )
-    model.compile(optimizer="adam", loss="mse", metrics=["mae"])
+    model.compile(optimizer="adam", loss=multi_quantile_loss)
 
     early_stop = callbacks.EarlyStopping(patience=5, restore_best_weights=True)
 
     model.fit(
-        X_train,
-        y_train,
-        validation_data=(X_val, y_val),
+        train_dataset,
+        validation_data=val_dataset,
         epochs=epochs,
-        batch_size=batch_size,
         callbacks=[early_stop],
         verbose=0,
     )
 
     # Evaluate
-    preds = model.predict(X_val, verbose=0).flatten()
-    preds = np.maximum(preds, 0)
+    preds = model.predict(val_dataset, verbose=0)
+    # Extract P50 for validation metrics
+    p50_preds = np.maximum(preds[:, 1], 0)
 
-    mae = mean_absolute_error(y_val, preds)
+    mae = mean_absolute_error(y_val, p50_preds)
     nonzero = y_val > 0
-    mape = mean_absolute_percentage_error(y_val[nonzero], preds[nonzero]) if nonzero.sum() > 0 else 0.0
+    mape = mean_absolute_percentage_error(y_val[nonzero], p50_preds[nonzero]) if nonzero.sum() > 0 else 0.0
 
     # Store normalization params on model for inference
     model._norm_mean = mean

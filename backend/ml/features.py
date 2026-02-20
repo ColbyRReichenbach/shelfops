@@ -51,6 +51,7 @@ COLD_START_FEATURE_COLS = [
     "day_of_month",
     "is_month_start",
     "is_month_end",
+    "days_since_payday",
     "days_since_last_sale",
     # Sales History (12) — computed from quantity
     "sales_7d",
@@ -86,6 +87,7 @@ PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     "shelf_life_days",
     "is_seasonal",
     "is_perishable",
+    "is_substitute_on_promo",
     # Store (5) — computed from real store performance data
     "store_avg_daily_sales",
     "store_product_count",
@@ -157,6 +159,7 @@ def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame
         day_of_month=dt.dt.day.fillna(1).astype(int),
         is_month_start=dt.dt.is_month_start.astype(int),
         is_month_end=dt.dt.is_month_end.astype(int),
+        days_since_payday=dt.dt.day.apply(lambda x: x - 15 if x >= 15 else x - 1).astype(int),
         days_since_last_sale=0,  # Filled per store-product in pipeline
     )
 
@@ -207,8 +210,9 @@ def _sales_history_features(
     txn_df["_date"] = pd.to_datetime(txn_df[date_col], errors="coerce")
     txn_df["_sale_date"] = txn_df["_date"].where(txn_df[qty_col] > 0)
     txn_df["_prev_sale_date"] = txn_df.groupby(group)["_sale_date"].transform(lambda s: s.ffill().shift(1))
+    # Cap decay at 365 days (product lifecycle proxy)
     txn_df["days_since_last_sale"] = (
-        (txn_df["_date"] - txn_df["_prev_sale_date"]).dt.days.fillna(0).clip(lower=0).astype(int)
+        (txn_df["_date"] - txn_df["_prev_sale_date"]).dt.days.fillna(0).clip(lower=0, upper=365).astype(int)
     )
 
     txn_df = txn_df.drop(columns=["_lag_qty", "_date", "_sale_date", "_prev_sale_date"])
@@ -235,6 +239,9 @@ def _product_features(products_df: pd.DataFrame) -> pd.DataFrame:
     df["is_seasonal"] = df["is_seasonal"].astype(int)
     df["is_perishable"] = df["is_perishable"].astype(int)
 
+    # Cannibalization/Halo proxy flag (defaults to 0, dynamically populated in full pipeline)
+    df["is_substitute_on_promo"] = 0
+
     return df[
         [
             "product_id",
@@ -245,6 +252,7 @@ def _product_features(products_df: pd.DataFrame) -> pd.DataFrame:
             "shelf_life_days",
             "is_seasonal",
             "is_perishable",
+            "is_substitute_on_promo",
             "category_encoded",
         ]
     ]
@@ -363,6 +371,59 @@ def _promotion_features(
 # Master Pipeline
 # ──────────────────────────────────────────────────────────────────────────
 
+def _impute_unconstrained_demand(
+    txn_df: pd.DataFrame,
+    inv_df: pd.DataFrame | None
+) -> pd.DataFrame:
+    """
+    Impute unconstrained demand for days where a product was out of stock.
+    If a product is out of stock, sales are 0 not because of lack of demand,
+    but lack of supply. We impute these days using a rolling average of past sales.
+    """
+    if inv_df is None or inv_df.empty or txn_df.empty:
+        return txn_df
+
+    df = txn_df.copy()
+    df['date'] = pd.to_datetime(df['date'])
+
+    inv = inv_df.copy()
+    inv['date'] = pd.to_datetime(inv['timestamp']).dt.normalize()
+    daily_inv = inv.groupby(['store_id', 'product_id', 'date'])['quantity_on_hand'].min().reset_index()
+
+    stockouts = daily_inv[daily_inv['quantity_on_hand'] == 0].copy()
+    
+    if stockouts.empty:
+        return txn_df
+
+    stockouts['is_stockout'] = True
+    
+    # Outer join to ensure stockout days exist in txn_df
+    merged = df.merge(stockouts[['store_id', 'product_id', 'date', 'is_stockout']], 
+                      on=['store_id', 'product_id', 'date'], 
+                      how='outer')
+    
+    merged['quantity'] = merged['quantity'].fillna(0)
+    merged['is_stockout'] = merged['is_stockout'].fillna(False)
+
+    merged = merged.sort_values(['store_id', 'product_id', 'date'])
+    
+    merged['qty_for_avg'] = merged['quantity'].where(~merged['is_stockout'], np.nan)
+    
+    grp = merged.groupby(['store_id', 'product_id'])['qty_for_avg']
+    rolling_avg = grp.transform(lambda x: x.shift(1).rolling(14, min_periods=1).mean())
+
+    merged['quantity'] = np.where(
+        merged['is_stockout'] & rolling_avg.notna(),
+        rolling_avg.round(),
+        merged['quantity']
+    )
+    
+    # Clean up
+    merged = merged.drop(columns=['is_stockout', 'qty_for_avg'])
+    merged['date'] = merged['date'].dt.strftime('%Y-%m-%d')
+    
+    return merged
+
 
 def create_features(
     transactions_df: pd.DataFrame,
@@ -398,6 +459,9 @@ def create_features(
     """
     if target_date is None:
         target_date = transactions_df["date"].max()
+
+    # Apply unconstrained demand preprocessing
+    transactions_df = _impute_unconstrained_demand(transactions_df, inventory_df)
 
     # ── Phase-independent features (both tiers) ─────────────────────
 

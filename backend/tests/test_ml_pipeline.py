@@ -65,17 +65,17 @@ class TestFeatureTierDetection:
 class TestGetFeatureCols:
     """Test feature column list retrieval."""
 
-    def test_cold_start_has_27_features(self):
+    def test_cold_start_has_28_features(self):
         from ml.features import get_feature_cols
 
         cols = get_feature_cols("cold_start")
-        assert len(cols) == 27
+        assert len(cols) == 28
 
-    def test_production_has_46_features(self):
+    def test_production_has_48_features(self):
         from ml.features import get_feature_cols
 
         cols = get_feature_cols("production")
-        assert len(cols) == 46
+        assert len(cols) == 48
 
     def test_production_superset_of_cold_start(self):
         from ml.features import get_feature_cols
@@ -352,3 +352,71 @@ class TestApplyBusinessRules:
         result = apply_business_rules(forecast_df, products_df)
         # 5 days * 0.8 = 4.0 cap
         assert result["forecasted_demand"].iloc[0] <= 4.0
+
+class TestUnconstrainedDemand:
+    def test_impute_unconstrained_demand(self):
+        from ml.features import _impute_unconstrained_demand
+        
+        # Test that out_of_stock days get imputed based on historical non-stockout sales
+        transactions_df = pd.DataFrame({
+            "store_id": ["S1", "S1", "S1", "S1", "S1"],
+            "product_id": ["P1", "P1", "P1", "P1", "P1"],
+            "date": pd.date_range("2025-01-01", periods=5),
+            "quantity": [10.0, 12.0, 0.0, 0.0, 15.0]
+        })
+        
+        inventory_df = pd.DataFrame({
+            "store_id": ["S1", "S1"],
+            "product_id": ["P1", "P1"],
+            "timestamp": pd.to_datetime(["2025-01-03 12:00:00", "2025-01-04 12:00:00"]),
+            "is_stockout": [1, 1],
+            "quantity_on_hand": [0, 0]
+        })
+        
+        result = _impute_unconstrained_demand(transactions_df, inventory_df)
+        
+        # Original should be preserved where not stockout
+        assert result.loc[(result["date"] == "2025-01-01"), "quantity"].iloc[0] == 10.0
+        assert result.loc[(result["date"] == "2025-01-02"), "quantity"].iloc[0] == 12.0
+        assert result.loc[(result["date"] == "2025-01-05"), "quantity"].iloc[0] == 15.0
+        
+        # Imputed values should be average of previous non-stockout values (10 and 12 -> 11)
+        # Note: rolling window is 14 days, min_periods 1
+        imputed_qty = result.loc[(result["date"] == "2025-01-03"), "quantity"].iloc[0]
+        assert imputed_qty == 11.0
+        
+        imputed_qty_2 = result.loc[(result["date"] == "2025-01-04"), "quantity"].iloc[0]
+        assert imputed_qty_2 == 11.0 # Uses the non-stockout values so it should still be 11.0 
+
+class TestLSTMLeakage:
+    def test_train_lstm_normalization_no_leakage(self):
+        from ml.train import train_lstm
+        
+        # Create dummy feature df
+        features_df = pd.DataFrame({
+            "store_id": ["S1"] * 100,
+            "product_id": ["P1"] * 100,
+            "date": pd.date_range("2025-01-01", periods=100),
+            "feature1": np.random.rand(100) * 10,
+            "feature2": np.random.rand(100) * 5,
+            "forecasted_demand": np.random.rand(100) * 20
+        })
+        
+        # We just want to ensure it runs without throwing error and mean/std are bound
+        model, metrics, config = train_lstm(
+            features_df, 
+            target_col="forecasted_demand", 
+            sequence_length=10, 
+            epochs=1, # Fast training
+            batch_size=16,
+            feature_cols=["feature1", "feature2"]
+        )
+        
+        assert hasattr(model, '_norm_mean')
+        assert hasattr(model, '_norm_std')
+        assert len(model._norm_mean) == 2  # 2 features
+        assert len(model._norm_std) == 2
+        
+        # Check that metrics were generated
+        assert "mae" in metrics
+        assert "mape" in metrics

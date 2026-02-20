@@ -162,6 +162,45 @@ export function useOrderFromAlert() {
     })
 }
 
+// ─── Outcomes ──────────────────────────────────────────────────────────────
+
+export function useRecordAlertOutcome() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ alertId, outcome, outcome_notes, prevented_loss }: { alertId: string; outcome: string; outcome_notes?: string; prevented_loss?: number }) =>
+            api.post(`/api/v1/outcomes/alert/${alertId}`, {
+                outcome,
+                outcome_notes,
+                prevented_loss,
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['alerts'] })
+            queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
+            queryClient.invalidateQueries({ queryKey: ['mlops', 'outcomes'] })
+        },
+    })
+}
+
+export function useRecordAnomalyOutcome() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ anomalyId, outcome, outcome_notes, action_taken }: { anomalyId: string; outcome: string; outcome_notes?: string; action_taken?: string }) =>
+            api.post(`/api/v1/outcomes/anomaly/${anomalyId}`, {
+                outcome,
+                outcome_notes,
+                action_taken,
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['alerts'] }) // Anomalies might show up as alerts
+            queryClient.invalidateQueries({ queryKey: ['mlops', 'outcomes'] })
+        },
+    })
+}
+
 // ─── Purchase Orders ───────────────────────────────────────────────────────
 
 export function usePurchaseOrders(filters?: {

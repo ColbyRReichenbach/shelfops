@@ -28,6 +28,8 @@ class ProductCreate(BaseModel):
     unit_cost: float | None = Field(None, ge=0)
     unit_price: float | None = Field(None, ge=0)
     weight: float | None = None
+    case_pack_size: int = 1
+    moq: int = 0
     shelf_life_days: int | None = None
     is_seasonal: bool = False
     is_perishable: bool = False
@@ -42,6 +44,8 @@ class ProductUpdate(BaseModel):
     unit_cost: float | None = None
     unit_price: float | None = None
     weight: float | None = None
+    case_pack_size: int | None = None
+    moq: int | None = None
     shelf_life_days: int | None = None
     is_seasonal: bool | None = None
     is_perishable: bool | None = None
@@ -60,6 +64,8 @@ class ProductResponse(BaseModel):
     unit_cost: float | None
     unit_price: float | None
     weight: float | None
+    case_pack_size: int
+    moq: int
     shelf_life_days: int | None
     is_seasonal: bool
     is_perishable: bool

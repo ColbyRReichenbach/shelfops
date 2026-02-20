@@ -15,6 +15,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Settings,
+    CheckCircle2,
 } from 'lucide-react'
 import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -22,6 +23,7 @@ import { useAlertSummary } from '@/hooks/useShelfOps'
 
 const navItems = [
     { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/action-items', icon: CheckCircle2, label: 'Action Items' },
     { to: '/alerts', icon: Bell, label: 'Alerts' },
     { to: '/forecasts', icon: BarChart3, label: 'Forecasts' },
     { to: '/buy', icon: ShoppingCart, label: 'Buy Center' },

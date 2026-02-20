@@ -11,6 +11,7 @@ import BuyCenterPage from '@/pages/BuyCenterPage'
 import ProductsPage from '@/pages/ProductsPage'
 import IntegrationsPage from '@/pages/IntegrationsPage'
 import InventoryPage from '@/pages/InventoryPage'
+import StoreActionView from '@/pages/StoreActionView'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
     // Development bypass
@@ -52,6 +53,7 @@ export default function App() {
                     <Route path="products" element={<ProductsPage />} />
 
                     <Route path="inventory" element={<InventoryPage />} />
+                    <Route path="action-items" element={<StoreActionView />} />
                     <Route path="stores" element={<StoreView />} />
                     <Route path="integrations" element={<IntegrationsPage />} />
                 </Route>
