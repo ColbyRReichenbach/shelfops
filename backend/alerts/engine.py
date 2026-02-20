@@ -259,6 +259,8 @@ async def detect_reorder_needed(
                         "reorder_point": rp.reorder_point,
                         "safety_stock": rp.safety_stock,
                         "suggested_qty": suggested_qty,
+                        "case_pack_size": product.case_pack_size if product else 1,
+                        "moq": product.moq if product else 1,
                     },
                 }
             )

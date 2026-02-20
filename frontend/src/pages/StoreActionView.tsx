@@ -98,9 +98,16 @@ function ActionCard({ action, onAlertOutcome, onAnomalyOutcome }: { action: any,
                         {action.message}
                     </p>
                     {action.metadata?.suggested_qty && (
-                        <p className="text-sm font-medium text-shelf-primary mt-2">
-                            Suggested Quantity: <span className="font-bold text-lg">{action.metadata.suggested_qty}</span>
-                        </p>
+                        <div className="mt-2">
+                            <p className="text-sm font-medium text-shelf-primary">
+                                Suggested Quantity: <span className="font-bold text-lg">{action.metadata.suggested_qty}</span>
+                            </p>
+                            {(action.metadata?.case_pack_size > 1 || action.metadata?.moq > 1) && (
+                                <p className="text-xs text-shelf-foreground/50 mt-0.5">
+                                    (Rounded to meet supplier case pack of {action.metadata.case_pack_size} and MOQ of {action.metadata.moq})
+                                </p>
+                            )}
+                        </div>
                     )}
                 </div>
             </div>
