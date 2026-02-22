@@ -187,7 +187,10 @@ class ReplayDbAdapter:
                 ).all()
             }
             category_map = (
-                day_rows[["product_id", "category"]].drop_duplicates("product_id").set_index("product_id")["category"].to_dict()
+                day_rows[["product_id", "category"]]
+                .drop_duplicates("product_id")
+                .set_index("product_id")["category"]
+                .to_dict()
                 if "category" in day_rows.columns
                 else {}
             )
@@ -1122,18 +1125,20 @@ def main() -> int:
     _render_summary_md(summary, summary_md_path)
     _render_strategy_md(summary, strategy_md_path)
 
-    print(json.dumps(
-        {
-            "status": "success",
-            "summary_json": str(summary_json_path),
-            "summary_md": str(summary_md_path),
-            "daily_log": str(daily_log_path),
-            "hitl_decisions": str(decisions_path),
-            "strategy_md": str(strategy_md_path),
-            "baseline_gate_passed": baseline_gate_passed,
-        },
-        indent=2,
-    ))
+    print(
+        json.dumps(
+            {
+                "status": "success",
+                "summary_json": str(summary_json_path),
+                "summary_md": str(summary_md_path),
+                "daily_log": str(daily_log_path),
+                "hitl_decisions": str(decisions_path),
+                "strategy_md": str(strategy_md_path),
+                "baseline_gate_passed": baseline_gate_passed,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

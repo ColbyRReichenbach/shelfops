@@ -49,7 +49,9 @@ def dispatch_active_tenants(
             async_session = async_sessionmaker(engine, class_=AsyncSession)
             async with async_session() as db:
                 result = await db.execute(
-                    select(Customer.customer_id).where(Customer.status.in_(selected_statuses)).order_by(Customer.created_at)
+                    select(Customer.customer_id)
+                    .where(Customer.status.in_(selected_statuses))
+                    .order_by(Customer.created_at)
                 )
                 customers = [str(row.customer_id) for row in result.all()]
 

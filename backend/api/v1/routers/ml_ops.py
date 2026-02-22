@@ -301,9 +301,7 @@ async def get_model_effectiveness(
     """
     cutoff = datetime.utcnow() - timedelta(days=window_days)
 
-    versions_query = await db.execute(
-        select(ModelVersion.version).where(ModelVersion.model_name == model_name)
-    )
+    versions_query = await db.execute(select(ModelVersion.version).where(ModelVersion.model_name == model_name))
     model_versions = [str(row.version) for row in versions_query.all()]
 
     query = (

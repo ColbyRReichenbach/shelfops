@@ -154,10 +154,12 @@ async def build_anomaly_features(
     category_avg_price = features_df.groupby("category")["unit_price"].mean().to_dict()
     features_df["price_vs_avg"] = features_df.apply(
         lambda row: (
-            (row["unit_price"] - category_avg_price.get(row["category"], row["unit_price"]))
-            / (category_avg_price.get(row["category"], row["unit_price"]) + 1)
-        )
-        * 100,
+            (
+                (row["unit_price"] - category_avg_price.get(row["category"], row["unit_price"]))
+                / (category_avg_price.get(row["category"], row["unit_price"]) + 1)
+            )
+            * 100
+        ),
         axis=1,
     )
 

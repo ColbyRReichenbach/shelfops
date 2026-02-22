@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - run: pip install ruff
+      - run: pip install ruff==0.15.2
       - run: ruff check backend/ --config pyproject.toml
       - run: ruff format --check backend/ --config pyproject.toml
 
@@ -34,6 +34,13 @@ jobs:
           pip install -r backend/requirements.txt
           pip install -r backend/requirements-ml.txt
           pip install ruff aiosqlite
+      - name: Generate minimal seed data for ML tests
+        run: |
+          python backend/scripts/seed_enterprise_data.py \
+            --days 40 \
+            --products 50 \
+            --stores 3 \
+            --output data/seed
       - name: Run tests
         env:
           PYTHONPATH: backend
@@ -139,6 +146,8 @@ jobs:
           python backend/scripts/validate_training_datasets.py --base-dir . --output /tmp/dataset_validation.md
           python backend/scripts/run_training.py --help > /tmp/run_training_help.txt
           python backend/scripts/benchmark_datasets.py --help > /tmp/benchmark_help.txt
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
       - name: Validate documentation structure and policy
         run: |
           bash scripts/validate_docs.sh
@@ -149,7 +158,7 @@ jobs:
     needs: backend-lint
     services:
       postgres:
-        image: postgres:15
+        image: timescale/timescaledb:latest-pg15
         env:
           POSTGRES_DB: shelfops
           POSTGRES_USER: shelfops
@@ -175,6 +184,8 @@ jobs:
           pip install alembic
       - name: Run migrations on Postgres
         working-directory: backend
+        env:
+          PYTHONPATH: .
         run: alembic upgrade head
       - name: Validate tenant session settings work on Postgres
         run: |
@@ -201,7 +212,7 @@ jobs:
     needs: [backend-lint, backend-test, postgres-parity]
     services:
       postgres:
-        image: postgres:15
+        image: timescale/timescaledb:latest-pg15
         env:
           POSTGRES_DB: shelfops
           POSTGRES_USER: shelfops
@@ -228,6 +239,8 @@ jobs:
           pip install alembic aiosqlite
       - name: Migration rollback/forward smoke
         working-directory: backend
+        env:
+          PYTHONPATH: .
         run: |
           alembic upgrade head
           alembic downgrade 007

@@ -144,9 +144,7 @@ async def evaluate_and_persist_tenant_readiness(
         },
     }
 
-    current = await db.execute(
-        select(TenantMLReadiness).where(TenantMLReadiness.customer_id == customer_id).limit(1)
-    )
+    current = await db.execute(select(TenantMLReadiness).where(TenantMLReadiness.customer_id == customer_id).limit(1))
     current_row = current.scalar_one_or_none()
     previous_state = current_row.state if current_row else None
 
