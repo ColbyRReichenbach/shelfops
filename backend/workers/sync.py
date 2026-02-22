@@ -490,7 +490,9 @@ def sync_square_transactions(self, customer_id: str):
                     raise self.retry(exc=exc)
 
                 if synthesize_demo_mappings:
-                    discovered_location_ids = {str(order.get("location_id")) for order in orders if order.get("location_id")}
+                    discovered_location_ids = {
+                        str(order.get("location_id")) for order in orders if order.get("location_id")
+                    }
                     discovered_catalog_ids = {
                         str(item.get("catalog_object_id"))
                         for order in orders

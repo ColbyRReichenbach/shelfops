@@ -68,10 +68,10 @@ async def test_readiness_transitions_from_cold_start_to_warming(test_db, seeded_
     assert readiness.state == "warming"
 
     audit_rows = (
-        await test_db.execute(
-            select(TenantMLReadinessAudit).where(TenantMLReadinessAudit.customer_id == customer_id)
-        )
-    ).scalars().all()
+        (await test_db.execute(select(TenantMLReadinessAudit).where(TenantMLReadinessAudit.customer_id == customer_id)))
+        .scalars()
+        .all()
+    )
     assert len(audit_rows) >= 2
 
 
