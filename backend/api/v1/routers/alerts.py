@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_tenant_db
-from db.models import Action, Alert
+from db.models import Action, Alert, PurchaseOrder
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -48,6 +48,11 @@ class AlertSummary(BaseModel):
     resolved: int
     critical: int
     high: int
+
+
+class AlertOrderCreate(BaseModel):
+    quantity: int
+    estimated_cost: float | None = None
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -207,3 +212,56 @@ async def dismiss_alert(
     await db.commit()
     await db.refresh(alert)
     return alert
+
+
+@router.post("/{alert_id}/order")
+async def create_order_from_alert(
+    alert_id: UUID,
+    body: AlertOrderCreate,
+    db: AsyncSession = Depends(get_tenant_db),
+    user: dict = Depends(get_current_user),
+):
+    """Create a purchase order from an alert atomically."""
+    result = await db.execute(select(Alert).where(Alert.alert_id == alert_id).with_for_update())
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    if alert.status not in ("open", "acknowledged"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot create order for alert in '{alert.status}' status. Must be 'open' or 'acknowledged'.",
+        )
+
+    metadata = dict(alert.alert_metadata or {})
+    if metadata.get("linked_po_id"):
+        raise HTTPException(status_code=409, detail="Alert already linked to a purchase order")
+
+    po = PurchaseOrder(
+        customer_id=alert.customer_id,
+        store_id=alert.store_id,
+        product_id=alert.product_id,
+        quantity=body.quantity,
+        estimated_cost=body.estimated_cost,
+        status="suggested",
+        source_type="alert",
+        source_id=alert.alert_id,
+    )
+    db.add(po)
+    await db.flush()
+
+    metadata["linked_po_id"] = str(po.po_id)
+    alert.alert_metadata = metadata
+    alert.status = "resolved"
+    alert.resolved_at = datetime.utcnow()
+
+    action = Action(
+        customer_id=alert.customer_id,
+        alert_id=alert_id,
+        action_type="ordered",
+        notes=f"Created PO {po.po_id}",
+        taken_by=user.get("email", "unknown"),
+    )
+    db.add(action)
+    await db.commit()
+
+    return {"po_id": po.po_id, "alert_id": alert.alert_id, "status": po.status}

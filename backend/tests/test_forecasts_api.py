@@ -12,7 +12,7 @@ from httpx import AsyncClient
 @pytest.fixture
 async def seeded_forecasts(test_db, seeded_db):
     """Seed forecasts and accuracy records for testing."""
-    from db.models import DemandForecast, ForecastAccuracy
+    from db.models import DemandForecast, ForecastAccuracy, Transaction
 
     store = seeded_db["store"]
     product = seeded_db["product"]
@@ -49,6 +49,20 @@ async def seeded_forecasts(test_db, seeded_db):
             evaluated_at=datetime.utcnow() - timedelta(days=i),
         )
         test_db.add(acc)
+
+    # Add transactions for trend endpoint (SQLite returns func.date as string)
+    for i in range(3):
+        tx = Transaction(
+            customer_id=customer_id,
+            store_id=store.store_id,
+            product_id=product.product_id,
+            timestamp=datetime.utcnow() - timedelta(days=i + 1),
+            quantity=10 + i,
+            unit_price=2.5,
+            total_amount=(10 + i) * 2.5,
+            transaction_type="sale",
+        )
+        test_db.add(tx)
 
     await test_db.flush()
     await test_db.commit()
@@ -120,3 +134,13 @@ class TestForecastsAPI:
         assert "upper_bound" in fc
         assert "confidence" in fc
         assert "model_version" in fc
+
+    async def test_forecast_accuracy_trend(self, client: AsyncClient, seeded_forecasts):
+        """Trend endpoint merges forecast accuracy and transaction dates."""
+        resp = await client.get("/api/v1/forecasts/accuracy/trend?days=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 1
+        assert "date" in data[0]
+        assert "avg_mae" in data[0]
+        assert "total_actual_demand" in data[0]
