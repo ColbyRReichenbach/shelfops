@@ -10,7 +10,7 @@ What this generates:
   - 365 days of transaction history (3M+ rows)
   - Daily inventory snapshots with category-specific shrinkage
   - Seasonal patterns, promotional spikes, event spikes, and YoY growth
-  - Sample EDI 846 files for the EDI adapter
+  - Sample EDI 846/850/856/810 files for the EDI adapter
   - Sample SFTP CSV files for the SFTP adapter
 
 Run:
@@ -618,6 +618,151 @@ def generate_edi_846_files(
     print(f"  📄 Generated {count} EDI 846 files")
 
 
+def generate_edi_850_files(
+    products: list[dict],
+    stores: list[dict],
+    output_dir: Path,
+    count: int = 5,
+) -> None:
+    """Generate sample EDI 850 (Purchase Order) documents."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    supplier_ids = [f"SUPPLIER_{i + 1:03d}" for i in range(len(SUPPLIERS))]
+
+    for i in range(count):
+        date = datetime.utcnow() - timedelta(days=i)
+        date_str = date.strftime("%y%m%d")
+        date_long = date.strftime("%Y%m%d")
+        time_str = date.strftime("%H%M")
+        po_number = f"PO-{random.randint(10000, 99999)}"
+        vendor_id = random.choice(supplier_ids)
+        store = random.choice(stores)
+        subset = random.sample(products, k=min(10, len(products)))
+
+        segments = [
+            f"ISA*00*          *00*          *ZZ*SHELFOPS       *ZZ*{vendor_id:<15}*{date_str}*{time_str}*U*00401*{i + 1:09d}*0*P*>",
+            f"GS*PO*SHELFOPS*{vendor_id}*{date_long}*{time_str}*{i + 1}*X*004010",
+            f"ST*850*{i + 1:04d}",
+            f"BEG*00*NE*{po_number}**{date_long}",
+            f"N1*ST*{store['name']}*92*{store['external_code']}",
+            "N3*123 Retail Ave",
+            f"N4*{store['city']}*{store['state']}*{store['zip_code']}",
+        ]
+
+        for j, product in enumerate(subset, start=1):
+            qty = random.randint(10, 100)
+            segments.append(f"PO1*{j}*{qty}*EA*{product['unit_cost']:.2f}*PE*IN*{product['gtin']}")
+
+        seg_count = len(segments) + 1  # +1 for SE
+        segments.append(f"SE*{seg_count}*{i + 1:04d}")
+        segments.append(f"GE*1*{i + 1}")
+        segments.append(f"IEA*1*{i + 1:09d}")
+
+        filepath = output_dir / f"EDI850_{date_long}_{i + 1:03d}.edi"
+        with open(filepath, "w") as f:
+            f.write("~\n".join(segments) + "~")
+
+    print(f"  📄 Generated {count} EDI 850 files")
+
+
+def generate_edi_856_files(
+    products: list[dict],
+    stores: list[dict],
+    output_dir: Path,
+    count: int = 5,
+) -> None:
+    """Generate sample EDI 856 (Advance Ship Notice) documents."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(count):
+        date = datetime.utcnow() - timedelta(days=i)
+        date_str = date.strftime("%y%m%d")
+        date_long = date.strftime("%Y%m%d")
+        time_str = date.strftime("%H%M")
+        shipment_id = f"SHIP-{random.randint(100000, 999999)}"
+        subset = random.sample(products, k=min(15, len(products)))
+
+        segments = [
+            f"ISA*00*          *00*          *ZZ*SUPPLIER       *ZZ*SHELFOPS       *{date_str}*{time_str}*U*00401*{i + 1:09d}*0*P*>",
+            f"GS*SH*SUPPLIER*SHELFOPS*{date_long}*{time_str}*{i + 1}*X*004010",
+            f"ST*856*{i + 1:04d}",
+            f"BSN*00*{shipment_id}*{date_long}*{time_str}",
+            "HL*1**S",
+            "TD5*B*2*UPS*Ground",
+            f"REF*CN*1Z{random.randint(100000000, 999999999)}",
+            f"DTM*017*{(date + timedelta(days=3)).strftime('%Y%m%d')}",
+        ]
+
+        for j, product in enumerate(subset, start=1):
+            po_number = f"PO-{random.randint(10000, 99999)}"
+            qty = random.randint(5, 50)
+            segments.extend(
+                [
+                    f"HL*{j + 1}*1*I",
+                    f"LIN*{j}*IN*{product['gtin']}*UP*{product['upc']}",
+                    f"SN1**{qty}*EA",
+                    f"REF*PO*{po_number}",
+                ]
+            )
+
+        seg_count = len(segments) + 1  # +1 for SE
+        segments.append(f"SE*{seg_count}*{i + 1:04d}")
+        segments.append(f"GE*1*{i + 1}")
+        segments.append(f"IEA*1*{i + 1:09d}")
+
+        filepath = output_dir / f"EDI856_{date_long}_{i + 1:03d}.edi"
+        with open(filepath, "w") as f:
+            f.write("~\n".join(segments) + "~")
+
+    print(f"  📄 Generated {count} EDI 856 files")
+
+
+def generate_edi_810_files(
+    products: list[dict],
+    stores: list[dict],
+    output_dir: Path,
+    count: int = 5,
+) -> None:
+    """Generate sample EDI 810 (Invoice) documents."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in range(count):
+        date = datetime.utcnow() - timedelta(days=i)
+        date_str = date.strftime("%y%m%d")
+        date_long = date.strftime("%Y%m%d")
+        time_str = date.strftime("%H%M")
+        invoice_number = f"INV-{random.randint(100000, 999999)}"
+        po_number = f"PO-{random.randint(10000, 99999)}"
+        subset = random.sample(products, k=min(10, len(products)))
+
+        segments = [
+            f"ISA*00*          *00*          *ZZ*SUPPLIER       *ZZ*SHELFOPS       *{date_str}*{time_str}*U*00401*{i + 1:09d}*0*P*>",
+            f"GS*IN*SUPPLIER*SHELFOPS*{date_long}*{time_str}*{i + 1}*X*004010",
+            f"ST*810*{i + 1:04d}",
+            f"BIG*{date_long}*{invoice_number}**{po_number}",
+        ]
+
+        total_cents = 0
+        for j, product in enumerate(subset, start=1):
+            qty = random.randint(5, 50)
+            unit_price = product["unit_cost"]
+            line_total = qty * unit_price
+            total_cents += int(line_total * 100)
+            segments.append(f"IT1*{j}*{qty}*EA*{unit_price:.2f}*PE*IN*{product['gtin']}")
+
+        segments.append(f"TDS*{total_cents}")
+
+        seg_count = len(segments) + 1  # +1 for SE
+        segments.append(f"SE*{seg_count}*{i + 1:04d}")
+        segments.append(f"GE*1*{i + 1}")
+        segments.append(f"IEA*1*{i + 1:09d}")
+
+        filepath = output_dir / f"EDI810_{date_long}_{i + 1:03d}.edi"
+        with open(filepath, "w") as f:
+            f.write("~\n".join(segments) + "~")
+
+    print(f"  📄 Generated {count} EDI 810 files")
+
+
 def generate_kafka_events(
     products: list[dict],
     stores: list[dict],
@@ -777,9 +922,12 @@ def main():
     )
     print("  ✅ Inventory snapshots generated")
 
-    # ── EDI 846 Files ─────────────────────────────────────────
+    # ── EDI Files ─────────────────────────────────────────────
     print("\n📄 Generating EDI X12 sample files...")
     generate_edi_846_files(products, stores, output / "edi", count=10)
+    generate_edi_850_files(products, stores, output / "edi", count=5)
+    generate_edi_856_files(products, stores, output / "edi", count=5)
+    generate_edi_810_files(products, stores, output / "edi", count=5)
 
     # ── Kafka Events ──────────────────────────────────────────
     print("\n⚡ Generating Kafka event samples...")
@@ -794,7 +942,7 @@ def main():
     print(f"  📊 Products:          {len(products)} with GTINs + per-dept margins")
     print(f"  🏬 Stores:            {len(stores)} across 3 zones (volume-weighted)")
     print(f"  💳 Transactions:      {tx_count:,} rows (with YoY growth + event spikes)")
-    print("  📄 EDI 846 files:     10 sample documents")
+    print("  📄 EDI files:         25 sample documents (846/850/856/810)")
     print("  ⚡ Kafka events:      200 sample events")
     print("\n  Copy transactions/ and inventory/ to SFTP staging dir")
     print("  Copy edi/ to /data/edi/inbound for EDI adapter testing")

@@ -34,6 +34,13 @@ jobs:
           pip install -r backend/requirements.txt
           pip install -r backend/requirements-ml.txt
           pip install ruff aiosqlite
+      - name: Generate minimal seed data for ML tests
+        run: |
+          python backend/scripts/seed_enterprise_data.py \
+            --days 40 \
+            --products 50 \
+            --stores 3 \
+            --output data/seed
       - name: Run tests
         env:
           PYTHONPATH: backend
@@ -139,6 +146,8 @@ jobs:
           python backend/scripts/validate_training_datasets.py --base-dir . --output /tmp/dataset_validation.md
           python backend/scripts/run_training.py --help > /tmp/run_training_help.txt
           python backend/scripts/benchmark_datasets.py --help > /tmp/benchmark_help.txt
+      - name: Install ripgrep
+        run: sudo apt-get install -y ripgrep
       - name: Validate documentation structure and policy
         run: |
           bash scripts/validate_docs.sh
@@ -175,6 +184,8 @@ jobs:
           pip install alembic
       - name: Run migrations on Postgres
         working-directory: backend
+        env:
+          PYTHONPATH: .
         run: alembic upgrade head
       - name: Validate tenant session settings work on Postgres
         run: |
@@ -228,6 +239,8 @@ jobs:
           pip install alembic aiosqlite
       - name: Migration rollback/forward smoke
         working-directory: backend
+        env:
+          PYTHONPATH: .
         run: |
           alembic upgrade head
           alembic downgrade 007
