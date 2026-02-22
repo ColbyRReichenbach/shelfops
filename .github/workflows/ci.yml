@@ -158,7 +158,7 @@ jobs:
     needs: backend-lint
     services:
       postgres:
-        image: postgres:15
+        image: timescale/timescaledb:latest-pg15
         env:
           POSTGRES_DB: shelfops
           POSTGRES_USER: shelfops
@@ -212,7 +212,7 @@ jobs:
     needs: [backend-lint, backend-test, postgres-parity]
     services:
       postgres:
-        image: postgres:15
+        image: timescale/timescaledb:latest-pg15
         env:
           POSTGRES_DB: shelfops
           POSTGRES_USER: shelfops
