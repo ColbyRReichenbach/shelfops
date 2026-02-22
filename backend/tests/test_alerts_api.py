@@ -107,3 +107,22 @@ class TestAlertsIntegration:
         alert = resp.json()[0]
         for field in ["alert_id", "alert_type", "severity", "message", "status", "created_at"]:
             assert field in alert
+
+    async def test_create_order_from_alert(self, client: AsyncClient, seeded_alerts):
+        """Open alert can create a linked purchase order once."""
+        open_alert = next(a for a in seeded_alerts["alerts"] if a.status == "open")
+
+        resp = await client.post(
+            f"/api/v1/alerts/{open_alert.alert_id}/order",
+            json={"quantity": 12, "estimated_cost": 42.0},
+        )
+        assert resp.status_code == 200
+        payload = resp.json()
+        assert payload["alert_id"] == str(open_alert.alert_id)
+        assert payload["status"] == "suggested"
+
+        second = await client.post(
+            f"/api/v1/alerts/{open_alert.alert_id}/order",
+            json={"quantity": 12, "estimated_cost": 42.0},
+        )
+        assert second.status_code in {400, 409}

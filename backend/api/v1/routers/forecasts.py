@@ -3,6 +3,7 @@ Forecasts Router — Demand forecast endpoints.
 """
 
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -11,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_tenant_db
-from db.models import DemandForecast, ForecastAccuracy
+from db.models import DemandForecast, ForecastAccuracy, Transaction
 
 router = APIRouter(prefix="/api/v1/forecasts", tags=["forecasts"])
 
@@ -40,6 +41,22 @@ class AccuracySummary(BaseModel):
     avg_mae: float
     avg_mape: float
     num_forecasts: int
+
+
+class AccuracyTrendPoint(BaseModel):
+    date: date
+    avg_mae: float | None
+    total_actual_demand: float
+
+
+def _normalize_date_value(value: Any) -> date:
+    if isinstance(value, date):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        return date.fromisoformat(value)
+    raise ValueError(f"Unsupported date value: {value!r}")
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -100,4 +117,57 @@ async def get_accuracy_summary(
             num_forecasts=row.num_forecasts,
         )
         for row in result.all()
+    ]
+
+
+@router.get("/accuracy/trend", response_model=list[AccuracyTrendPoint])
+async def get_accuracy_trend(
+    store_id: UUID | None = None,
+    product_id: UUID | None = None,
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Get merged MAE and actual demand trend by day."""
+    acc_query = select(
+        ForecastAccuracy.forecast_date.label("trend_date"),
+        func.avg(ForecastAccuracy.mae).label("avg_mae"),
+    ).group_by(ForecastAccuracy.forecast_date)
+
+    txn_query = (
+        select(
+            func.date(Transaction.timestamp).label("trend_date"),
+            func.sum(Transaction.quantity).label("total_actual_demand"),
+        )
+        .where(Transaction.transaction_type == "sale")
+        .group_by(func.date(Transaction.timestamp))
+    )
+
+    if store_id:
+        acc_query = acc_query.where(ForecastAccuracy.store_id == store_id)
+        txn_query = txn_query.where(Transaction.store_id == store_id)
+    if product_id:
+        acc_query = acc_query.where(ForecastAccuracy.product_id == product_id)
+        txn_query = txn_query.where(Transaction.product_id == product_id)
+
+    acc_query = acc_query.order_by(ForecastAccuracy.forecast_date.desc()).limit(days)
+    txn_query = txn_query.order_by(func.date(Transaction.timestamp).desc()).limit(days)
+
+    acc_rows = (await db.execute(acc_query)).all()
+    txn_rows = (await db.execute(txn_query)).all()
+
+    mae_by_date = {
+        _normalize_date_value(row.trend_date): float(row.avg_mae) for row in acc_rows if row.avg_mae is not None
+    }
+    demand_by_date = {_normalize_date_value(row.trend_date): float(row.total_actual_demand or 0) for row in txn_rows}
+
+    merged_dates = set(mae_by_date.keys()) | set(demand_by_date.keys())
+    ordered_dates = sorted(merged_dates, reverse=True)
+
+    return [
+        AccuracyTrendPoint(
+            date=trend_date,
+            avg_mae=mae_by_date.get(trend_date),
+            total_actual_demand=demand_by_date.get(trend_date, 0.0),
+        )
+        for trend_date in ordered_dates[:days]
     ]
