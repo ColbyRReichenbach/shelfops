@@ -105,7 +105,27 @@ def map_location_to_store(location: dict, customer_id: str) -> dict:
 
 
 def map_catalog_item_to_product(item: dict, customer_id: str) -> dict:
-    """Map a Square CatalogObject to a ShelfOps Product."""
+    """Map a Square CatalogObject to a ShelfOps Product.
+
+    Handles two object types returned by the Square catalog API:
+    - ITEM: top-level catalog item with item_data; SKU and price are taken from
+      the first variation nested inside item_data.variations.
+    - ITEM_VARIATION: standalone variation object with item_variation_data; SKU
+      and price live directly in that sub-dict, and there is no item_data.name,
+      so "Unknown" is used as the product name.
+    """
+    if item.get("type") == "ITEM_VARIATION":
+        variation_data = item.get("item_variation_data", {})
+        price_money = variation_data.get("price_money", {})
+        return {
+            "customer_id": customer_id,
+            "sku": variation_data.get("sku", item.get("id", "")),
+            "name": variation_data.get("name", "Unknown"),
+            "category": None,
+            "unit_price": price_money.get("amount", 0) / 100 if price_money.get("amount") else None,
+        }
+
+    # Default: ITEM type (or unrecognised type — treat as ITEM)
     item_data = item.get("item_data", {})
     variations = item_data.get("variations", [{}])
     first_variation = variations[0].get("item_variation_data", {}) if variations else {}
@@ -118,3 +138,37 @@ def map_catalog_item_to_product(item: dict, customer_id: str) -> dict:
         "category": item_data.get("category_id"),
         "unit_price": price_money.get("amount", 0) / 100 if price_money.get("amount") else None,
     }
+
+
+def build_variation_to_parent_map(catalog_items: list[dict]) -> dict[str, str]:
+    """Build a mapping from variation ID to parent item ID.
+
+    Square inventory counts reference catalog_object_id values that may point to
+    an ITEM_VARIATION rather than its parent ITEM.  This map lets the sync worker
+    resolve a variation ID back to the parent item ID so it can be looked up in
+    the catalog_map (which is keyed on parent item IDs).
+
+    Only ITEM-type objects are iterated; their nested variation objects each carry
+    a top-level "id" field that becomes the key, and the parent item's "id" is the
+    value.
+
+    Args:
+        catalog_items: Raw list of CatalogObject dicts as returned by the Square
+            catalog/list endpoint.
+
+    Returns:
+        Dict mapping variation_id (str) -> parent_item_id (str).
+    """
+    variation_to_parent: dict[str, str] = {}
+    for catalog_object in catalog_items:
+        if catalog_object.get("type") != "ITEM":
+            continue
+        parent_id = catalog_object.get("id")
+        if not parent_id:
+            continue
+        item_data = catalog_object.get("item_data", {})
+        for variation in item_data.get("variations", []):
+            variation_id = variation.get("id")
+            if variation_id:
+                variation_to_parent[variation_id] = parent_id
+    return variation_to_parent

@@ -258,9 +258,10 @@ def _load_db_data(
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     from core.config import get_settings
-    from db.models import Product, Transaction
+    from db.models import Product, Promotion, Transaction
+    from retail.calendar import RetailCalendar
 
-    async def _query() -> pd.DataFrame:
+    async def _query() -> tuple[pd.DataFrame, pd.DataFrame]:
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
         try:
@@ -303,9 +304,9 @@ def _load_db_data(
                 rows = result.all()
 
                 if not rows:
-                    return pd.DataFrame()
+                    return pd.DataFrame(), pd.DataFrame()
 
-                return pd.DataFrame(
+                transactions_df = pd.DataFrame(
                     [
                         {
                             "date": row.date,
@@ -321,12 +322,81 @@ def _load_db_data(
                         for row in rows
                     ]
                 )
+
+                # Separate promotions query — kept outside the main aggregation to
+                # avoid complicating the GROUP BY.
+                promo_result = await db.execute(
+                    select(
+                        Promotion.store_id.label("store_id"),
+                        Promotion.product_id.label("product_id"),
+                        func.date(Promotion.start_date).label("start_date"),
+                        func.date(Promotion.end_date).label("end_date"),
+                    ).where(
+                        Promotion.customer_id == uuid.UUID(customer_id),
+                        Promotion.status.in_(["active", "planned", "completed"]),
+                    )
+                )
+                promo_rows = promo_result.all()
+
+                promotions_df = pd.DataFrame(
+                    [
+                        {
+                            "store_id": str(row.store_id) if row.store_id is not None else None,
+                            "product_id": str(row.product_id) if row.product_id is not None else None,
+                            "start_date": row.start_date,
+                            "end_date": row.end_date,
+                        }
+                        for row in promo_rows
+                    ]
+                )
+
+                return transactions_df, promotions_df
         finally:
             await engine.dispose()
 
-    raw = raw_override.copy() if raw_override is not None else asyncio.run(_query())
+    if raw_override is not None:
+        raw = raw_override.copy()
+        promotions_df = pd.DataFrame(columns=["store_id", "product_id", "start_date", "end_date"])
+    else:
+        raw, promotions_df = asyncio.run(_query())
+
     if raw.empty:
         raise ValueError(f"No transaction history found in DB for customer_id={customer_id}")
+
+    # ── Enrich is_holiday via RetailCalendar ──────────────────────────────
+    cal = RetailCalendar()
+    raw["date"] = pd.to_datetime(raw["date"])
+    raw["is_holiday"] = raw["date"].apply(lambda d: int(cal.is_holiday(d.date())))
+
+    # ── Enrich is_promotional via promotions table lookup ─────────────────
+    if not promotions_df.empty:
+        promotions_df["start_date"] = pd.to_datetime(promotions_df["start_date"])
+        promotions_df["end_date"] = pd.to_datetime(promotions_df["end_date"])
+
+        promo_flags = []
+        for _, txn_row in raw.iterrows():
+            txn_date = txn_row["date"]
+            txn_store = txn_row["store_id"]
+            txn_product = txn_row["product_id"]
+
+            # A row is promotional if any promotion covers it.
+            # A promotion matches when:
+            #   - store_id matches OR the promotion applies to all stores (store_id is None)
+            #   - product_id matches OR the promotion applies to all products (product_id is None)
+            #   - txn_date falls within [start_date, end_date]
+            store_match = (promotions_df["store_id"] == txn_store) | (promotions_df["store_id"].isna())
+            product_match = (promotions_df["product_id"] == txn_product) | (promotions_df["product_id"].isna())
+            date_match = (promotions_df["start_date"] <= txn_date) & (txn_date <= promotions_df["end_date"])
+            promo_flags.append(int((store_match & product_match & date_match).any()))
+
+        raw["is_promotional"] = promo_flags
+
+    logger.info(
+        "retrain.telemetry_enriched",
+        customer_id=customer_id,
+        rows_holiday=int(raw["is_holiday"].sum()),
+        rows_promotional=int(raw["is_promotional"].sum()),
+    )
 
     profile = _db_contract_profile(customer_id)
     mapped = build_canonical_result(raw, profile)
