@@ -7,7 +7,6 @@ Skill: fastapi
 """
 
 from datetime import date, datetime, timedelta
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -41,7 +40,7 @@ class InventoryHealthRow(BaseModel):
     product_name: str
     quantity_on_hand: int
     reorder_point: int
-    days_of_supply: Optional[float]
+    days_of_supply: float | None
     status: str  # "critical" | "warning" | "ok"
 
     model_config = {"from_attributes": True}
@@ -63,7 +62,7 @@ class StockoutRiskRow(BaseModel):
     store_name: str
     quantity_available: int
     total_forecasted_demand: float
-    days_until_stockout: Optional[int]
+    days_until_stockout: int | None
     risk_level: str  # "high" | "medium"
 
     model_config = {"from_attributes": True}
@@ -72,10 +71,10 @@ class StockoutRiskRow(BaseModel):
 class VendorScorecardRow(BaseModel):
     supplier_id: UUID
     supplier_name: str
-    on_time_rate: Optional[float]
-    avg_lead_time_days: Optional[float]
+    on_time_rate: float | None
+    avg_lead_time_days: float | None
     total_pos: int
-    fill_rate: Optional[float]
+    fill_rate: float | None
 
     model_config = {"from_attributes": True}
 
@@ -171,7 +170,7 @@ async def _get_inventory_health(db: AsyncSession) -> list[InventoryHealthRow]:
         else:
             status = "ok"
 
-        days_of_supply: Optional[float] = None
+        days_of_supply: float | None = None
         if avg_daily is not None and avg_daily > 0:
             days_of_supply = round(qty / avg_daily, 2)
 
@@ -191,9 +190,7 @@ async def _get_inventory_health(db: AsyncSession) -> list[InventoryHealthRow]:
     return output
 
 
-async def _get_forecast_accuracy(
-    db: AsyncSession, days: int
-) -> list[ForecastAccuracyWeek]:
+async def _get_forecast_accuracy(db: AsyncSession, days: int) -> list[ForecastAccuracyWeek]:
     """
     Aggregate forecast_accuracy rows over the lookback window, bucketing into
     ISO calendar weeks in Python (avoids date_trunc / strftime dialect split).
@@ -239,9 +236,7 @@ async def _get_forecast_accuracy(
     return output
 
 
-async def _get_stockout_risk(
-    db: AsyncSession, horizon_days: int
-) -> list[StockoutRiskRow]:
+async def _get_stockout_risk(db: AsyncSession, horizon_days: int) -> list[StockoutRiskRow]:
     """
     Find store/product combos where quantity_available < sum of forecasted demand
     for the next horizon_days.  Returns only the at-risk combos.
@@ -318,7 +313,7 @@ async def _get_stockout_risk(
 
         # Estimate days_until_stockout: if daily demand rate is known, project
         # forward.  Uses the ratio of inventory to per-day average demand.
-        days_until_stockout: Optional[int] = None
+        days_until_stockout: int | None = None
         if row.forecast_days and row.forecast_days > 0 and total_demand > 0:
             daily_rate = total_demand / row.forecast_days
             if daily_rate > 0:
@@ -366,20 +361,16 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
             func.avg(
                 case(
                     (
-                        PurchaseOrder.actual_delivery_date
-                        <= PurchaseOrder.promised_delivery_date,
+                        PurchaseOrder.actual_delivery_date <= PurchaseOrder.promised_delivery_date,
                         1.0,
                     ),
                     else_=0.0,
                 )
             ).label("on_time_rate"),
             func.avg(
-                func.julianday(PurchaseOrder.actual_delivery_date)
-                - func.julianday(PurchaseOrder.suggested_at)
+                func.julianday(PurchaseOrder.actual_delivery_date) - func.julianday(PurchaseOrder.suggested_at)
             ).label("avg_lead_time_days"),
-            func.avg(
-                PurchaseOrder.received_qty * 1.0 / PurchaseOrder.quantity
-            ).label("fill_rate"),
+            func.avg(PurchaseOrder.received_qty * 1.0 / PurchaseOrder.quantity).label("fill_rate"),
         )
         .where(
             and_(
@@ -420,22 +411,12 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
         VendorScorecardRow(
             supplier_id=row.supplier_id,
             supplier_name=row.supplier_name,
-            on_time_rate=(
-                round(float(row.on_time_rate), 4)
-                if row.on_time_rate is not None
-                else None
-            ),
+            on_time_rate=(round(float(row.on_time_rate), 4) if row.on_time_rate is not None else None),
             avg_lead_time_days=(
-                round(float(row.avg_lead_time_days), 2)
-                if row.avg_lead_time_days is not None
-                else None
+                round(float(row.avg_lead_time_days), 2) if row.avg_lead_time_days is not None else None
             ),
             total_pos=row.total_pos,
-            fill_rate=(
-                round(float(row.fill_rate), 4)
-                if row.fill_rate is not None
-                else None
-            ),
+            fill_rate=(round(float(row.fill_rate), 4) if row.fill_rate is not None else None),
         )
         for row in rows
     ]
@@ -470,9 +451,7 @@ async def get_forecast_accuracy(
 
 @router.get("/stockout-risk", response_model=list[StockoutRiskRow])
 async def get_stockout_risk(
-    horizon_days: int = Query(
-        7, ge=1, le=90, description="Forecast horizon in days"
-    ),
+    horizon_days: int = Query(7, ge=1, le=90, description="Forecast horizon in days"),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """

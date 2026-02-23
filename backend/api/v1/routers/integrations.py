@@ -214,9 +214,11 @@ async def square_webhook(
             customer_id = str(integration.customer_id)
             if event_type in _INVENTORY_EVENTS:
                 from workers.sync import sync_square_inventory
+
                 sync_square_inventory.delay(customer_id)
             else:
                 from workers.sync import sync_square_transactions
+
                 sync_square_transactions.delay(customer_id)
 
     return {"status": "received", "event_type": event_type}

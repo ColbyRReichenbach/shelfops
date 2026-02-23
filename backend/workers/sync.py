@@ -319,6 +319,7 @@ def sync_square_inventory(self, customer_id: str):
                     catalog_data = await client.get_catalog()
                     catalog_items = catalog_data.get("objects", [])
                     from integrations.square import build_variation_to_parent_map
+
                     variation_to_parent = build_variation_to_parent_map(catalog_items)
                 except Exception:
                     variation_to_parent = {}
