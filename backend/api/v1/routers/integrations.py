@@ -194,10 +194,30 @@ async def square_webhook(
 
     payload = json.loads(body)
     event_type = payload.get("type", "")
-    _merchant_id = payload.get("merchant_id", "")  # noqa: F841 — used in future event routing
+    merchant_id = payload.get("merchant_id", "")
 
     # Route events to processors
-    # TODO: Implement event processors for inventory changes, orders, etc.
+    _INVENTORY_EVENTS = {"inventory.count.updated"}
+    _ORDER_EVENTS = {"order.created", "order.updated", "order.fulfillment.updated"}
+
+    if merchant_id and event_type in (_INVENTORY_EVENTS | _ORDER_EVENTS):
+        integration_result = await db.execute(
+            select(Integration).where(
+                Integration.merchant_id == merchant_id,
+                Integration.provider == "square",
+                Integration.status == "connected",
+            )
+        )
+        integration = integration_result.scalar_one_or_none()
+
+        if integration:
+            customer_id = str(integration.customer_id)
+            if event_type in _INVENTORY_EVENTS:
+                from workers.sync import sync_square_inventory
+                sync_square_inventory.delay(customer_id)
+            else:
+                from workers.sync import sync_square_transactions
+                sync_square_transactions.delay(customer_id)
 
     return {"status": "received", "event_type": event_type}
 
