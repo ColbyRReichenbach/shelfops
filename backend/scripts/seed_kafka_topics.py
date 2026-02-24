@@ -87,7 +87,7 @@ def make_transaction_event(index: int) -> dict[str, Any]:
     ts = ts.replace(hour=(ts.hour % 15) + 7)
 
     return {
-        "event_id": f"evt_{uuid.UUID(int=index + 0x1000).hex[:12]}",
+        "event_id": f"evt_{uuid.UUID(int=index + 0x1000).hex[-12:]}",
         "event_type": "transaction.completed",
         "store_id": random.choice(STORES),
         "timestamp": _iso(ts),
@@ -121,7 +121,7 @@ def make_inventory_event(index: int) -> dict[str, Any]:
     ts = _BASE_TS + timedelta(days=offset_days, hours=random.randint(5, 8))
 
     return {
-        "event_id": f"evt_{uuid.UUID(int=index + 0x9000).hex[:12]}",
+        "event_id": f"evt_{uuid.UUID(int=index + 0x9000).hex[-12:]}",
         "event_type": "inventory.adjusted",
         "store_id": random.choice(STORES),
         "timestamp": _iso(ts),
@@ -220,7 +220,7 @@ async def publish_events(
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
-def parse_args() -> argparse.Namespace:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Seed Redpanda (Kafka-compatible) topics with synthetic ShelfOps events.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -257,7 +257,11 @@ def parse_args() -> argparse.Namespace:
         metavar="TOPIC",
         help="Kafka topic for inventory adjustment events",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
+
+
+# Public alias for backward compatibility
+parse_args = _parse_args
 
 
 def main() -> None:
@@ -273,7 +277,7 @@ def main() -> None:
         for _ in range(20)
     ]
 
-    args = parse_args()
+    args = _parse_args()
 
     if args.transactions < 0:
         print("ERROR: --transactions must be >= 0")
