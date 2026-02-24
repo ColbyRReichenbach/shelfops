@@ -354,7 +354,8 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
         .subquery()
     )
 
-    # Received POs — on-time rate, avg lead time, fill rate
+    # Received POs — on-time rate, fill rate, and the raw date columns needed
+    # to compute avg_lead_time_days in Python (avoids julianday / dialect split).
     received_sub = (
         select(
             PurchaseOrder.supplier_id,
@@ -367,9 +368,6 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
                     else_=0.0,
                 )
             ).label("on_time_rate"),
-            func.avg(
-                func.julianday(PurchaseOrder.actual_delivery_date) - func.julianday(PurchaseOrder.suggested_at)
-            ).label("avg_lead_time_days"),
             func.avg(PurchaseOrder.received_qty * 1.0 / PurchaseOrder.quantity).label("fill_rate"),
         )
         .where(
@@ -385,12 +383,54 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
         .subquery()
     )
 
+    # Fetch raw date columns so lead-time arithmetic stays in Python.
+    lead_time_query = select(
+        PurchaseOrder.supplier_id,
+        PurchaseOrder.actual_delivery_date,
+        PurchaseOrder.suggested_at,
+    ).where(
+        and_(
+            PurchaseOrder.supplier_id.isnot(None),
+            PurchaseOrder.status == "received",
+            PurchaseOrder.actual_delivery_date.isnot(None),
+            PurchaseOrder.suggested_at.isnot(None),
+        )
+    )
+
+    lead_time_result = await db.execute(lead_time_query)
+    lead_time_rows = lead_time_result.all()
+
+    # Compute avg lead time per supplier in Python — no SQL dialect dependency.
+    lead_time_days_sum: dict[UUID, float] = {}
+    lead_time_days_count: dict[UUID, int] = {}
+    for lt_row in lead_time_rows:
+        # actual_delivery_date is Date; suggested_at is DateTime — normalise both
+        # to date before subtracting so the delta is always in whole days.
+        delivery_date: date = (
+            lt_row.actual_delivery_date
+            if isinstance(lt_row.actual_delivery_date, date)
+            else lt_row.actual_delivery_date.date()
+        )
+        suggested_date: date = (
+            lt_row.suggested_at
+            if isinstance(lt_row.suggested_at, date)
+            else lt_row.suggested_at.date()
+        )
+        delta_days = (delivery_date - suggested_date).days
+        sid = lt_row.supplier_id
+        lead_time_days_sum[sid] = lead_time_days_sum.get(sid, 0.0) + delta_days
+        lead_time_days_count[sid] = lead_time_days_count.get(sid, 0) + 1
+
+    avg_lead_time_by_supplier: dict[UUID, float] = {
+        sid: lead_time_days_sum[sid] / lead_time_days_count[sid]
+        for sid in lead_time_days_sum
+    }
+
     query = (
         select(
             Supplier.supplier_id,
             Supplier.name.label("supplier_name"),
             received_sub.c.on_time_rate,
-            received_sub.c.avg_lead_time_days,
             total_pos_sub.c.total_pos,
             received_sub.c.fill_rate,
         )
@@ -413,7 +453,9 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
             supplier_name=row.supplier_name,
             on_time_rate=(round(float(row.on_time_rate), 4) if row.on_time_rate is not None else None),
             avg_lead_time_days=(
-                round(float(row.avg_lead_time_days), 2) if row.avg_lead_time_days is not None else None
+                round(avg_lead_time_by_supplier[row.supplier_id], 2)
+                if row.supplier_id in avg_lead_time_by_supplier
+                else None
             ),
             total_pos=row.total_pos,
             fill_rate=(round(float(row.fill_rate), 4) if row.fill_rate is not None else None),

@@ -43,9 +43,14 @@ class SquareClient:
             return response.json().get("locations", [])
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    async def get_catalog(self, cursor: str | None = None) -> dict:
-        """Fetch catalog items (products) from Square."""
-        params = {"types": "ITEM"}
+    async def _fetch_catalog_page(self, cursor: str | None = None) -> dict:
+        """Fetch a single page of catalog items from Square.
+
+        The @retry decorator is intentionally on this private helper so that
+        transient failures on any individual page are retried without restarting
+        the entire pagination loop.
+        """
+        params: dict[str, str] = {"types": "ITEM"}
         if cursor:
             params["cursor"] = cursor
         async with httpx.AsyncClient() as client:
@@ -56,6 +61,32 @@ class SquareClient:
             )
             response.raise_for_status()
             return response.json()
+
+    async def get_catalog(self) -> list[dict]:
+        """Fetch ALL catalog items from Square, following cursor-based pagination.
+
+        Square's catalog/list endpoint returns at most one page of objects per
+        request.  When additional pages exist the response contains a ``cursor``
+        field.  This method drives the pagination loop and returns the flat,
+        accumulated list of every CatalogObject across all pages.
+
+        Retry logic lives in ``_fetch_catalog_page`` so that transient errors on
+        any single page are retried without restarting from page one.
+
+        Returns:
+            Flat list of raw CatalogObject dicts from every page.
+        """
+        all_objects: list[dict] = []
+        cursor: str | None = None
+
+        while True:
+            page = await self._fetch_catalog_page(cursor)
+            all_objects.extend(page.get("objects", []))
+            cursor = page.get("cursor")
+            if not cursor:
+                break
+
+        return all_objects
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
     async def get_inventory_counts(self, location_ids: list[str]) -> list[dict]:

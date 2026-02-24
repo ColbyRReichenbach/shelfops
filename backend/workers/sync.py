@@ -316,8 +316,7 @@ def sync_square_inventory(self, customer_id: str):
                 # catalog_object_id points to an ITEM_VARIATION are resolved to
                 # their parent ITEM ID before catalog_map lookup.
                 try:
-                    catalog_data = await client.get_catalog()
-                    catalog_items = catalog_data.get("objects", [])
+                    catalog_items = await client.get_catalog()
                     from integrations.square import build_variation_to_parent_map
 
                     variation_to_parent = build_variation_to_parent_map(catalog_items)

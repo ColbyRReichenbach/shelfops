@@ -373,23 +373,43 @@ def _load_db_data(
         promotions_df["start_date"] = pd.to_datetime(promotions_df["start_date"])
         promotions_df["end_date"] = pd.to_datetime(promotions_df["end_date"])
 
-        promo_flags = []
-        for _, txn_row in raw.iterrows():
-            txn_date = txn_row["date"]
-            txn_store = txn_row["store_id"]
-            txn_product = txn_row["product_id"]
+        # Build a set of (store_id_or_None, product_id_or_None, date) tuples covering
+        # every date in each promotion's range.  This replaces the O(n×m) row-by-row
+        # broadcast comparison loop with O(m × date_range_length) set construction and
+        # O(n) hash lookups.
+        #
+        # Guard: cap each promotion's expansion at 366 days to prevent memory explosion
+        # from very long tenant-wide promotions (e.g. year-long blanket discounts).
+        _MAX_PROMO_DAYS = 366
+        promo_dates: set[tuple] = set()
+        for _, promo in promotions_df.iterrows():
+            start = promo["start_date"]
+            end = promo["end_date"]
+            # Clamp the end date so we never expand more than _MAX_PROMO_DAYS per row.
+            clamped_end = min(end, start + pd.Timedelta(days=_MAX_PROMO_DAYS - 1))
+            date_range = pd.date_range(start, clamped_end, freq="D")
+            store = promo["store_id"]    # may be None (tenant-wide promotion)
+            product = promo["product_id"]  # may be None (all-product promotion)
+            for d in date_range:
+                promo_dates.add((store, product, d))
 
-            # A row is promotional if any promotion covers it.
-            # A promotion matches when:
-            #   - store_id matches OR the promotion applies to all stores (store_id is None)
-            #   - product_id matches OR the promotion applies to all products (product_id is None)
-            #   - txn_date falls within [start_date, end_date]
-            store_match = (promotions_df["store_id"] == txn_store) | (promotions_df["store_id"].isna())
-            product_match = (promotions_df["product_id"] == txn_product) | (promotions_df["product_id"].isna())
-            date_match = (promotions_df["start_date"] <= txn_date) & (txn_date <= promotions_df["end_date"])
-            promo_flags.append(int((store_match & product_match & date_match).any()))
+        def _is_promo(row) -> int:
+            d = row["date"]
+            s = row["store_id"]
+            p = row["product_id"]
+            # Match priority (most-specific to least-specific):
+            #   exact store + exact product
+            #   wildcard store  (None) + exact product
+            #   exact store     + wildcard product (None)
+            #   wildcard store  + wildcard product (tenant-wide)
+            return int(
+                (s, p, d) in promo_dates
+                or (None, p, d) in promo_dates
+                or (s, None, d) in promo_dates
+                or (None, None, d) in promo_dates
+            )
 
-        raw["is_promotional"] = promo_flags
+        raw["is_promotional"] = raw.apply(_is_promo, axis=1)
 
     logger.info(
         "retrain.telemetry_enriched",
