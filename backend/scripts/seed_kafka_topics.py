@@ -27,7 +27,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-
 # ── Synthetic-data constants ──────────────────────────────────────────────────
 
 STORES = [f"STORE_{n:03d}" for n in range(1, 6)]   # STORE_001 … STORE_005

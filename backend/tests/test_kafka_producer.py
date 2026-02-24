@@ -25,6 +25,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from integrations.event_adapter import (
+    INVENTORY_EVENT_SCHEMA,
+    TRANSACTION_EVENT_SCHEMA,
+    validate_event,
+)
+
 # Import the generator functions directly.
 from scripts.seed_kafka_topics import (
     ADJUSTMENT_REASONS,
@@ -35,12 +41,6 @@ from scripts.seed_kafka_topics import (
     make_inventory_event,
     make_transaction_event,
 )
-from integrations.event_adapter import (
-    INVENTORY_EVENT_SCHEMA,
-    TRANSACTION_EVENT_SCHEMA,
-    validate_event,
-)
-
 
 # ── make_transaction_event ─────────────────────────────────────────────────
 

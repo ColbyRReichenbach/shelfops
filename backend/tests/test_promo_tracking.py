@@ -365,8 +365,9 @@ class TestFullEndToEndPath:
 
         This test is expected to fail due to schema mismatches documented above.
         """
-        from retail.promo_tracking import measure_promotion_effectiveness
         from sqlalchemy import select
+
+        from retail.promo_tracking import measure_promotion_effectiveness
 
         store, product = await _seed_base(test_db)
         end_date = TODAY - timedelta(days=10)

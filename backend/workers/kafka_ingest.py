@@ -112,6 +112,7 @@ async def run_kafka_ingest_pipeline(
 
     # Persist sync logs and stamp last_sync_at on the integration row.
     from sqlalchemy import update
+
     from db.models import Integration
 
     now = datetime.now(timezone.utc)
@@ -150,10 +151,11 @@ def ingest_kafka_events(self, customer_id: str):
     logger.info("kafka_ingest.started", customer_id=customer_id, run_id=run_id)
 
     async def _ingest():
-        from core.config import get_settings
-        from db.models import Integration
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from core.config import get_settings
+        from db.models import Integration
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)

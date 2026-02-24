@@ -27,7 +27,6 @@ import db.models  # noqa: F401 — registers all ORM models before create_all
 from db.session import Base
 from workers.sftp_ingest import ingest_sftp_batch
 
-
 CUSTOMER_ID = uuid.UUID("00000000-0000-0000-0000-000000000010")
 INTEGRATION_ID = uuid.UUID("00000000-0000-0000-0000-000000000020")
 

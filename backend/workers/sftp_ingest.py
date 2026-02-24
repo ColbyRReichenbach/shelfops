@@ -75,11 +75,13 @@ def ingest_sftp_batch(self, customer_id: str):
     logger.info("sftp_ingest.started", customer_id=customer_id, run_id=run_id)
 
     async def _ingest():
-        from core.config import get_settings
-        from db.models import Integration
+        from datetime import datetime, timezone
+
         from sqlalchemy import select, update
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-        from datetime import datetime, timezone
+
+        from core.config import get_settings
+        from db.models import Integration
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)

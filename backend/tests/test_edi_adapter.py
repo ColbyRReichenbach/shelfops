@@ -22,8 +22,7 @@ from pathlib import Path
 
 import pytest
 
-from integrations.edi_adapter import EDIAdapter, EDI846Item, EDI810Invoice, EDI856Shipment, EDIX12Parser
-
+from integrations.edi_adapter import EDI810Invoice, EDI846Item, EDI856Shipment, EDIAdapter, EDIX12Parser
 
 # ── Raw EDI fixtures ───────────────────────────────────────────────────────
 

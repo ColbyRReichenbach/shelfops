@@ -33,7 +33,6 @@ import db.models  # noqa: F401 — ensures all ORM models register with Base.met
 from db.session import Base
 from workers.kafka_ingest import ingest_kafka_events, run_kafka_ingest_pipeline
 
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 CUSTOMER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")

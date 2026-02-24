@@ -13,11 +13,11 @@ import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import db.models  # noqa: F401 — registers all ORM models before create_all()
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+import db.models  # noqa: F401 — registers all ORM models before create_all()
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -98,8 +98,8 @@ def test_edi_ingest_task_route():
 @pytest.mark.asyncio
 async def test_ingest_edi_batch_skips_when_no_integration(tmp_path):
     """If no connected EDI integration exists, pipeline must not be called."""
-    from workers.edi_ingest import run_edi_ingest_pipeline
     from db.models import Integration
+    from workers.edi_ingest import run_edi_ingest_pipeline
 
     customer_id = uuid.uuid4()
     engine, db_session = await _make_db(tmp_path)
@@ -136,8 +136,9 @@ async def test_ingest_edi_batch_skips_disconnected_integration(tmp_path):
     mock_pipeline = AsyncMock(return_value={"status": "success"})
     with patch("workers.edi_ingest.run_edi_ingest_pipeline", mock_pipeline):
         async with db_session() as db:
-            from db.models import Integration
             from sqlalchemy import select
+
+            from db.models import Integration
             result = await db.execute(
                 select(Integration).where(
                     Integration.customer_id == customer_id,
@@ -155,8 +156,8 @@ async def test_ingest_edi_batch_skips_disconnected_integration(tmp_path):
 @pytest.mark.asyncio
 async def test_run_edi_ingest_pipeline_writes_sync_logs(tmp_path):
     """run_edi_ingest_pipeline creates IntegrationSyncLog rows for all three sync types."""
-    from workers.edi_ingest import run_edi_ingest_pipeline
     from db.models import Integration, IntegrationSyncLog
+    from workers.edi_ingest import run_edi_ingest_pipeline
 
     customer_id = uuid.uuid4()
     engine, db_session = await _make_db(tmp_path)
@@ -196,8 +197,8 @@ async def test_run_edi_ingest_pipeline_writes_sync_logs(tmp_path):
 @pytest.mark.asyncio
 async def test_run_edi_ingest_pipeline_stamps_last_sync_at(tmp_path):
     """After a successful run, Integration.last_sync_at is updated."""
-    from workers.edi_ingest import run_edi_ingest_pipeline
     from db.models import Integration
+    from workers.edi_ingest import run_edi_ingest_pipeline
 
     customer_id = uuid.uuid4()
     engine, db_session = await _make_db(tmp_path)
@@ -229,8 +230,8 @@ async def test_run_edi_ingest_pipeline_stamps_last_sync_at(tmp_path):
 @pytest.mark.asyncio
 async def test_run_edi_ingest_pipeline_records_partial_failure(tmp_path):
     """If one sync type fails, its log row captures the failure status."""
-    from workers.edi_ingest import run_edi_ingest_pipeline
     from db.models import IntegrationSyncLog
+    from workers.edi_ingest import run_edi_ingest_pipeline
 
     customer_id = uuid.uuid4()
     engine, db_session = await _make_db(tmp_path)

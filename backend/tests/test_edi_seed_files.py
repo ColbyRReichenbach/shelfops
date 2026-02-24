@@ -20,7 +20,6 @@ import pytest
 from integrations.edi_adapter import EDIX12Parser
 from scripts.seed_edi_files import generate_810, generate_846, generate_856, main
 
-
 # ── 846 tests ─────────────────────────────────────────────────────────────
 
 class TestGenerate846:

@@ -59,8 +59,9 @@ async def run_edi_ingest_pipeline(
 
     Returns a summary dict with keys: status, products, inventory, transactions.
     """
-    from db.models import Integration, IntegrationSyncLog
     from sqlalchemy import update
+
+    from db.models import Integration, IntegrationSyncLog
 
     started_at = datetime.now(timezone.utc)
     config: dict = integration.config if isinstance(integration.config, dict) else {}
@@ -140,10 +141,11 @@ def ingest_edi_batch(self, customer_id: str):
     logger.info("edi_ingest.started", customer_id=customer_id, run_id=run_id)
 
     async def _ingest():
-        from core.config import get_settings
-        from db.models import Integration
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from core.config import get_settings
+        from db.models import Integration
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
