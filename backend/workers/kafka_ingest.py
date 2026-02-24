@@ -169,9 +169,9 @@ def ingest_kafka_events(self, customer_id: str):
                         Integration.status == "connected",
                     )
                 )
-                integration = result.scalar_one_or_none()
+                integrations = result.scalars().all()
 
-                if not integration:
+                if not integrations:
                     logger.info(
                         "kafka_ingest.skipped",
                         customer_id=customer_id,
@@ -179,11 +179,22 @@ def ingest_kafka_events(self, customer_id: str):
                     )
                     return {"status": "skipped", "reason": "no_event_stream_integration"}
 
-                return await run_kafka_ingest_pipeline(
-                    db,
-                    customer_id=uuid.UUID(customer_id),
-                    integration=integration,
-                )
+                pipeline_summaries = []
+                for integration in integrations:
+                    pipeline_summaries.append(
+                        await run_kafka_ingest_pipeline(
+                            db,
+                            customer_id=uuid.UUID(customer_id),
+                            integration=integration,
+                        )
+                    )
+
+                return {
+                    "status": "success",
+                    "customer_id": customer_id,
+                    "integrations_processed": len(pipeline_summaries),
+                    "summaries": pipeline_summaries,
+                }
         finally:
             await engine.dispose()
 

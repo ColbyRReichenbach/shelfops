@@ -189,6 +189,65 @@ def test_ingest_kafka_events_skips_disconnected_integration(tmp_path, monkeypatc
     asyncio.run(engine.dispose())
 
 
+def test_ingest_kafka_events_processes_multiple_connected_integrations(tmp_path, monkeypatch):
+    """Task processes all connected event_stream integrations for the tenant."""
+    engine = _sqlite_engine(tmp_path)
+    asyncio.run(_setup_db(engine))
+
+    db_url = str(engine.url)
+    monkeypatch.setattr("core.config.get_settings", lambda: SimpleNamespace(database_url=db_url))
+
+    from db.models import Customer, Integration
+
+    pubsub_integration_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
+
+    async def _seed():
+        sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with sf() as db:
+            db.add(
+                Customer(
+                    customer_id=CUSTOMER_ID,
+                    name="Test Tenant",
+                    email="test@example.com",
+                    status="active",
+                    plan="professional",
+                )
+            )
+            db.add(
+                Integration(
+                    integration_id=INTEGRATION_ID,
+                    customer_id=CUSTOMER_ID,
+                    provider="kafka",
+                    integration_type="event_stream",
+                    status="connected",
+                    config={"broker_type": "kafka"},
+                )
+            )
+            db.add(
+                Integration(
+                    integration_id=pubsub_integration_id,
+                    customer_id=CUSTOMER_ID,
+                    provider="pubsub",
+                    integration_type="event_stream",
+                    status="connected",
+                    config={"broker_type": "pubsub"},
+                )
+            )
+            await db.commit()
+
+    asyncio.run(_seed())
+
+    with patch("workers.kafka_ingest.run_kafka_ingest_pipeline", new_callable=AsyncMock) as mock_pipeline:
+        mock_pipeline.return_value = {"status": "success"}
+        result = ingest_kafka_events.run(customer_id=str(CUSTOMER_ID))
+
+    assert result["status"] == "success"
+    assert result["integrations_processed"] == 2
+    assert mock_pipeline.await_count == 2
+
+    asyncio.run(engine.dispose())
+
+
 # ── Tests: run_kafka_ingest_pipeline ──────────────────────────────────────
 
 
