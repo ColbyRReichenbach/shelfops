@@ -15,7 +15,6 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
-![GCP](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)
 
 Architecture reference for engineers and technical hiring managers. For the product story, see [README.md](./README.md).
 
@@ -64,7 +63,7 @@ POS / ERP / Kafka / SFTP / EDI X12
 | Explainability | SHAP | Per-forecast feature importance, surfaced in dashboard and API |
 | Data validation | Pandera | Schema contracts at 3 ingest/processing gates |
 | Frontend | React 18 + TypeScript + Vite + Tailwind CSS + Recharts | |
-| Containerization | Docker Compose | Local dev; GCP Cloud Run target for production |
+| Containerization | Docker Compose | Local dev |
 
 ---
 

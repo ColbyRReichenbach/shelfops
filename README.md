@@ -8,7 +8,6 @@
 ![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2-FDB515?style=flat-square&logo=timescale&logoColor=black)
 ![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)
 ![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
-![GCP](https://img.shields.io/badge/GCP-Cloud_Run-4285F4?style=flat-square&logo=googlecloud&logoColor=white)
 
 > AI-powered inventory intelligence — built from 4 years on the retail floor.
 
