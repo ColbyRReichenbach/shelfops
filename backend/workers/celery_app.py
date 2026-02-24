@@ -25,6 +25,9 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_routes={
         "workers.sync.*": {"queue": "sync"},
+        "workers.kafka_ingest.*": {"queue": "sync"},
+        "workers.sftp_ingest.*": {"queue": "sync"},
+        "workers.edi_ingest.*": {"queue": "sync"},
         "workers.retrain.*": {"queue": "ml"},
         "workers.forecast.*": {"queue": "ml"},
         "workers.inventory_optimizer.*": {"queue": "ml"},
@@ -130,6 +133,27 @@ celery_app.conf.update(
             "task": "workers.scheduler.dispatch_active_tenants",
             "schedule": crontab(hour=5, minute=0, day_of_week="monday"),
             "kwargs": {"task_name": "workers.promo_tracking.measure_completed_promotions"},
+            "options": {"queue": "sync"},
+        },
+        # ── SFTP Batch Ingest ──────────────────────────────────────────
+        "sftp-sync-15m": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(minute="*/15"),
+            "kwargs": {"task_name": "workers.sftp_ingest.ingest_sftp_batch"},
+            "options": {"queue": "sync"},
+        },
+        # ── EDI X12 Batch Ingest ───────────────────────────────────────
+        "edi-ingest-15m": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(minute="*/15"),
+            "kwargs": {"task_name": "workers.edi_ingest.ingest_edi_batch"},
+            "options": {"queue": "sync"},
+        },
+        # ── Event Streaming (Kafka / Pub/Sub) ─────────────────────────
+        "kafka-ingest-5m": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(minute="*/5"),
+            "kwargs": {"task_name": "workers.kafka_ingest.ingest_kafka_events"},
             "options": {"queue": "sync"},
         },
         # ── Phase 1 - Quick Wins (Anomaly Detection) ──────────────────

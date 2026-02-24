@@ -90,6 +90,7 @@ from api.v1.routers import (
     outcomes,
     products,
     purchase_orders,
+    reports,
     stores,
 )
 
@@ -106,6 +107,7 @@ app.include_router(experiments.router)
 app.include_router(anomalies.router)
 app.include_router(outcomes.router)
 app.include_router(ml_ops.router)
+app.include_router(reports.router)
 app.include_router(ws_router)
 
 

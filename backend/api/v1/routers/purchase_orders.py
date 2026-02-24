@@ -212,6 +212,7 @@ async def approve_purchase_order(
     po_id: UUID,
     body: POApprovalRequest,
     db: AsyncSession = Depends(get_tenant_db),
+    user: dict = Depends(get_current_user),
 ):
     """
     Approve a suggested purchase order.
@@ -247,6 +248,7 @@ async def approve_purchase_order(
     po.ordered_at = datetime.utcnow()
 
     # Log decision
+    decided_by = user.get("email") or user.get("sub", "system")
     decision = PODecision(
         customer_id=po.customer_id,
         po_id=po.po_id,
@@ -255,7 +257,7 @@ async def approve_purchase_order(
         final_qty=final_qty,
         reason_code=body.reason_code,
         notes=body.notes,
-        decided_by="system",  # TODO: from auth context
+        decided_by=decided_by,
     )
     db.add(decision)
 
@@ -269,6 +271,7 @@ async def reject_purchase_order(
     po_id: UUID,
     body: PORejectRequest,
     db: AsyncSession = Depends(get_tenant_db),
+    user: dict = Depends(get_current_user),
 ):
     """
     Reject a purchase order with reason code.
@@ -287,6 +290,7 @@ async def reject_purchase_order(
 
     po.status = "cancelled"
 
+    decided_by = user.get("email") or user.get("sub", "system")
     decision = PODecision(
         customer_id=po.customer_id,
         po_id=po.po_id,
@@ -295,7 +299,7 @@ async def reject_purchase_order(
         final_qty=0,
         reason_code=body.reason_code,
         notes=body.notes,
-        decided_by="system",
+        decided_by=decided_by,
     )
     db.add(decision)
 

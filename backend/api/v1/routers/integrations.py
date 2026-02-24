@@ -13,6 +13,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import httpx
+import redis as redis_lib
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -27,6 +28,34 @@ from integrations.sla_policy import resolve_sla_hours
 
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 settings = get_settings()
+
+# ─── Webhook Debounce ────────────────────────────────────────────────────────
+
+_DEBOUNCE_TTL_SECONDS = 300  # 5-minute window
+
+
+def _debounce_and_dispatch(redis_key: str, task_fn, *task_args) -> bool:
+    """
+    Best-effort Redis debounce guard for Celery task dispatch.
+
+    Sets a key with a 5-minute TTL on first call; skips dispatch if the key
+    already exists (task already queued within the window).  A Redis outage
+    is caught and logged so it never breaks webhook processing.
+
+    Returns True if the task was dispatched, False if it was debounced.
+    """
+    try:
+        client = redis_lib.from_url(settings.redis_url, socket_connect_timeout=1)
+        # NX=True means SET only if the key does NOT exist.
+        acquired = client.set(redis_key, "1", ex=_DEBOUNCE_TTL_SECONDS, nx=True)
+        if not acquired:
+            return False
+    except Exception:
+        # Redis unavailable — fall through and dispatch anyway so no event is lost.
+        pass
+
+    task_fn.delay(*task_args)
+    return True
 
 
 # ─── OAuth State Helpers ─────────────────────────────────────────────────────
@@ -194,10 +223,40 @@ async def square_webhook(
 
     payload = json.loads(body)
     event_type = payload.get("type", "")
-    _merchant_id = payload.get("merchant_id", "")  # noqa: F841 — used in future event routing
+    merchant_id = payload.get("merchant_id", "")
 
     # Route events to processors
-    # TODO: Implement event processors for inventory changes, orders, etc.
+    _INVENTORY_EVENTS = {"inventory.count.updated"}
+    _ORDER_EVENTS = {"order.created", "order.updated", "order.fulfillment.updated"}
+
+    if merchant_id and event_type in (_INVENTORY_EVENTS | _ORDER_EVENTS):
+        integration_result = await db.execute(
+            select(Integration).where(
+                Integration.merchant_id == merchant_id,
+                Integration.provider == "square",
+                Integration.status == "connected",
+            )
+        )
+        integration = integration_result.scalar_one_or_none()
+
+        if integration:
+            customer_id = str(integration.customer_id)
+            if event_type in _INVENTORY_EVENTS:
+                from workers.sync import sync_square_inventory
+
+                _debounce_and_dispatch(
+                    f"square_webhook:inventory:{customer_id}",
+                    sync_square_inventory,
+                    customer_id,
+                )
+            else:
+                from workers.sync import sync_square_transactions
+
+                _debounce_and_dispatch(
+                    f"square_webhook:orders:{customer_id}",
+                    sync_square_transactions,
+                    customer_id,
+                )
 
     return {"status": "received", "event_type": event_type}
 

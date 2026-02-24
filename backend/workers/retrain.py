@@ -258,9 +258,10 @@ def _load_db_data(
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
     from core.config import get_settings
-    from db.models import Product, Transaction
+    from db.models import Product, Promotion, Transaction
+    from retail.calendar import RetailCalendar
 
-    async def _query() -> pd.DataFrame:
+    async def _query() -> tuple[pd.DataFrame, pd.DataFrame]:
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
         try:
@@ -303,9 +304,9 @@ def _load_db_data(
                 rows = result.all()
 
                 if not rows:
-                    return pd.DataFrame()
+                    return pd.DataFrame(), pd.DataFrame()
 
-                return pd.DataFrame(
+                transactions_df = pd.DataFrame(
                     [
                         {
                             "date": row.date,
@@ -321,12 +322,105 @@ def _load_db_data(
                         for row in rows
                     ]
                 )
+
+                # Separate promotions query — kept outside the main aggregation to
+                # avoid complicating the GROUP BY.
+                promo_result = await db.execute(
+                    select(
+                        Promotion.store_id.label("store_id"),
+                        Promotion.product_id.label("product_id"),
+                        func.date(Promotion.start_date).label("start_date"),
+                        func.date(Promotion.end_date).label("end_date"),
+                    ).where(
+                        Promotion.customer_id == uuid.UUID(customer_id),
+                        Promotion.status.in_(["active", "planned", "completed"]),
+                    )
+                )
+                promo_rows = promo_result.all()
+
+                promotions_df = pd.DataFrame(
+                    [
+                        {
+                            "store_id": str(row.store_id) if row.store_id is not None else None,
+                            "product_id": str(row.product_id) if row.product_id is not None else None,
+                            "start_date": row.start_date,
+                            "end_date": row.end_date,
+                        }
+                        for row in promo_rows
+                    ]
+                )
+
+                return transactions_df, promotions_df
         finally:
             await engine.dispose()
 
-    raw = raw_override.copy() if raw_override is not None else asyncio.run(_query())
+    if raw_override is not None:
+        raw = raw_override.copy()
+        promotions_df = pd.DataFrame(columns=["store_id", "product_id", "start_date", "end_date"])
+    else:
+        raw, promotions_df = asyncio.run(_query())
+
     if raw.empty:
         raise ValueError(f"No transaction history found in DB for customer_id={customer_id}")
+
+    # ── Enrich is_holiday via RetailCalendar ──────────────────────────────
+    cal = RetailCalendar()
+    raw["date"] = pd.to_datetime(raw["date"])
+    raw["is_holiday"] = raw["date"].apply(lambda d: int(cal.is_holiday(d.date())))
+
+    # ── Enrich is_promotional via promotions table lookup ─────────────────
+    # Ensure column exists (raw_override DataFrames may omit it; DB data always sets it to 0)
+    if "is_promotional" not in raw.columns:
+        raw["is_promotional"] = 0
+
+    if not promotions_df.empty:
+        promotions_df["start_date"] = pd.to_datetime(promotions_df["start_date"])
+        promotions_df["end_date"] = pd.to_datetime(promotions_df["end_date"])
+
+        # Build a set of (store_id_or_None, product_id_or_None, date) tuples covering
+        # every date in each promotion's range.  This replaces the O(n×m) row-by-row
+        # broadcast comparison loop with O(m × date_range_length) set construction and
+        # O(n) hash lookups.
+        #
+        # Guard: cap each promotion's expansion at 366 days to prevent memory explosion
+        # from very long tenant-wide promotions (e.g. year-long blanket discounts).
+        _MAX_PROMO_DAYS = 366
+        promo_dates: set[tuple] = set()
+        for _, promo in promotions_df.iterrows():
+            start = promo["start_date"]
+            end = promo["end_date"]
+            # Clamp the end date so we never expand more than _MAX_PROMO_DAYS per row.
+            clamped_end = min(end, start + pd.Timedelta(days=_MAX_PROMO_DAYS - 1))
+            date_range = pd.date_range(start, clamped_end, freq="D")
+            store = promo["store_id"]  # may be None (tenant-wide promotion)
+            product = promo["product_id"]  # may be None (all-product promotion)
+            for d in date_range:
+                promo_dates.add((store, product, d))
+
+        def _is_promo(row) -> int:
+            d = row["date"]
+            s = row["store_id"]
+            p = row["product_id"]
+            # Match priority (most-specific to least-specific):
+            #   exact store + exact product
+            #   wildcard store  (None) + exact product
+            #   exact store     + wildcard product (None)
+            #   wildcard store  + wildcard product (tenant-wide)
+            return int(
+                (s, p, d) in promo_dates
+                or (None, p, d) in promo_dates
+                or (s, None, d) in promo_dates
+                or (None, None, d) in promo_dates
+            )
+
+        raw["is_promotional"] = raw.apply(_is_promo, axis=1)
+
+    logger.info(
+        "retrain.telemetry_enriched",
+        customer_id=customer_id,
+        rows_holiday=int(raw["is_holiday"].sum()),
+        rows_promotional=int(raw["is_promotional"].sum()),
+    )
 
     profile = _db_contract_profile(customer_id)
     mapped = build_canonical_result(raw, profile)

@@ -312,6 +312,17 @@ def sync_square_inventory(self, customer_id: str):
                     )
                     raise self.retry(exc=exc)
 
+                # Build variation→parent map so that inventory counts whose
+                # catalog_object_id points to an ITEM_VARIATION are resolved to
+                # their parent ITEM ID before catalog_map lookup.
+                try:
+                    catalog_items = await client.get_catalog()
+                    from integrations.square import build_variation_to_parent_map
+
+                    variation_to_parent = build_variation_to_parent_map(catalog_items)
+                except Exception:
+                    variation_to_parent = {}
+
                 if synthesize_demo_mappings:
                     discovered_location_ids = {str(row.get("location_id")) for row in counts if row.get("location_id")}
                     discovered_catalog_ids = {
@@ -333,7 +344,11 @@ def sync_square_inventory(self, customer_id: str):
 
                 for count in counts:
                     location_id = count.get("location_id")
-                    catalog_id = count.get("catalog_object_id", "unknown")
+                    # Resolve variation IDs to their parent item ID so that
+                    # counts referencing ITEM_VARIATION objects can still be
+                    # matched against the catalog_map (keyed on parent ITEMs).
+                    raw_catalog_id = count.get("catalog_object_id", "unknown")
+                    catalog_id = variation_to_parent.get(raw_catalog_id, raw_catalog_id)
                     quantity = int(float(count.get("quantity", 0)))
 
                     store_uuid = _resolve_external_uuid(location_id, location_map)

@@ -544,7 +544,8 @@ class Integration(Base):
         Index("ix_integrations_customer", "customer_id"),
         CheckConstraint(
             "provider IN ('square', 'shopify', 'lightspeed', 'clover', "
-            "'oracle_retail', 'sap', 'relex', 'manhattan', 'blue_yonder', 'custom_edi', 'custom_sftp')",
+            "'oracle_retail', 'sap', 'relex', 'manhattan', 'blue_yonder', "
+            "'custom_edi', 'custom_sftp', 'kafka', 'pubsub')",
             name="ck_integration_provider",
         ),
         CheckConstraint("integration_type IN ('edi', 'sftp', 'event_stream', 'rest_api')", name="ck_integration_type"),
