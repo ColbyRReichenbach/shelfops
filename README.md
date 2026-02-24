@@ -63,6 +63,6 @@ Small and mid-size retailers who need enterprise-grade inventory intelligence wi
 
 Built by **Colby Reichenbach** — retail ops background, software engineer.
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0077B5?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/colbyrreichenbach/)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-0077B5?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/colby-reichenbach/)
 [![Portfolio](https://img.shields.io/badge/Portfolio-Visit-000000?style=flat-square&logo=githubpages&logoColor=white)](https://colbyrreichenbach.github.io/)
 [![GitHub](https://img.shields.io/badge/GitHub-Follow-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/ColbyRReichenbach)
