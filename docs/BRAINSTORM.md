@@ -1065,8 +1065,8 @@ Additions to Section 8 from new findings in Sections 10–13.
 - [ ] **Foundation model cold start**: `ml_improvement_plan.md` Section 6.4 suggests
   benchmarking Chronos/TimeGPT for sub-90d tenants. At what data threshold does the
   foundation model become worth evaluating? When do we schedule this experiment?
-- [ ] **Vendor metrics wiring**: Is `vendor_metrics.py` actually registered in the
-  Celery beat schedule in `celery_app.py`? Needs code verification.
+- [x] **Vendor metrics wiring**: CONFIRMED wired. `update_vendor_scorecards` is
+  registered in `celery_app.py` beat schedule on the `sync` queue.
 - [ ] **PII audit**: Do any contract mapper / normalization pipelines pass through
   loyalty card IDs or other customer-level PII into the training dataset?
 - [ ] **MLflow artifact isolation**: Are model artifacts stored under tenant-scoped
@@ -1085,3 +1085,464 @@ Additions to Section 8 from new findings in Sections 10–13.
   always buyer-configured?
 - [ ] **Staging environment ownership**: Who maintains the staging Cloud Run
   environment and ensures it stays in sync with main? Needs an owner before demo.
+
+---
+
+## 15. What the Codebase Audit Corrected
+
+Second-pass findings that close or update earlier assumptions.
+
+### 15.1 Data Freshness Check — Exists, But Suppression Does Not
+
+`workers/monitoring.py` has `check_data_freshness()` wired to the Celery beat
+schedule. It checks `last_sync_at` per integration and flags stale ones with
+structured log warnings. **Good.**
+
+**Gap that remains**: The check logs and warns but does not suppress forecast
+recommendations or show a UI banner when data is critically stale. The backend
+alerting is there; the buyer-facing consequence is not. Section 10.5's remaining
+work is the UI layer and the forecast suppression gate, not the detection logic.
+
+### 15.2 Vendor Metrics — Wired and Running
+
+`vendor_metrics.py` (updates `reliability_score` from actual delivery performance)
+IS registered in `celery_app.py` on the `sync` queue. **Close the open question.**
+
+Gap that remains: tier-boundary-crossing does not trigger on-demand ROP recalculation.
+Section 11.7's second point still stands.
+
+### 15.3 Perishable Cap — In Predict Layer, Not Optimizer
+
+`test_ml_pipeline.py::test_perishable_cap` confirms there IS a perishable cap in
+`apply_business_rules()` in `predict.py`. The forecasted demand output is capped
+based on `shelf_life_days`.
+
+**Gap that remains**: The cap is on the forecast output, not on the optimizer's
+safety stock calculation. The ROP/EOQ in `optimizer.py` still treats perishable
+SKUs identically to non-perishable ones. Safety stock and holding cost in the
+optimizer are uncorrected. Section 11.1's fix is specifically to `optimizer.py`.
+
+### 15.4 Returns — Sign Convention Handled, Semantics Are Not
+
+`contract_profiles.py` has a `quantity_sign_policy` field. At ingest, negative
+quantities are handled by sign convention (flip, keep, or error). Tests confirm this.
+
+**Gap that remains**: The system handles the sign of a return but not its type.
+A `-10` on a damaged item and a `-10` on a customer return are treated identically
+(both become 0 demand or negative demand depending on policy). The semantic types
+(`customer_return | damaged | vendor_return | recall`) and their different
+implications for training signal are still missing. Section 11.2 stands.
+
+### 15.5 Feature Engineering Is Not Timezone-Aware
+
+`features.py` has no `localize()` or `astimezone()` calls. The `Store` model has
+a `timezone` field (defaulting to `America/New_York`), but it is not consumed
+anywhere in the feature computation pipeline.
+
+**Impact**: `day_of_week`, `hour_of_day`, `is_weekend` features are computed from
+UTC timestamps. For a store in PST (UTC-8), a transaction at 4am UTC (8pm PST the
+prior day) gets assigned to the wrong calendar day and wrong weekday. Weekly
+seasonality features are systematically wrong for any tenant not in Eastern time.
+
+**Fix needed**: In `features.py`, join `Store.timezone` and localize all
+`transaction_timestamp` values before extracting temporal features. Low-effort
+fix, high accuracy impact for any non-Eastern tenant.
+
+### 15.6 Arena Has Only 3 Test Cases for 7 Gates
+
+`test_arena_promotion_gates.py` has three tests: promote on non-regression, block
+on MAPE regression, fail-closed on missing metrics. The 7-gate system has no
+individual gate tests, no interaction tests, no concurrent promotion test.
+
+This is the highest-risk untested area in the system — the arena is the gatekeeper
+for what model buyers see, and it has thin coverage.
+
+---
+
+## 16. Loop Logic and Concurrency Edge Cases
+
+### 16.1 Concurrent Retrain — No Protection
+
+**Confirmed gap.** No Redis-based task lock or Celery task deduplication exists for
+the retrain worker. Two triggers can fire simultaneously for the same tenant:
+- Scheduled nightly + manual DS trigger at the same time
+- `drift_detected` + `new_products` triggers firing within the same minute
+- Multiple milestone checks evaluating simultaneously after a bulk historical import
+
+**What happens without a lock**: Both training jobs run in parallel on the same
+dataset, both produce a `ModelVersion` record, both attempt to write to the arena.
+The second write wins. The first job's work is silently discarded. No error.
+No audit trail of the collision.
+
+**Fix needed**: A per-tenant Redis lock in the retrain worker:
+```python
+lock_key = f"retrain_lock:{customer_id}"
+with redis_client.lock(lock_key, timeout=3600, blocking_timeout=5):
+    # training job
+```
+If the lock is already held, the second job should either queue with a delay
+or log a `retrain.skipped.already_running` event and exit cleanly.
+
+### 16.2 Retrain Failure — State Left Inconsistent
+
+**Scenario**: A retrain job starts, creates a `ModelVersion` record with
+`status = training`, then crashes at feature engineering (OOM, DB timeout, etc.).
+The record is left with `status = training` indefinitely. No cleanup. No retry
+with correct state.
+
+**Impact**: The next retrain for this tenant may see the orphaned `training` record
+and either skip (thinking a retrain is already running) or create a second record
+without cleaning up the first.
+
+**Fix needed**: The retrain worker needs a try/except that sets `status = failed`
+with an error message on any unhandled exception. A separate cleanup job (or startup
+check) should scan for `ModelVersion` records stuck in `status = training` for
+> 2 hours and mark them as `failed`. This prevents state accumulation.
+
+### 16.3 Arena Race Condition on Champion Promotion
+
+**Scenario**: Two challenger models both pass all 7 gates in the same evaluation
+cycle for the same tenant (e.g., a milestone fires two shadow models simultaneously
+and both are ready). Both attempt to set themselves as champion.
+
+**What happens**: The second write wins. The first champion is silently demoted
+and orphaned. The arena's audit trail doesn't record the collision. The demoted
+"champion" may still have its artifacts used if there's a caching layer.
+
+**Fix needed**: Champion promotion should be an atomic database operation:
+```sql
+UPDATE model_versions SET status = 'champion'
+WHERE customer_id = ? AND id = ?
+AND NOT EXISTS (
+    SELECT 1 FROM model_versions
+    WHERE customer_id = ? AND status = 'champion'
+    AND promoted_at > NOW() - INTERVAL '5 minutes'
+)
+```
+Only promote if no other model was just promoted in the last 5 minutes.
+Alternatively: Redis lock on `champion_lock:{customer_id}` during promotion.
+
+### 16.4 Feedback Loop Idempotency
+
+**Current state**: The feedback loop test suite covers feature computation
+correctness but NOT idempotency. Running `compute_feedback_features()` twice
+on the same `PODecision` dataset could double-count rejections in the training
+signal if the function is called multiple times before a retrain.
+
+**Specific risk**: If Celery `acks_late=True` causes a task retry (worker dies
+after computing but before acknowledging), the feedback computation runs twice.
+The `rejection_rate_30d` window query is based on a time window, so it's
+naturally idempotent for reads — but if there's any write path in the loop
+(updating a `feedback_processed` flag), that write could duplicate.
+
+**What to verify**: Does `feedback_loop.py` write any state between calls, or is
+it purely a read+compute function? If purely read-based, it's inherently idempotent
+and this concern is low. If there are writes, add idempotency guards.
+
+### 16.5 Milestone Trigger Firing Multiple Times
+
+**Scenario**: A milestone check runs and determines tenant has crossed the 90-day
+threshold. It queues a shadow training job. Before the job completes, another
+milestone check runs and queues a second shadow training job for the same tenant
+at the same threshold.
+
+**Fix needed**: A `milestone_triggered` table (or a flag on tenant settings) that
+records which milestones have already been triggered per tenant. The milestone check
+should be: "has this tenant crossed this threshold AND NOT already triggered it?"
+The record is written atomically before queuing the job to prevent double-triggering.
+
+### 16.6 Historical Data Import — Cascading Trigger Problem
+
+**Scenario**: A new tenant imports 2 years of historical data on onboarding day.
+The milestone check fires and sees the tenant has data spanning 730 days. It
+triggers milestones for 30d, 90d, 180d, and 365d simultaneously — four retrain
+jobs queued at once for the same tenant.
+
+**What happens**: All four jobs run in parallel (or sequentially if locked), but
+they're all training on the same dataset. The 30d job produces a worse model than
+the 365d job. If the arena evaluates them in the wrong order, the 30d model could
+accidentally win (it finishes faster, gets evaluated first, promotes before the
+better model is ready).
+
+**Fix needed**: For retroactive milestone handling, fire milestones sequentially
+with gates between them: only trigger the 90d milestone after the 30d model has
+been evaluated. Or: suppress all milestones except the highest applicable one on
+initial import (if 2 years of data, go straight to 365d milestone, skip the others).
+
+### 16.7 Model File / DB State Desync
+
+**Scenario**: Retrain job completes. MLflow artifact is written successfully.
+Then the DB write of `ModelVersion` fails (network timeout, transaction rollback).
+The model file exists in MLflow; the DB doesn't know about it.
+
+**Impact**: The next retrain sees no recent `ModelVersion` record and trains again
+from scratch, wasting compute. Worse: if someone manually queries MLflow, they see
+a model that the DB doesn't know is there. Manual intervention required.
+
+**Fix needed**: The retrain worker's DB write should be the last step, after all
+artifact writes succeed. If the DB write fails, log a `retrain.artifact_orphan`
+event with the MLflow run ID so it can be manually reconciled. Consider a
+reconciliation script that can re-register orphaned MLflow artifacts.
+
+---
+
+## 17. Testing Gaps
+
+### 17.1 No Model Quality Regression Test in CI
+
+**Confirmed gap.** The test suite has 60+ test files covering API, arena gates,
+feature engineering, scheduler dispatch, etc. There is no test that runs a
+mini training job on a fixture dataset and asserts that MASE stays below a threshold.
+
+**Why this matters**: A developer could refactor `features.py`, accidentally change
+a lag calculation, and all code tests would pass — but the model quality would have
+regressed. The regression would only surface when someone looks at production metrics.
+
+**Fix needed**: A `test_model_quality_regression.py` that:
+1. Loads a small frozen fixture dataset (Favorita 500-row sample, stored in `tests/fixtures/`)
+2. Runs the full training pipeline on it
+3. Asserts `MASE < 1.0` (model beats naive baseline) and `MAE < X` (fixed threshold)
+4. Marked as `@pytest.mark.slow` and run in CI but not in dev fast-test mode
+
+This is the "does the model add value?" gate in the test suite. Currently missing.
+
+### 17.2 Arena Gate Individual Tests
+
+**Current state**: 3 tests for the 7-gate arena. Missing:
+- Individual tests for gates 3–7 (business metrics, SHAP stability, canary window,
+  human sign-off, auto-promotion)
+- Gate interaction: a model that fails gate 3 but would have passed all others
+- Minimum hold period: newly promoted champion should not be demotable for 14 days
+- Per-segment evaluation: challenger beats aggregate but regresses on high-velocity SKUs
+- Concurrent promotion: two challengers ready simultaneously — only one should win
+
+### 17.3 Timezone Feature Tests
+
+**No test exists** for the timezone-localization gap identified in Section 15.5.
+Once the fix is implemented (localizing timestamps before feature extraction):
+- Add a test with a PST store: verify `day_of_week` for a 4am UTC timestamp
+  (8pm prior day PST) returns the prior day's weekday, not Tuesday when it's Monday
+- Add a parameterized test across all IANA timezones that have significant retailer
+  populations (America/Los_Angeles, America/Chicago, Europe/London, Asia/Tokyo)
+
+### 17.4 Feedback Loop Idempotency Test
+
+**Not in current test suite.** Once Section 16.4 is verified/fixed:
+- Test: run `compute_feedback_features()` twice with identical input → output is identical
+- Test: run with a `PODecision` record added between calls → only the new record
+  affects the output, no double-counting of the original records
+
+### 17.5 Concurrent Retrain Test
+
+Once the Redis lock (Section 16.1) is implemented:
+- Test: fire two retrain tasks simultaneously for the same tenant in a test environment
+- Assert: only one training job runs to completion, the second either queues or
+  logs a `skipped` event
+- Assert: only one `ModelVersion` record is created per cycle
+
+### 17.6 Data Freshness Suppression Test
+
+Once the UI suppression gate is added (Section 10.5):
+- Test: mock `MAX(transaction_date)` as 72 hours ago → verify forecast API returns
+  a `data_stale` warning flag in the response
+- Test: at the 48-hour threshold, verify recommendations are suppressed (empty reorder
+  list with a `data_interruption` reason code, not a normal empty list)
+
+### 17.7 Milestone Trigger Deduplication Test
+
+Once Section 16.5 is implemented:
+- Test: call the milestone check twice for a tenant at the same data depth
+- Assert: only one shadow training job is queued, not two
+- Test: for retroactive historical import (2 years of data), assert only the
+  highest applicable milestone fires
+
+### 17.8 What the Test Suite Covers Well (Do Not Break)
+
+For context — what already has solid coverage:
+- Feature leakage: `test_feature_leakage.py` — lag features properly lagged
+- Feedback loop feature computation: 10 test cases, correctness well covered
+- Inventory optimizer: `test_inventory_optimizer.py` exists
+- Shrinkage: `test_shrinkage.py` exists
+- Contract profiles and mapper: solid test coverage
+- EDI adapter: E2E and unit tests
+- Security/auth: `test_security_guardrails.py` and `test_security_auth0.py`
+- Rollback drill: `test_model_rollback_drill.py`
+
+---
+
+## 18. Automation Opportunities
+
+Beyond what's already automated (scheduled retrains, vendor metrics, monitoring).
+
+### 18.1 Automated Pre-Training Dataset Pipeline
+
+Currently the pre-trained model is trained manually. This should be a reproducible
+pipeline:
+1. Download Favorita + M5 + Rossmann from public sources (Kaggle API or cached GCS)
+2. Run standard preprocessing + feature engineering
+3. Train LightGBM (Poisson objective) with Optuna tuning
+4. Validate: assert MASE < 0.9 on held-out test set
+5. If passes, push to MLflow as `global_pretrained_v{date}` and tag as cold-start default
+
+This pipeline should be a Makefile target or a CI job that can be re-run when the
+architecture changes. The current cold-start model was trained once manually on 27 rows.
+A proper pre-training pipeline is what gives the SMB buyer confidence on day 1.
+
+### 18.2 Automated Model Quality Gate in CI
+
+Separate from the pre-training pipeline. A fast CI check (< 2 minutes):
+- Train on a tiny frozen fixture (500 rows from Favorita)
+- Assert MASE < 1.0
+- Assert bias (ME / mean_actual) < 0.20 (not systematically over-predicting by > 20%)
+- Fails CI if either assertion breaks
+
+This catches feature engineering regressions before they reach production.
+
+### 18.3 Automated Feature Importance Drift Detection
+
+After each retrain cycle, compare the top-5 SHAP features of the new model vs.
+the outgoing champion. If a feature that was in the top-5 drops out of the top-10,
+or a new feature enters the top-3 for the first time, generate a
+`feature_importance_drift` alert to the DS lead.
+
+**Why this matters**: Sudden SHAP shifts often indicate a data quality change
+(a field stopped being populated, a category got relabeled) or a structural demand
+shift (promotions stopped, a major supplier changed). Catching this automatically
+prevents silent model degradation between human reviews.
+
+### 18.4 Automated SKU Lifecycle Detection
+
+Detect when a SKU is being phased out and auto-suggest clearance mode:
+- Rule: if `avg_daily_demand` (30d rolling) < 10% of the SKU's lifetime average
+  AND `on_hand_stock > 2 × avg_daily_demand × lead_time_days`
+  → generate a `sku_phase_out_candidate` alert
+
+Buyer confirms (or ignores). If confirmed, system sets `inventory_strategy = clearance`
+and stops generating reorder recommendations for that SKU.
+
+This can run as a weekly Celery job scanning all active SKUs per tenant.
+
+### 18.5 Automated Anomaly-to-Retrain Bridge
+
+Currently `anomaly.py` (Isolation Forest) detects unusual demand events. Currently
+it only generates alerts. It should also check: is this anomaly indicative of a
+structural shift or a one-off event?
+
+**Heuristic**: If anomaly score crosses threshold AND the anomaly has persisted for
+> 3 consecutive days on the same SKU → trigger a `structural_shift_detected` retrain.
+One-off events (single-day spike) → alert only, no retrain.
+
+The distinction matters: retraining on a one-off anomaly will teach the model that
+a single-day spike is normal. Training on a structural shift is exactly what we want.
+
+### 18.6 Automated Holdout Window Rotation
+
+The arena's backtest holdout should always evaluate on the most recent 20% of data,
+not a fixed historical slice. As new transactions arrive, the holdout window should
+automatically slide forward.
+
+Currently the holdout is set at training time and may be stale by the time the
+next challenger is evaluated. An automated holdout rotation ensures the arena is
+always comparing models on recent reality, not historical conditions that may no
+longer apply.
+
+### 18.7 Automated New-Feature A/B Testing
+
+When a feature engineering change is merged (new feature added to `features.py`),
+automatically trigger a shadow training run with the new feature set vs. the existing
+champion's feature set. The arena evaluates them on the current holdout.
+
+This makes feature changes go through the same quality gate as model changes —
+no feature engineering change silently reaches production without a tracked
+comparison. Currently feature changes are deployed as code changes with no
+automated quality comparison.
+
+---
+
+## 19. Priority Framework
+
+Everything in this document, now explicitly prioritized. The goal is a working
+demo first, first customer second, scalable platform third.
+
+### P0 — Before Demo (Days, Not Weeks)
+
+These are either demo blockers or correctness issues that would make the demo
+embarrassing.
+
+| Item | Why P0 | Section |
+|---|---|---|
+| Switch to pure LightGBM (LSTM weight → 0.0) | LSTM actively degrades every metric; demo would show a worse model than we have | ml_improvement_plan.md §2.1 |
+| Replace MAPE with WAPE + MASE | Current metrics are misleading; demo metrics will look bad even if model is good | ml_improvement_plan.md §2.2 |
+| Train pre-trained LightGBM on full Favorita + M5 datasets | Current cold-start model trained on 27 rows — not demoable | §1.2 |
+| Timezone-aware feature engineering | All temporal features wrong for non-Eastern tenants | §15.5 |
+| Model improvement history in UI | Core demo moment 2; buyers can't see the model getting better | §12.1 |
+| Graduation event notification to buyer | Demo narrative requires showing the milestone firing | §2, §12.1 |
+| Data freshness UI banner + forecast suppression | Silent stale data failure would undermine demo trust | §10.5, §15.1 |
+| Concurrent retrain Redis lock | Two jobs running simultaneously could corrupt ModelVersion state | §16.1 |
+| Retrain failure → `status = failed` cleanup | Orphaned `training` records break subsequent retrains | §16.2 |
+| Model quality regression test in CI | Can't demo without knowing the model is good after code changes | §17.1 |
+| SHAP waterfall in product detail UI | Most compelling explainability visual; data already exists in API | §12.3 |
+
+### P1 — Before First Customer (Weeks, Not Months)
+
+Correctness and reliability issues that matter once real customers are in the system.
+
+| Item | Why P1 | Section |
+|---|---|---|
+| Automated pre-training dataset pipeline | Reproducible cold-start model; not dependent on manual runs | §18.1 |
+| Milestone triggers (30/90/180/365d) with density check | Required for per-tenant lifecycle to work | §2.3 |
+| Feedback quality filter (reason codes → training or not) | Without this, buyer conservatism corrupts the model | §3.3 |
+| PO suggestion override cache | Buyer rejects suggestion; system re-issues it tomorrow | §3.2 |
+| Arena per-segment evaluation | Aggregate MASE can hide regression on critical high-velocity SKUs | §6.2 |
+| Champion minimum hold period (14d) | Arena can demote a model that hasn't seen a full weekly cycle | §6.1 |
+| Champion staleness detection (rolling MASE decay) | Model silently degrades post-promotion with no trigger | §6.3 |
+| Webhook dead-letter queue | Lost events mean wrong model signals at critical demand moments | §10.4 |
+| Perishable optimizer fix (capped SS + adjusted holding cost) | Current optimizer over-buffers perishables — visible waste | §11.1 |
+| Returns semantic typing (mask from demand signal) | Current sign policy handles the number but not the meaning | §11.2 |
+| Fulfillment type (dropship/consignment) on Product | Dropship SKUs generate false reorder alerts | §11.4 |
+| Staging environment (GCP Cloud Run, deploy on main merge) | Demo runs from same env as dev — one bad commit breaks demo | §10.2 |
+| RLS CI lint rule blocking `get_db` in routers | Multi-tenancy correctness should be automated, not manual | §13.1 |
+| MLflow experiment namespacing per tenant | Required for multi-tenant shadow training observability | §7 |
+| Arena gate individual test coverage (gates 3–7) | Current 3 tests for 7 gates is not sufficient for a gatekeeper | §17.2 |
+| Milestone trigger deduplication test | Prevents double-training on historical imports | §17.7 |
+| Automated feature importance drift detection | Catches silent data quality changes between human reviews | §18.3 |
+| Verify MLflow artifact tenant isolation | Model artifacts encode business intelligence; should be scoped | §13.3 |
+
+### P2 — Post-Launch, First Quarter
+
+Real improvements once the platform is stable and we have pilot data to learn from.
+
+| Item | Why P2 | Section |
+|---|---|---|
+| `detect_model_tier()` + per-tenant architecture selection | Enables not-one-size-fits-all model selection | §5.2 |
+| Planned promotions buyer input (forward-looking features) | High SMB value but requires new UI surface | §3.4 |
+| Per-SKU service level tier (critical/standard/tail) | Material impact on holding cost vs. stockout rate | §11.5 |
+| KNN regional store similarity for multi-location | Better cold-start for chain tenants | §4.2 |
+| Inventory strategy modes (clearance/buildup) | Needed for seasonal retailers to use the platform fully | §11.6 |
+| Configurable forecast horizon per tenant (up to 90d) | Seasonal retailers can't plan with 14-day window | §10.7 |
+| Substitution/cannibalization detection | High value for multi-SKU retailers, complex to build | §11.3 |
+| Automated SKU lifecycle detection → clearance suggestion | Reduces buyer manual work for end-of-season | §18.4 |
+| Automated anomaly-to-retrain bridge | Faster response to structural demand shifts | §18.5 |
+| RedBeat HA Celery beat scheduler | Reliability at scale; acceptable risk for SMB launch | §10.1 |
+| Reliability tier-crossing → on-demand ROP recalculation | Nice-to-have real-time response; nightly batch is acceptable | §11.7 |
+| Feedback loop impact metric in UI | Useful engagement but not critical path | §12.2 |
+| Prediction interval confidence band in forecast chart | Requires quantile regression (Phase B) first | §12.4 |
+
+### P3 — Future Platform Investments
+
+Longer-term, requires scale or data that doesn't exist yet.
+
+| Item | Section / Reference |
+|---|---|
+| Hierarchical per-department models | ml_improvement_plan.md §3.4 |
+| LightGBM + Prophet hybrid | ml_improvement_plan.md §6.1 |
+| N-HiTS or TFT sequence model | ml_improvement_plan.md §3.3 |
+| Conformal prediction intervals | ml_improvement_plan.md §6.2 |
+| Foundation model benchmark (Chronos/TimeGPT) | ml_improvement_plan.md §6.4 |
+| Federated learning across tenants | future_integrations.md §4 |
+| Multi-region / data residency | future_integrations.md §1 |
+| Weather + supply chain disruption signals | future_integrations.md §3 |
+| Social sentiment pipeline | future_integrations.md §2 |
+| LLM natural language insights (SHAP → plain language) | future_integrations.md §4 |
+| Multi-echelon inventory optimization | §4.3 (brainstorm idea only) |
+| Online learning / continual adaptation | ml_improvement_plan.md §6.3 |
