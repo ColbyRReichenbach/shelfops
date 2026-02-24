@@ -28,6 +28,7 @@
 - Model readiness: `docs/engineering/model_readiness.md`
 - Model tuning, dataset readiness, and iteration logging contract: `docs/engineering/model_tuning_and_dataset_readiness.md`
 - ML effectiveness: `docs/engineering/ml_effectiveness.md`
+- ML improvement plan (diagnosis + phased iteration roadmap): `docs/engineering/ml_improvement_plan.md`
 
 ## Operations
 
