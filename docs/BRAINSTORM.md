@@ -1652,3 +1652,4 @@ This is **firmly P3 — future platform investment**, not because it's unimporta
 - It's a strong candidate for a dedicated research spike after Phase 3 closes
 
 **Suggested next step**: Research spike (1-2 days) focused on §20.7 questions before this moves to a spec.
+See `docs/engineering/domain_generalization_spike.md` for the full spike plan, execution schedule, and go/no-go criteria.
