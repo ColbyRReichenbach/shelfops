@@ -16,7 +16,9 @@
 
 - Production readiness: `docs/product/production_readiness.md`
 - Roadmap: `docs/product/roadmap.md`
+- Known limitations: `docs/product/known_limitations.md`
 - Known issues: `docs/product/known_issues.md`
+- Future integrations: `docs/product/future_integrations.md`
 - Decision log: `docs/product/decision_log.md`
 
 ## Engineering

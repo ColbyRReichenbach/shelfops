@@ -55,6 +55,8 @@ Small and mid-size retailers who need enterprise-grade inventory intelligence wi
 
 - [Technical README](./TECHNICAL.md) — architecture, ML design, how to run locally, CI/CD
 - [Engineering docs](./docs) — API contracts, model readiness, operations runbooks
+- [Future Integrations](./docs/product/future_integrations.md) — platform vision: weather intelligence, social trend signals, enterprise cloud scale
+- [Known Limitations](./docs/product/known_limitations.md) — current architectural boundaries and design tradeoffs
 
 ---
 
