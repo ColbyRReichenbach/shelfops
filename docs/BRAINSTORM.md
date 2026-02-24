@@ -601,6 +601,443 @@ conformal prediction, online learning, Chronos/foundation model benchmark.
 
 ---
 
+## 10. Infrastructure Gaps
+
+### 10.1 Celery Beat — Single Point of Failure
+
+**Current state**: All 12 scheduled jobs run through a single Celery beat process.
+No HA configuration. If beat crashes, all scheduled work stops: retrains, vendor metrics
+updates, forecast jobs, monitoring checks — everything.
+
+**Known limitation** (`known_limitations.md`). The fix is RedBeat (Redis-backed Celery
+beat scheduler with distributed locking). Two beat instances can run simultaneously;
+only one acquires the lock per interval. No custom Celery changes needed.
+
+**Impact on ML**: If beat crashes at midnight when the nightly retrain is scheduled,
+no tenant gets an updated model. No alert fires. The champion is silently stale.
+This is a demo-day risk and a reliability risk.
+
+**Fix needed**: Add RedBeat to `celery_app.py` config, add a beat health check
+endpoint, add alerting when a scheduled job hasn't fired within 2× its expected interval.
+
+### 10.2 No Staging Environment
+
+**Current state**: Local dev only (docker-compose). CI is fixture-based and replay
+simulations. No persistent staging tier.
+
+**Risk**: The gap between "passing CI" and "working in production" is handled by
+deterministic tests and replay, which is good — but any stateful behavior (Celery
+job timing, Redis cache expiry, Postgres connection pooling under load) is invisible
+until production.
+
+**For the demo specifically**: If we're running a live demo from the same environment
+that's under development, a broken commit the night before takes down the demo.
+Need at minimum a frozen demo environment that is independent of active dev.
+
+**Fix needed**: A GCP Cloud Run staging deployment (separate project or namespace)
+that is updated on merge to main, not continuously. The demo runs from staging, not
+local. This also validates the Docker → Cloud Run deployment path.
+
+### 10.3 No Horizontal Autoscaling for ML Workers
+
+**Current state**: The `ml` Celery queue runs on a fixed worker pool. No autoscaling.
+
+**Scenario**: 50 tenants all trigger milestone retrains at the 90-day mark simultaneously
+(e.g., a batch onboarding cohort). All retrain jobs queue behind each other.
+The last tenant waits hours for their graduation event.
+
+**Fix needed**: Cloud Run worker autoscaling for the `ml` queue. GCP Cloud Run already
+supports this — the Celery worker container can scale to N instances based on queue
+depth (Cloud Tasks or Redis queue length metric). This is infrastructure config,
+not code changes.
+
+### 10.4 Webhook Dead-Letter Queue
+
+**Current state**: Inbound webhook events (Square POS, custom) are processed
+synchronously. If the processing pipeline fails after acknowledgment, the event is
+lost — no replay, no dead-letter queue.
+
+**Risk**: A Square webhook fires at 9pm (large sale event that would trigger a reorder
+alert). Processing fails due to a transient DB error. The event is gone. The model
+never sees the sale. The next forecast is wrong.
+
+**Fix needed**: Persist all inbound webhook payloads to a `WebhookEvent` table on
+receipt (before any processing). The processing pipeline reads from this table.
+On failure, the event stays in the table with `status = failed` and retries on next
+Celery beat cycle. Dead-letter after N failures with an alert.
+
+This is also valuable for debugging — a complete audit trail of every event received.
+
+### 10.5 Data Freshness / ETL Staleness Alerting
+
+**Not in any current doc.** This is a major silent failure mode.
+
+If a tenant's ETL integration stops flowing data (Square API key rotated, SFTP
+credentials changed, webhook endpoint changed), the model keeps running and issuing
+forecasts — based on increasingly stale data. The model looks like it's working;
+it's actually forecasting from data that's 5 days old.
+
+**How this surfaces in production without detection**: Forecasts degrade silently.
+Stockout alerts stop firing (model thinks inventory is at pre-disruption levels).
+Buyer trusts the dashboard. Stockouts happen. Buyer blames the model.
+
+**Fix needed**: A `data_freshness_check` Celery job (runs every hour) that checks
+`MAX(transaction_date)` per tenant against `NOW()`. If the gap exceeds:
+- 6 hours (Kafka/webhook tenant): raise `data_staleness_warning` alert
+- 24 hours (SFTP/EDI tenant): raise `data_staleness_critical` alert
+- 48 hours: suppress forecast recommendations with a UI banner ("Data connection
+  interrupted — forecasts may be unreliable")
+
+This is the difference between a product that fails silently and one that fails
+visibly and gracefully.
+
+### 10.6 No Tenant-Level Observability Dashboard
+
+**Confirmed gap** (`known_limitations.md`). Monitoring data exists in the DB
+(`IntegrationSyncLog`, accuracy backfill tables, `ModelVersion`) but is not surfaced
+in the UI for operators or tenants.
+
+**Two surfaces needed:**
+1. **Operator view**: Per-tenant health grid. For each tenant: data freshness,
+   last retrain timestamp, current champion MASE, active integration status, open
+   alerts count. This is the DS/operator view.
+2. **Tenant buyer view** (connects to demo): Model performance trend over time.
+   "Your forecast accuracy has improved from MASE 0.95 to MASE 0.71 since onboarding."
+   This is the ROI proof surface for the SMB buyer — make the model improvement visible
+   without requiring them to understand MASE.
+
+### 10.7 Forecast Horizon Too Short for Seasonal Planning
+
+**Current state**: `ml_forecast_horizon_days = 14` in `core/config.py`. The stockout
+risk report can query up to 90 days (`horizon_days: int = Query(7, ge=1, le=90)`) but
+only 14 days of forecast data actually exists.
+
+**Business impact**: A retailer who needs to place Christmas inventory orders in
+October needs a 60–90 day demand view. A 14-day horizon doesn't support this buying
+cycle at all. The buyer can't use ShelfOps for their most important procurement
+decisions of the year.
+
+**Fix needed**: Make forecast horizon configurable per tenant (up to 90 days).
+Longer horizons need explicit confidence decay communicated to the buyer
+(a 90-day forecast is less certain than a 14-day one). The `detect_model_tier()`
+function (Section 5.2) should also factor in horizon length — a tenant requesting
+a 60-day horizon needs a model that's been validated at that horizon, not just at 14.
+
+**For seasonal SKUs specifically**: `is_seasonal` flag already exists on the Product
+model. For `is_seasonal=True` SKUs, the system should automatically generate a
+longer-horizon forecast during the relevant lead-up period (e.g., Q4 planning window
+for holiday items). The horizon extension is SKU-scoped, not tenant-wide.
+
+---
+
+## 11. Retail Business Logic Gaps
+
+### 11.1 Perishables — Data Exists, Optimizer Doesn't Use It
+
+**Current state**: `is_perishable` and `shelf_life_days` exist on the Product model
+and are included in the 45-feature set in `features.py`. The optimizer does **not**
+treat perishable SKUs differently from non-perishable ones.
+
+**The problem**: For a perishable SKU with a 5-day shelf life, safety stock of 30 units
+is not conservative — it's wasteful. You'll discard most of it. EOQ math that minimizes
+holding cost vs. order cost is also wrong for perishables (holding cost is not 25% per
+year — if it expires in 5 days, holding cost is 100% per cycle).
+
+**What the optimizer needs for perishable SKUs:**
+- Cap safety stock: `safety_stock ≤ floor(shelf_life_days / 2 × avg_daily_demand)`
+  — don't buffer more than half a shelf life cycle's worth
+- Adjust effective holding cost: `holding_cost = unit_cost / shelf_life_days × 365`
+  (full write-off risk if not sold, not 25% of cost)
+- Use shorter effective lead time horizon: for a 5-day shelf life item, a 7-day
+  lead time means you can never hold safety stock — this is a sourcing problem,
+  not a model problem, and should surface as an alert
+
+**Not complex to implement** — the optimizer already has all the inputs. It's a
+conditional branch on `is_perishable` in `calculate_dynamic_reorder_point()`.
+
+### 11.2 Returns and Reverse Logistics
+
+**Not found anywhere in the codebase.** This is a silent inventory corruption source.
+
+When goods are returned, they go back into inventory. From the system's perspective,
+a return looks like a large negative demand event (or just an inventory level jump).
+Without explicit handling:
+- The model may interpret returns as low demand periods (training signal pollution)
+- Safety stock calculations see artificially inflated available inventory
+- Reorder triggers don't fire when they should because on-hand looks high
+
+**What's needed:**
+- A `return_type` field on inventory adjustments: `customer_return | vendor_return |
+  damaged_return | recall`
+- `customer_return` stock: add back to available inventory, exclude from demand signal
+- `damaged_return`: never add back to available inventory, log as shrinkage
+- `vendor_return`: remove from inventory and create a negative PO event
+- In the training pipeline: mask return events from demand calculation
+  (returns are not demand signal — they're corrections)
+
+### 11.3 Substitution and Cannibalization Effects
+
+**Not in the codebase.** One of the most impactful gaps for multi-SKU retailers.
+
+When Product A is out of stock, some customers buy Product B (substitution).
+When a store expands Product A's shelf space and promotes it, Product C loses sales
+(cannibalization). The current model treats every SKU as independent.
+
+**Why this matters for stockout prediction**: If Product A's forecast is low because
+Product B was substituting for it (and Product B is now being discontinued), Product A's
+true demand will spike. The model trained on historical data will under-forecast.
+
+**Practical approach for initial implementation**:
+- Don't model the full substitution matrix (exponentially complex)
+- Instead: detect high correlation between stockout periods of one SKU and demand
+  spikes in category neighbors — flag these pairs
+- Add `substitute_sku_id` as an optional field on Product (buyer-managed)
+- When a substitute SKU is in stockout, add a feature `substitute_in_stockout` = True
+  to the correlated SKU's feature vector
+
+**The KNN store idea (Section 4) applies here too**: K nearest SKUs in feature space
+(same category, similar price tier, similar velocity) can be used to estimate
+substitution signal without requiring explicit buyer annotation.
+
+### 11.4 Dropship SKUs — Should Skip ROP/EOQ Entirely
+
+**Not found in the codebase.** No `is_dropship` flag exists.
+
+Dropship SKUs are never held in inventory — the supplier ships direct to customer on
+order. Running ROP/EOQ on a dropship SKU is meaningless and will generate false
+reorder alerts. This is a data quality issue that would confuse buyers immediately.
+
+**Fix needed**:
+- Add `fulfillment_type: owned | dropship | consignment` to the Product model
+  (Alembic migration)
+- The optimizer's batch run should skip `fulfillment_type = dropship` SKUs entirely
+- For `consignment` SKUs: the ROP logic is different — you're not ordering from a
+  supplier, you're just triggering a replenishment request to the consignor. The cost
+  model changes (no purchase cost, no holding cost in the traditional sense)
+
+### 11.5 Per-SKU Service Level Policy
+
+**Current state**: A single `DEFAULT_SERVICE_LEVEL = 0.95` applies to all SKUs.
+The parameter can be passed per-call but there's no UI or data model to support
+buyer-configured service level policies.
+
+**Why this matters**: A high-margin, high-velocity SKU (e.g., a flagship product)
+warrants a 0.99 service level — the cost of a stockout is very high. A slow-moving
+tail SKU (e.g., an obscure specialty item) might warrant only 0.85 — excess holding
+cost for a rarely-sold item is worse than an occasional stockout.
+
+**Using a flat 0.95 for all SKUs**:
+- Over-stocks tail SKUs (high holding cost on low-movers)
+- Under-protects critical SKUs (0.95 means a 5% stockout rate on your best seller)
+
+**Fix needed**: A `service_level_tier: critical | standard | tail` field on Product
+(or Category). Buyer can classify their SKUs. Optimizer maps tiers to Z-scores:
+`critical → 0.99`, `standard → 0.95`, `tail → 0.90`.
+
+### 11.6 Inventory Strategy Modes — Normal vs. Clearance vs. Pre-Season Buildup
+
+**Not in the codebase.** The optimizer has one objective: maintain service level.
+Retailers have three distinct buying modes depending on season position:
+
+- **Normal mode**: minimize stockouts while minimizing holding cost. Current behavior.
+- **Clearance mode**: end-of-season / markdown — goal is to sell through remaining
+  stock by a target date. Do NOT reorder. The optimizer should flip to a sell-through
+  target: "at current velocity, will we sell through by [date]?" and alert if not.
+- **Pre-season buildup mode**: before a peak season, intentionally overbuy to a target
+  stock level for SKUs expected to run out mid-season. The optimizer should support
+  a "build to X units by Y date" goal, not just maintain ROP.
+
+**Fix needed**: An `inventory_strategy` field on `ReorderPoint` or `Product`:
+`normal | clearance | buildup`. When `clearance`, suppress reorder recommendations.
+When `buildup`, the optimizer targets a stock level, not a ROP.
+
+For the model: clearance mode also means the demand signal changes — markdowns spike
+demand. If `clearance_mode=True` and a price reduction is active, the model should
+be aware that current demand is not representative of normal demand (affects future
+training signal quality — mark these transactions as `is_clearance=True` in the
+transaction table and exclude from normal demand training).
+
+### 11.7 Vendor Reliability — Dynamic Update Is Built, But Is It Wired?
+
+**Positive finding**: `backend/workers/vendor_metrics.py` exists and updates supplier
+reliability scores based on actual delivery performance. This is better than expected.
+
+**Open question**: Is `vendor_metrics.py` wired into the Celery beat schedule in
+`celery_app.py`? If not, the worker exists but never runs. Need to verify.
+
+**Second gap**: When `vendor_metrics.py` updates a supplier's `reliability_score` and
+it drops below a threshold (e.g., from 0.95 to 0.72), does that automatically trigger
+a ROP recalculation for all affected SKUs? Currently the ROP is only recalculated on
+the nightly batch. A supplier reliability drop mid-day is not reflected until the
+next nightly run — potentially too late for a buyer to react.
+
+**Fix needed**: When `vendor_metrics.py` updates a reliability score that crosses a
+tier boundary (see `RELIABILITY_MULTIPLIERS` in `optimizer.py`), publish a
+`vendor_reliability_changed` event that triggers an on-demand ROP recalculation for
+affected SKUs. This closes the loop from actual delivery data → adjusted safety stock.
+
+---
+
+## 12. Demo and Product Experience Gaps
+
+### 12.1 Model Improvement History Not Visible in the UI
+
+**The biggest demo gap.** The data to tell this story exists in the DB:
+- `ModelVersion` table: champion history, promotion timestamps, MASE at promotion
+- `ForecastAccuracy` table: rolling accuracy over time
+
+But there is no UI surface that shows a buyer their model's performance improving
+over time. From the buyer's perspective, the model just... runs. They can't see
+that it's getting better.
+
+**For the SMB DS/ML buyer specifically**, this is the core value prop. They hired
+ShelfOps (or the DS lead) because they don't have a data team. They want to see
+that the investment is working.
+
+**What's needed in the UI:**
+- A "Model Health" card on the main dashboard showing current MASE and a sparkline
+  trend (last 90 days). Arrow up/down. Plain language: "Your forecast accuracy
+  has improved 23% since onboarding."
+- A "Model History" timeline — key events annotated: "Model updated (your data)",
+  "Graduation: model now trained on your transactions", "Milestone: 90-day model"
+- The "graduation event" should generate a notification/alert to the buyer:
+  "Your model was just updated with 90 days of your data. Accuracy improved from
+  MASE 0.87 → 0.71."
+
+### 12.2 Feedback Loop Impact Not Quantified
+
+**Current state**: Buyer corrections flow into training but there's no UI feedback
+that tells them "your corrections improved the model."
+
+**What's needed**: A `FeedbackImpact` metric in the monitoring pipeline:
+- Track MASE on SKUs where the buyer provided `model_error` corrections
+  vs. MASE on uncorrected SKUs
+- Surface this in the UI: "You've provided 47 corrections this month. On those SKUs,
+  forecast accuracy improved 18% vs. uncorrected SKUs."
+- This closes the psychological loop for the buyer — their input is visibly valued
+
+### 12.3 SHAP Not in the UI Dashboard
+
+**Confirmed gap** (`known_limitations.md`). SHAP values are computed and returned
+in the API response but not rendered anywhere.
+
+**For the demo**: The SHAP waterfall chart is the most compelling "explainability"
+visual. A buyer asking "why is the model recommending I order 200 units of Product X?"
+can see: "Lead time (45%), Promo event next week (30%), Low current stock (15%), ..."
+
+**What's needed**: A per-forecast SHAP waterfall panel in the product detail view.
+The data is already there. This is a frontend build task, not a backend change.
+
+### 12.4 Prediction Intervals Not Visible
+
+**Confirmed gap** (`known_limitations.md`). Once quantile regression is implemented
+(`ml_improvement_plan.md` Phase B), the q10/q50/q90 values should be surfaced
+in the forecast chart as a confidence band, not just the point estimate.
+
+**For the buyer**: A narrow band means the model is confident. A wide band on a
+specific SKU is a signal to the buyer that this item is hard to predict — they should
+hold extra safety stock or pay closer attention. This is actionable uncertainty.
+
+### 12.5 Integration Health Not Visible to Buyers
+
+**Gap confirmed**. If a buyer's Square integration starts dropping events, there is
+no UI indicator. From their perspective, the dashboard looks normal. Data is silently
+stale (Section 10.5 covers the backend alerting). The frontend needs:
+- An integration status indicator per connected source
+- Last sync timestamp prominently displayed
+- A banner when data is stale: "Last transaction received 18 hours ago —
+  check your Square connection"
+
+---
+
+## 13. Security and Data Isolation Gaps
+
+### 13.1 RLS Is Developer-Discipline-Dependent
+
+**Confirmed** (`known_limitations.md`). Row-level security is enforced via
+`SET LOCAL app.current_tenant` and the `get_tenant_db` convention. There is no
+external audit layer.
+
+**Risk**: Any route that accidentally uses `get_db` instead of `get_tenant_db`
+returns data for all tenants. CLAUDE.md explicitly lists this as forbidden, but
+there's no automated check that enforces it.
+
+**Fix needed**: A CI lint rule (or a custom Ruff rule) that flags any import of
+`get_db` in files under `api/v1/routers/` or `api/v1/`. This turns a discipline
+requirement into an automated check that fails CI. Low effort, high confidence gain.
+
+### 13.2 PII Handling in ML Training Data
+
+**Not found in any doc or code review.** Open question.
+
+Transaction data may contain `customer_id` fields from loyalty programs. If a
+retailer's POS data includes loyalty card IDs, those IDs flow into the training
+pipeline. ML models trained on PII-containing datasets have regulatory implications
+(GDPR if any EU tenant, CCPA for California retailers).
+
+**What to check:**
+- Does the transaction data ingested via SFTP/EDI/webhook include customer-level
+  loyalty IDs or any PII beyond SKU/quantity/timestamp?
+- Is there a PII scrubbing step in the contract mapper / normalization pipeline
+  before data reaches `DemandForecast` or training datasets?
+- If loyalty IDs are used as features (they shouldn't be — they're individual
+  customer identifiers, not demand signals), that's a data misuse issue.
+
+**Action**: Audit `contract_profiles.py` and the normalization pipeline for
+any field mappings that might pass through customer-level PII.
+
+### 13.3 Model Artifacts Per-Tenant Access Control
+
+**Open question.** MLflow model artifacts store trained weights for each tenant's
+champion model. These artifacts implicitly encode information about the tenant's
+business (demand patterns, seasonal effects, promotion responses).
+
+If MLflow artifact storage is not access-controlled per tenant (i.e., all artifacts
+live in the same bucket/directory with no tenant isolation), then:
+- A compromised DS account could pull another tenant's model artifacts
+- Cross-tenant artifact reads would not be caught by RLS (RLS is DB-level,
+  not file-level)
+
+**What to check**: The MLflow artifact store configuration. Are artifacts stored
+in a path that includes `customer_id`? Is read access scoped per tenant?
+
+---
+
+## 14. Updated Codebase Changes Master List
+
+Additions to Section 8 from new findings in Sections 10–13.
+
+| Change | File(s) | Priority | Section |
+|---|---|---|---|
+| RedBeat HA scheduler for Celery beat | `celery_app.py`, `docker-compose.yml` | High | 10.1 |
+| Beat health check + missed-job alerting | `monitoring.py`, new endpoint | Medium | 10.1 |
+| Frozen demo environment (staging Cloud Run) | infra / CI | High | 10.2 |
+| Cloud Run autoscaling for `ml` Celery queue | GCP config | Medium | 10.3 |
+| Webhook dead-letter queue (`WebhookEvent` table) | `models.py`, Alembic, webhook processors | High | 10.4 |
+| Data freshness check job + staleness alerting | `workers/`, `monitoring.py` | High | 10.5 |
+| Operator tenant health dashboard | frontend | Medium | 10.6 |
+| Buyer-facing model improvement history card + timeline | frontend | High | 12.1 |
+| Configurable forecast horizon per tenant (up to 90d) | `config.py`, `train.py`, `predict.py` | Medium | 10.7 |
+| Seasonal SKU extended horizon (auto, scoped by is_seasonal) | `predict.py`, `workers/` | Medium | 10.7 |
+| Perishable-aware optimizer (capped SS, adjusted holding cost) | `optimizer.py` | Medium | 11.1 |
+| Returns handling (`return_type` field, mask from demand signal) | `models.py`, Alembic, `features.py` | Medium | 11.2 |
+| SKU substitution signal (correlated stockout feature) | `features.py`, `models.py` | Low | 11.3 |
+| `fulfillment_type` on Product (owned/dropship/consignment) | `models.py`, Alembic, `optimizer.py` | Medium | 11.4 |
+| Per-SKU service level tier (critical/standard/tail) | `models.py`, Alembic, `optimizer.py`, UI | Medium | 11.5 |
+| Inventory strategy mode (normal/clearance/buildup) | `models.py`, Alembic, `optimizer.py`, UI | Medium | 11.6 |
+| Verify `vendor_metrics.py` is wired to Celery beat | `celery_app.py` | High | 11.7 |
+| Reliability tier-crossing → on-demand ROP recalculation trigger | `vendor_metrics.py`, `optimizer.py` | Medium | 11.7 |
+| SHAP waterfall panel in product detail view | frontend | Medium | 12.3 |
+| Prediction interval confidence band in forecast chart | frontend | Medium | 12.4 |
+| Integration health / data staleness indicator in UI | frontend | High | 12.5 |
+| Feedback loop impact metric + UI surface | `monitoring.py`, frontend | Medium | 12.2 |
+| Graduation event notification to buyer | `workers/retrain.py`, alerts, frontend | High | 2 / 12.1 |
+| CI lint rule blocking `get_db` in authenticated routers | CI / Ruff config | Medium | 13.1 |
+| PII audit of contract mapper / normalization pipeline | `contract_profiles.py`, ETL | High | 13.2 |
+| MLflow artifact path tenant isolation audit | MLflow config | Medium | 13.3 |
+
+---
+
 ## 9. Open Questions — Not Yet Resolved
 
 - [ ] **Pre-training vertical split**: One global pre-trained model or separate models
@@ -628,3 +1065,23 @@ conformal prediction, online learning, Chronos/foundation model benchmark.
 - [ ] **Foundation model cold start**: `ml_improvement_plan.md` Section 6.4 suggests
   benchmarking Chronos/TimeGPT for sub-90d tenants. At what data threshold does the
   foundation model become worth evaluating? When do we schedule this experiment?
+- [ ] **Vendor metrics wiring**: Is `vendor_metrics.py` actually registered in the
+  Celery beat schedule in `celery_app.py`? Needs code verification.
+- [ ] **PII audit**: Do any contract mapper / normalization pipelines pass through
+  loyalty card IDs or other customer-level PII into the training dataset?
+- [ ] **MLflow artifact isolation**: Are model artifacts stored under tenant-scoped
+  paths? Is read access controlled per tenant?
+- [ ] **Fulfillment type capture at onboarding**: When a retailer onboards, how do we
+  know which SKUs are dropship vs. owned vs. consignment? Is this in the data they
+  provide, or does the buyer have to manually classify post-onboarding?
+- [ ] **Clearance mode trigger**: Who triggers clearance mode for a SKU or category?
+  Buyer-initiated via UI? Auto-detected by model (demand declining + high on-hand)?
+  Both? What's the handoff?
+- [ ] **Substitution data source**: The `substitute_sku_id` field on Product — buyer
+  annotated or inferred from correlation analysis? Buyer annotation is more accurate
+  but requires effort. Inference is automatic but will produce false positives.
+- [ ] **Forecast horizon by vertical**: Should seasonal retailers (apparel, holiday)
+  get a longer default horizon automatically based on `retailer_vertical`, or is it
+  always buyer-configured?
+- [ ] **Staging environment ownership**: Who maintains the staging Cloud Run
+  environment and ensures it stays in sync with main? Needs an owner before demo.
