@@ -392,7 +392,7 @@ def _load_db_data(
             # Clamp the end date so we never expand more than _MAX_PROMO_DAYS per row.
             clamped_end = min(end, start + pd.Timedelta(days=_MAX_PROMO_DAYS - 1))
             date_range = pd.date_range(start, clamped_end, freq="D")
-            store = promo["store_id"]    # may be None (tenant-wide promotion)
+            store = promo["store_id"]  # may be None (tenant-wide promotion)
             product = promo["product_id"]  # may be None (all-product promotion)
             for d in date_range:
                 promo_dates.add((store, product, d))

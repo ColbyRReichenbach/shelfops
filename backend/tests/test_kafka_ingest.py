@@ -67,7 +67,8 @@ def _make_integration(
         customer_id=CUSTOMER_ID,
         status=status,
         integration_type=integration_type,
-        config=config or {
+        config=config
+        or {
             "broker_type": "kafka",
             "bootstrap_servers": "localhost:9092",
             "topics": {
@@ -299,9 +300,7 @@ async def test_run_kafka_ingest_pipeline_writes_sync_logs(tmp_path):
 
         success_result = _make_sync_result("success", records=10)
 
-        with patch(
-            "workers.kafka_ingest.EventStreamAdapter"
-        ) as MockAdapter:
+        with patch("workers.kafka_ingest.EventStreamAdapter") as MockAdapter:
             instance = MockAdapter.return_value
             instance.sync_transactions = AsyncMock(return_value=success_result)
             instance.sync_inventory = AsyncMock(return_value=success_result)
@@ -334,9 +333,7 @@ async def test_run_kafka_ingest_pipeline_writes_sync_logs(tmp_path):
         assert all(r.records_synced == 10 for r in logs)
 
         # last_sync_at should have been stamped.
-        integ = (
-            await db.execute(select(Integration).where(Integration.integration_id == INTEGRATION_ID))
-        ).scalar_one()
+        integ = (await db.execute(select(Integration).where(Integration.integration_id == INTEGRATION_ID))).scalar_one()
         assert integ.last_sync_at is not None
 
     await engine.dispose()

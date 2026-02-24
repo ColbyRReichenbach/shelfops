@@ -192,9 +192,7 @@ def test_ingest_sftp_batch_runs_pipeline_and_stamps_last_sync_at(tmp_path, monke
         sf = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with sf() as db:
             integ = (
-                await db.execute(
-                    select(Integration).where(Integration.integration_id == INTEGRATION_ID)
-                )
+                await db.execute(select(Integration).where(Integration.integration_id == INTEGRATION_ID))
             ).scalar_one()
             assert integ.last_sync_at is not None
 

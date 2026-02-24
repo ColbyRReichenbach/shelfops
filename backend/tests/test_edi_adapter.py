@@ -259,13 +259,7 @@ class TestParse846:
 
     def test_invalid_dtm_date_does_not_raise(self):
         """Malformed date in DTM segment should be silently skipped."""
-        raw = (
-            "ST*846*0001~"
-            "LIN*1*IN*111~"
-            "QTY*33*10~"
-            "DTM*405*BADDATE~"
-            "SE*4*0001~"
-        )
+        raw = "ST*846*0001~LIN*1*IN*111~QTY*33*10~DTM*405*BADDATE~SE*4*0001~"
         items = EDIX12Parser.parse_846(raw)
         assert len(items) == 1
         assert items[0].as_of_date is None
@@ -313,12 +307,7 @@ class TestParse856:
 
     def test_carrier_falls_back_to_code_when_no_service_level(self):
         """TD5 with only 4 elements (no service level) → carrier = carrier code."""
-        raw = (
-            "ST*856*0001~"
-            "BSN*00*SHP001*20260120*0800~"
-            "TD5*B*2*FDX~"
-            "SE*4*0001~"
-        )
+        raw = "ST*856*0001~BSN*00*SHP001*20260120*0800~TD5*B*2*FDX~SE*4*0001~"
         shipment = EDIX12Parser.parse_856(raw)
         assert shipment.carrier == "FDX"
 

@@ -22,6 +22,7 @@ from scripts.seed_edi_files import generate_810, generate_846, generate_856, mai
 
 # ── 846 tests ─────────────────────────────────────────────────────────────
 
+
 class TestGenerate846:
     def test_file_is_created(self, tmp_path):
         path = generate_846(str(tmp_path), "VENDOR_TEST", product_count=3)
@@ -81,6 +82,7 @@ class TestGenerate846:
 
 # ── 856 tests ─────────────────────────────────────────────────────────────
 
+
 class TestGenerate856:
     def test_file_is_created(self, tmp_path):
         path = generate_856(str(tmp_path), "VENDOR_TEST", product_count=3)
@@ -136,6 +138,7 @@ class TestGenerate856:
 
 # ── 810 tests ─────────────────────────────────────────────────────────────
 
+
 class TestGenerate810:
     def test_file_is_created(self, tmp_path):
         path = generate_810(str(tmp_path), "VENDOR_TEST", product_count=3)
@@ -189,6 +192,7 @@ class TestGenerate810:
 
 
 # ── main() CLI tests ───────────────────────────────────────────────────────
+
 
 class TestMainCLI:
     def test_main_creates_all_three_files(self, tmp_path):

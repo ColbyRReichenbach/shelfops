@@ -74,9 +74,9 @@ async def _seed_base_entities(db):
     return customer_id, store.store_id, product.product_id, supplier.supplier_id
 
 
-async def _make_po_with_decision(db, customer_id, store_id, product_id, supplier_id,
-                                  decision_type, original_qty, final_qty,
-                                  decided_at=None):
+async def _make_po_with_decision(
+    db, customer_id, store_id, product_id, supplier_id, decision_type, original_qty, final_qty, decided_at=None
+):
     """Create a PurchaseOrder and an associated PODecision."""
     po = PurchaseOrder(
         customer_id=customer_id,
@@ -122,16 +122,13 @@ class TestGetFeedbackFeaturesEmpty:
             "forecast_trust_score",
         ]
 
-    async def test_returns_empty_dataframe_when_decisions_are_outside_lookback_window(
-        self, test_db
-    ):
+    async def test_returns_empty_dataframe_when_decisions_are_outside_lookback_window(self, test_db):
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
         # Decision that is 60 days old (outside default 30-day window)
         old_date = datetime.utcnow() - timedelta(days=60)
         await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "rejected", 100, 0, decided_at=old_date
+            test_db, customer_id, store_id, product_id, supplier_id, "rejected", 100, 0, decided_at=old_date
         )
 
         df = await get_feedback_features(test_db, CUSTOMER_ID, lookback_days=30)
@@ -144,10 +141,7 @@ class TestGetFeedbackFeaturesCalculations:
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
         for _ in range(3):
-            await _make_po_with_decision(
-                test_db, customer_id, store_id, product_id, supplier_id,
-                "rejected", 50, 0
-            )
+            await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "rejected", 50, 0)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
@@ -160,10 +154,7 @@ class TestGetFeedbackFeaturesCalculations:
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
         for _ in range(4):
-            await _make_po_with_decision(
-                test_db, customer_id, store_id, product_id, supplier_id,
-                "approved", 50, 50
-            )
+            await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "approved", 50, 50)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
@@ -177,15 +168,9 @@ class TestGetFeedbackFeaturesCalculations:
 
         # 2 rejected, 2 approved → 50% rejection rate
         for _ in range(2):
-            await _make_po_with_decision(
-                test_db, customer_id, store_id, product_id, supplier_id,
-                "rejected", 40, 0
-            )
+            await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "rejected", 40, 0)
         for _ in range(2):
-            await _make_po_with_decision(
-                test_db, customer_id, store_id, product_id, supplier_id,
-                "approved", 40, 40
-            )
+            await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "approved", 40, 40)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
@@ -194,32 +179,22 @@ class TestGetFeedbackFeaturesCalculations:
         assert row["rejection_rate_30d"] == 0.5
         assert row["forecast_trust_score"] == 0.5
 
-    async def test_qty_adjustment_pct_is_correct_when_quantity_is_edited_upward(
-        self, test_db
-    ):
+    async def test_qty_adjustment_pct_is_correct_when_quantity_is_edited_upward(self, test_db):
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
         # Original qty 100 → final qty 150: +50%
-        await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "edited", 100, 150
-        )
+        await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "edited", 100, 150)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
         assert len(df) == 1
         assert df.iloc[0]["avg_qty_adjustment_pct"] == 50.0
 
-    async def test_qty_adjustment_pct_is_correct_when_quantity_is_edited_downward(
-        self, test_db
-    ):
+    async def test_qty_adjustment_pct_is_correct_when_quantity_is_edited_downward(self, test_db):
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
         # Original qty 200 → final qty 100: -50%
-        await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "edited", 200, 100
-        )
+        await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "edited", 200, 100)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
@@ -242,13 +217,9 @@ class TestGetFeedbackFeaturesCalculations:
         test_db.add(product2)
         await test_db.flush()
 
+        await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "rejected", 60, 0)
         await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "rejected", 60, 0
-        )
-        await _make_po_with_decision(
-            test_db, customer_id, store_id, product2.product_id, supplier_id,
-            "approved", 60, 60
+            test_db, customer_id, store_id, product2.product_id, supplier_id, "approved", 60, 60
         )
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
@@ -264,8 +235,7 @@ class TestGetFeedbackFeaturesCalculations:
         # Decision 10 days ago — within a 15-day window but outside a 7-day window
         recent = datetime.utcnow() - timedelta(days=10)
         await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "rejected", 50, 0, decided_at=recent
+            test_db, customer_id, store_id, product_id, supplier_id, "rejected", 50, 0, decided_at=recent
         )
 
         df_7 = await get_feedback_features(test_db, CUSTOMER_ID, lookback_days=7)
@@ -277,10 +247,7 @@ class TestGetFeedbackFeaturesCalculations:
     async def test_result_store_id_and_product_id_are_strings(self, test_db):
         customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
 
-        await _make_po_with_decision(
-            test_db, customer_id, store_id, product_id, supplier_id,
-            "approved", 30, 30
-        )
+        await _make_po_with_decision(test_db, customer_id, store_id, product_id, supplier_id, "approved", 30, 30)
 
         df = await get_feedback_features(test_db, CUSTOMER_ID)
 
@@ -316,9 +283,7 @@ class TestEnrichFeaturesWithFeedback:
         assert list(result["forecast_trust_score"]) == [1.0, 1.0]
 
     def test_matched_rows_get_actual_feedback_values(self):
-        features_df = pd.DataFrame(
-            [{"store_id": "s1", "product_id": "p1"}]
-        )
+        features_df = pd.DataFrame([{"store_id": "s1", "product_id": "p1"}])
         feedback_df = pd.DataFrame(
             [
                 {
@@ -364,9 +329,7 @@ class TestEnrichFeaturesWithFeedback:
         assert p2_row["forecast_trust_score"] == 1.0
 
     def test_original_feature_columns_are_preserved_after_merge(self):
-        features_df = pd.DataFrame(
-            [{"store_id": "s1", "product_id": "p1", "demand_forecast": 42.0}]
-        )
+        features_df = pd.DataFrame([{"store_id": "s1", "product_id": "p1", "demand_forecast": 42.0}])
         feedback_df = pd.DataFrame(
             [
                 {
@@ -385,12 +348,7 @@ class TestEnrichFeaturesWithFeedback:
         assert result.iloc[0]["demand_forecast"] == 42.0
 
     def test_row_count_is_unchanged_after_left_join(self):
-        features_df = pd.DataFrame(
-            [
-                {"store_id": "s1", "product_id": f"p{i}"}
-                for i in range(5)
-            ]
-        )
+        features_df = pd.DataFrame([{"store_id": "s1", "product_id": f"p{i}"} for i in range(5)])
         feedback_df = pd.DataFrame(
             [
                 {

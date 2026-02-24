@@ -24,8 +24,8 @@ ELM = "*"
 
 # Date strings used across all three document types
 TODAY = date.today()
-DATE8 = TODAY.strftime("%Y%m%d")   # 20260224
-DATE6 = TODAY.strftime("%y%m%d")   # 260224
+DATE8 = TODAY.strftime("%Y%m%d")  # 20260224
+DATE6 = TODAY.strftime("%y%m%d")  # 260224
 TIME4 = "1200"
 
 # Catalogue of realistic product GTIN/UPC pairs used by the 846, 856, and 810.

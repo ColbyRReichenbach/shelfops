@@ -412,9 +412,7 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
             else lt_row.actual_delivery_date.date()
         )
         suggested_date: date = (
-            lt_row.suggested_at
-            if isinstance(lt_row.suggested_at, date)
-            else lt_row.suggested_at.date()
+            lt_row.suggested_at if isinstance(lt_row.suggested_at, date) else lt_row.suggested_at.date()
         )
         delta_days = (delivery_date - suggested_date).days
         sid = lt_row.supplier_id
@@ -422,8 +420,7 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
         lead_time_days_count[sid] = lead_time_days_count.get(sid, 0) + 1
 
     avg_lead_time_by_supplier: dict[UUID, float] = {
-        sid: lead_time_days_sum[sid] / lead_time_days_count[sid]
-        for sid in lead_time_days_sum
+        sid: lead_time_days_sum[sid] / lead_time_days_count[sid] for sid in lead_time_days_sum
     }
 
     query = (

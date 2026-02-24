@@ -117,7 +117,9 @@ def update_vendor_scorecards(self, customer_id: str):
 
                         # Update composite reliability score
                         # Weighted: 60% on-time rate + 40% lead time consistency
-                        on_time_score = supplier.on_time_delivery_rate if supplier.on_time_delivery_rate is not None else 0.5
+                        on_time_score = (
+                            supplier.on_time_delivery_rate if supplier.on_time_delivery_rate is not None else 0.5
+                        )
                         consistency_score = max(0, 1.0 - (supplier.lead_time_variance or 0) / supplier.lead_time_days)
                         supplier.reliability_score = round(0.6 * on_time_score + 0.4 * max(0, consistency_score), 3)
 

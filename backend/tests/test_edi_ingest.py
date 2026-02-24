@@ -21,6 +21,7 @@ import db.models  # noqa: F401 — registers all ORM models before create_all()
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
+
 def _make_sync_result(status: str = "success", records: int = 3):
     """Return a minimal SyncResult-like object."""
     r = MagicMock()
@@ -44,19 +45,23 @@ async def _make_db(tmp_path):
 
 async def _seed_customer(db_session, customer_id: uuid.UUID):
     from db.models import Customer
+
     async with db_session() as db:
-        db.add(Customer(
-            customer_id=customer_id,
-            name="EDI Demo Retailer",
-            email=f"edi-{customer_id}@example.com",
-            plan="enterprise",
-            status="active",
-        ))
+        db.add(
+            Customer(
+                customer_id=customer_id,
+                name="EDI Demo Retailer",
+                email=f"edi-{customer_id}@example.com",
+                plan="enterprise",
+                status="active",
+            )
+        )
         await db.commit()
 
 
 async def _seed_integration(db_session, customer_id: uuid.UUID, *, status: str = "connected"):
     from db.models import Integration
+
     async with db_session() as db:
         integration = Integration(
             customer_id=customer_id,
@@ -77,8 +82,10 @@ async def _seed_integration(db_session, customer_id: uuid.UUID, *, status: str =
 
 # ── schedule / route assertions ────────────────────────────────────────────────
 
+
 def test_edi_ingest_beat_entry_registered():
     from workers.celery_app import celery_app
+
     schedule = celery_app.conf.beat_schedule
     assert "edi-ingest-15m" in schedule
     entry = schedule["edi-ingest-15m"]
@@ -88,12 +95,14 @@ def test_edi_ingest_beat_entry_registered():
 
 def test_edi_ingest_task_route():
     from workers.celery_app import celery_app
+
     routes = celery_app.conf.task_routes
     assert "workers.edi_ingest.*" in routes
     assert routes["workers.edi_ingest.*"]["queue"] == "sync"
 
 
 # ── ingest_edi_batch task ──────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_ingest_edi_batch_skips_when_no_integration(tmp_path):
@@ -139,6 +148,7 @@ async def test_ingest_edi_batch_skips_disconnected_integration(tmp_path):
             from sqlalchemy import select
 
             from db.models import Integration
+
             result = await db.execute(
                 select(Integration).where(
                     Integration.customer_id == customer_id,
@@ -173,9 +183,7 @@ async def test_run_edi_ingest_pipeline_writes_sync_logs(tmp_path):
         instance.sync_transactions = AsyncMock(return_value=success_result)
 
         async with db_session() as db:
-            result = await run_edi_ingest_pipeline(
-                db, customer_id=customer_id, integration=integration
-            )
+            result = await run_edi_ingest_pipeline(db, customer_id=customer_id, integration=integration)
 
     assert result["status"] == "success"
     assert "products" in result
@@ -214,14 +222,12 @@ async def test_run_edi_ingest_pipeline_stamps_last_sync_at(tmp_path):
         instance.sync_transactions = AsyncMock(return_value=_make_sync_result())
 
         async with db_session() as db:
-            await run_edi_ingest_pipeline(
-                db, customer_id=customer_id, integration=integration
-            )
+            await run_edi_ingest_pipeline(db, customer_id=customer_id, integration=integration)
 
     async with db_session() as db:
-        row = (await db.execute(
-            select(Integration).where(Integration.integration_id == integration.integration_id)
-        )).scalar_one()
+        row = (
+            await db.execute(select(Integration).where(Integration.integration_id == integration.integration_id))
+        ).scalar_one()
     assert row.last_sync_at is not None
 
     await engine.dispose()
@@ -249,9 +255,7 @@ async def test_run_edi_ingest_pipeline_records_partial_failure(tmp_path):
         instance.sync_transactions = AsyncMock(return_value=ok_result)
 
         async with db_session() as db:
-            result = await run_edi_ingest_pipeline(
-                db, customer_id=customer_id, integration=integration
-            )
+            result = await run_edi_ingest_pipeline(db, customer_id=customer_id, integration=integration)
 
     assert result["inventory"]["status"] == "failed"
     assert result["products"]["status"] == "success"

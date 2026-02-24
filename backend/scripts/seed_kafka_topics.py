@@ -29,17 +29,14 @@ from typing import Any
 
 # ── Synthetic-data constants ──────────────────────────────────────────────────
 
-STORES = [f"STORE_{n:03d}" for n in range(1, 6)]   # STORE_001 … STORE_005
+STORES = [f"STORE_{n:03d}" for n in range(1, 6)]  # STORE_001 … STORE_005
 REGISTERS = [f"POS_{n:02d}" for n in range(1, 6)]  # POS_01 … POS_05
 
 PAYMENT_METHODS = ["credit_card", "debit_card", "cash", "mobile_pay"]
 ADJUSTMENT_REASONS = ["cycle_count", "receiving", "damage", "transfer", "sale"]
 
 # 20 realistic 12-digit GTINs (leading zero, numeric only)
-_SKU_POOL = [
-    f"0{random.randint(10_000_000_000, 99_999_999_999)}"
-    for _ in range(20)
-]
+_SKU_POOL = [f"0{random.randint(10_000_000_000, 99_999_999_999)}" for _ in range(20)]
 
 UNIT_PRICE_MIN = 1.99
 UNIT_PRICE_MAX = 49.99
@@ -49,6 +46,7 @@ _BASE_TS = datetime(2026, 1, 25, 0, 0, 0, tzinfo=timezone.utc)
 
 
 # ── Event generators ──────────────────────────────────────────────────────────
+
 
 def _iso(dt: datetime) -> str:
     """Format datetime as ISO-8601 UTC string matching consumer expectations."""
@@ -130,6 +128,7 @@ def make_inventory_event(index: int) -> dict[str, Any]:
 
 
 # ── Kafka producer ────────────────────────────────────────────────────────────
+
 
 async def publish_events(
     bootstrap_servers: str,
@@ -219,6 +218,7 @@ async def publish_events(
 
 # ── CLI entry point ───────────────────────────────────────────────────────────
 
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Seed Redpanda (Kafka-compatible) topics with synthetic ShelfOps events.",
@@ -271,10 +271,7 @@ def main() -> None:
     # Re-populate the SKU pool now that the seed is fixed (the module-level
     # pool was built before seed(42) was called).
     global _SKU_POOL
-    _SKU_POOL = [
-        f"0{random.randint(10_000_000_000, 99_999_999_999)}"
-        for _ in range(20)
-    ]
+    _SKU_POOL = [f"0{random.randint(10_000_000_000, 99_999_999_999)}" for _ in range(20)]
 
     args = _parse_args()
 

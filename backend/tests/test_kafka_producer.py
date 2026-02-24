@@ -44,6 +44,7 @@ from scripts.seed_kafka_topics import (
 
 # ── make_transaction_event ─────────────────────────────────────────────────
 
+
 class TestMakeTransactionEvent:
     def setup_method(self):
         random.seed(42)
@@ -110,6 +111,7 @@ class TestMakeTransactionEvent:
 
 # ── make_inventory_event ───────────────────────────────────────────────────
 
+
 class TestMakeInventoryEvent:
     def setup_method(self):
         random.seed(42)
@@ -156,6 +158,7 @@ class TestMakeInventoryEvent:
 
 # ── _parse_args ─────────────────────────────────────────────────────────────
 
+
 class TestParseArgs:
     def test_defaults(self):
         args = _parse_args([])
@@ -175,9 +178,13 @@ class TestParseArgs:
         assert args.bootstrap_servers == "redpanda:9092"
 
     def test_custom_topics(self):
-        args = _parse_args([
-            "--transactions-topic", "my.txn.topic",
-            "--inventory-topic", "my.inv.topic",
-        ])
+        args = _parse_args(
+            [
+                "--transactions-topic",
+                "my.txn.topic",
+                "--inventory-topic",
+                "my.inv.topic",
+            ]
+        )
         assert args.transactions_topic == "my.txn.topic"
         assert args.inventory_topic == "my.inv.topic"

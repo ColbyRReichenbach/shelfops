@@ -105,9 +105,7 @@ def ingest_sftp_batch(self, customer_id: str):
                     )
                     return {"status": "skipped", "reason": "no_sftp_integration"}
 
-                config: dict = (
-                    integration.config if isinstance(integration.config, dict) else {}
-                )
+                config: dict = integration.config if isinstance(integration.config, dict) else {}
                 adapter = SFTPAdapter(customer_id, config)
 
                 pipeline_result = await run_sftp_sync_pipeline(

@@ -70,9 +70,7 @@ def _compute_supplier_metrics(received_pos):
 
     if lead_times:
         avg_lead_time = round(statistics.mean(lead_times), 1)
-        lead_time_var = (
-            round(statistics.stdev(lead_times), 1) if len(lead_times) > 1 else 0.0
-        )
+        lead_time_var = round(statistics.stdev(lead_times), 1) if len(lead_times) > 1 else 0.0
 
         on_time_score = on_time_rate if on_time_rate is not None else 0.5
         # Use a placeholder lead_time_days of 5 for tests (set on supplier fixtures)
@@ -139,8 +137,7 @@ async def _seed_customer_and_supplier(db, lead_time_days=5):
     return customer_id, supplier, store, product
 
 
-def _make_received_po(customer_id, store_id, product_id, supplier_id,
-                       promised_date, actual_date, ordered_at=None):
+def _make_received_po(customer_id, store_id, product_id, supplier_id, promised_date, actual_date, ordered_at=None):
     """Create a PurchaseOrder dict (not yet added to DB) for calculation tests."""
     ordered_at = ordered_at or datetime(2026, 1, 1)
     return PurchaseOrder(
@@ -415,11 +412,13 @@ class TestVendorMetricsDBIntegration:
 
         # Insert 2 on-time and 1 late PO
         base_ordered = datetime.utcnow() - timedelta(days=30)
-        for i, (promised, actual) in enumerate([
-            (date(2026, 1, 10), date(2026, 1, 10)),  # on-time
-            (date(2026, 1, 17), date(2026, 1, 18)),  # on-time (+1 day)
-            (date(2026, 1, 24), date(2026, 1, 28)),  # late (+4 days)
-        ]):
+        for i, (promised, actual) in enumerate(
+            [
+                (date(2026, 1, 10), date(2026, 1, 10)),  # on-time
+                (date(2026, 1, 17), date(2026, 1, 18)),  # on-time (+1 day)
+                (date(2026, 1, 24), date(2026, 1, 28)),  # late (+4 days)
+            ]
+        ):
             po = PurchaseOrder(
                 customer_id=customer_id,
                 store_id=store.store_id,
