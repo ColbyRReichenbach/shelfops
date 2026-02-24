@@ -369,6 +369,10 @@ def _load_db_data(
     raw["is_holiday"] = raw["date"].apply(lambda d: int(cal.is_holiday(d.date())))
 
     # ── Enrich is_promotional via promotions table lookup ─────────────────
+    # Ensure column exists (raw_override DataFrames may omit it; DB data always sets it to 0)
+    if "is_promotional" not in raw.columns:
+        raw["is_promotional"] = 0
+
     if not promotions_df.empty:
         promotions_df["start_date"] = pd.to_datetime(promotions_df["start_date"])
         promotions_df["end_date"] = pd.to_datetime(promotions_df["end_date"])

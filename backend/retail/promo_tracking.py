@@ -83,8 +83,8 @@ async def measure_promotion_effectiveness(
                 Transaction.customer_id == customer_id,
                 Transaction.store_id == promo_store_id,
                 Transaction.product_id == promo_product_id,
-                func.date(Transaction.transaction_date) >= baseline_start,
-                func.date(Transaction.transaction_date) <= baseline_end,
+                func.date(Transaction.timestamp) >= baseline_start,
+                func.date(Transaction.timestamp) <= baseline_end,
             )
         )
         baseline_avg = baseline_result.scalar() or 0
@@ -98,8 +98,8 @@ async def measure_promotion_effectiveness(
                 Transaction.customer_id == customer_id,
                 Transaction.store_id == promo_store_id,
                 Transaction.product_id == promo_product_id,
-                func.date(Transaction.transaction_date) >= promo.start_date,
-                func.date(Transaction.transaction_date) <= promo.end_date,
+                func.date(Transaction.timestamp) >= promo.start_date,
+                func.date(Transaction.timestamp) <= promo.end_date,
             )
         )
         promo_avg = promo_sales_result.scalar() or 0

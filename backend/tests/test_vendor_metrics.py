@@ -74,7 +74,7 @@ def _compute_supplier_metrics(received_pos):
             round(statistics.stdev(lead_times), 1) if len(lead_times) > 1 else 0.0
         )
 
-        on_time_score = on_time_rate or 0.5
+        on_time_score = on_time_rate if on_time_rate is not None else 0.5
         # Use a placeholder lead_time_days of 5 for tests (set on supplier fixtures)
         lead_time_days = 5
         consistency_score = max(0, 1.0 - (lead_time_var or 0) / lead_time_days)

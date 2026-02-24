@@ -27,6 +27,7 @@ celery_app.conf.update(
         "workers.sync.*": {"queue": "sync"},
         "workers.kafka_ingest.*": {"queue": "sync"},
         "workers.sftp_ingest.*": {"queue": "sync"},
+        "workers.edi_ingest.*": {"queue": "sync"},
         "workers.retrain.*": {"queue": "ml"},
         "workers.forecast.*": {"queue": "ml"},
         "workers.inventory_optimizer.*": {"queue": "ml"},
@@ -139,6 +140,13 @@ celery_app.conf.update(
             "task": "workers.scheduler.dispatch_active_tenants",
             "schedule": crontab(minute="*/15"),
             "kwargs": {"task_name": "workers.sftp_ingest.ingest_sftp_batch"},
+            "options": {"queue": "sync"},
+        },
+        # ── EDI X12 Batch Ingest ───────────────────────────────────────
+        "edi-ingest-15m": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(minute="*/15"),
+            "kwargs": {"task_name": "workers.edi_ingest.ingest_edi_batch"},
             "options": {"queue": "sync"},
         },
         # ── Event Streaming (Kafka / Pub/Sub) ─────────────────────────
