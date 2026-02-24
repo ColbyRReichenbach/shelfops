@@ -1,6 +1,6 @@
 # ShelfOps Model Readiness
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: ML engineers and reviewers
 - Scope: current readiness state by model/component family
 - Source of truth: backend ML modules and associated tests

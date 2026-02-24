@@ -1,6 +1,6 @@
 # ShelfOps SLO Policy
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: operations and platform engineering
 - Scope: reliability targets for SMB launch-candidate operation
 - Source of truth: runtime metrics paths and integration health endpoints

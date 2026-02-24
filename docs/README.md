@@ -1,6 +1,6 @@
 # ShelfOps Documentation Index
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: engineers, hiring managers, operators, recruiters
 - Scope: active documentation surface after the 2026-02 overhaul
 - Source of truth: this index and linked active docs only

@@ -1,6 +1,6 @@
 # ShelfOps Market Positioning
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: leadership, recruiters, hiring managers
 - Scope: SMB launch target and enterprise positioning boundary
 - Source of truth: `docs/product/production_readiness.md`, `docs/product/decision_log.md`
@@ -22,7 +22,7 @@ Enterprise integration paths are in production code and validated in determinist
 ## Enterprise Segment
 
 - EDI/SFTP/event adapter pathways: `implemented`
-- Deterministic validation and CI gating: `pilot_validated`
+- Deterministic validation and CI gating: `implemented`
 - Partner-scale onboarding and commercial GA: `blocked`
 
 ## Message Rules

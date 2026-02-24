@@ -1,6 +1,6 @@
 # ShelfOps Production Decision Log
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: engineering leadership and reviewers
 - Scope: durable architecture and release decisions
 - Source of truth: this decision log

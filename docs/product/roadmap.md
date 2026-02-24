@@ -1,6 +1,6 @@
 # ShelfOps Product Roadmap
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: builders, reviewers, stakeholders
 - Scope: near-term execution priorities and release path
 - Source of truth: this roadmap and `docs/product/known_issues.md`

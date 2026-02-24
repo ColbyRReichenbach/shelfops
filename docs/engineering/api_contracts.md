@@ -1,6 +1,6 @@
 # ShelfOps API Contracts
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: frontend engineers, backend engineers, integrators
 - Scope: canonical API shapes and deprecation policy
 - Source of truth: router definitions under `backend/api/v1/routers/`

@@ -1,6 +1,6 @@
 # ShelfOps Model Tuning and Dataset Readiness
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: ML engineers and data reviewers
 - Scope: dataset readiness, tuning protocol, and promotion gate inputs
 - Source of truth: `backend/workers/retrain.py`, `backend/ml/arena.py`, `backend/ml/experiment.py`, `backend/scripts/validate_training_datasets.py`
