@@ -69,6 +69,18 @@ EDI_846_MINIMAL = (
     "IEA*1*000000001~"
 )
 
+# EDI 846 — UP qualifier only (no IN), gtin should fall back to upc
+EDI_846_UP_ONLY = (
+    "ISA*00*          *00*          *ZZ*A*ZZ*B*260101*1200*U*00401*000000001*0*P*>~"
+    "GS*IQ*A*B*20260101*1200*1*X*004010~"
+    "ST*846*0001~"
+    "LIN*1*UP*012345678901~"
+    "QTY*33*100*EA~"
+    "SE*4*0001~"
+    "GE*1*1~"
+    "IEA*1*000000001~"
+)
+
 # EDI 856 — Advance Ship Notice
 EDI_856 = (
     "ISA*00*          *00*          *ZZ*VENDOR         *ZZ*SHELFOPS       *260120*0800*U*00401*000000002*0*P*>~"
@@ -199,10 +211,12 @@ class TestParse846:
         items = EDIX12Parser.parse_846(EDI_846_TWO_ITEMS)
         assert items[0].warehouse_id == "WH001"
 
-    def test_second_item_gtin_falls_back_to_upc_when_no_in_qualifier(self):
-        """When only UP qualifier present, gtin is set to the upc value."""
-        items = EDIX12Parser.parse_846(EDI_846_TWO_ITEMS)
-        assert items[1].gtin == items[1].upc
+    def test_gtin_falls_back_to_upc_when_no_in_qualifier(self):
+        """When only UP qualifier present (no IN), gtin is set to the upc value."""
+        items = EDIX12Parser.parse_846(EDI_846_UP_ONLY)
+        assert len(items) == 1
+        assert items[0].upc == "012345678901"
+        assert items[0].gtin == items[0].upc
 
     def test_second_item_quantity_on_hand_when_no_uom_in_qty(self):
         items = EDIX12Parser.parse_846(EDI_846_TWO_ITEMS)

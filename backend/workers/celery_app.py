@@ -25,6 +25,7 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
     task_routes={
         "workers.sync.*": {"queue": "sync"},
+        "workers.kafka_ingest.*": {"queue": "sync"},
         "workers.retrain.*": {"queue": "ml"},
         "workers.forecast.*": {"queue": "ml"},
         "workers.inventory_optimizer.*": {"queue": "ml"},
@@ -130,6 +131,13 @@ celery_app.conf.update(
             "task": "workers.scheduler.dispatch_active_tenants",
             "schedule": crontab(hour=5, minute=0, day_of_week="monday"),
             "kwargs": {"task_name": "workers.promo_tracking.measure_completed_promotions"},
+            "options": {"queue": "sync"},
+        },
+        # ── Event Streaming (Kafka / Pub/Sub) ─────────────────────────
+        "kafka-ingest-5m": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(minute="*/5"),
+            "kwargs": {"task_name": "workers.kafka_ingest.ingest_kafka_events"},
             "options": {"queue": "sync"},
         },
         # ── Phase 1 - Quick Wins (Anomaly Detection) ──────────────────
