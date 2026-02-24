@@ -1546,3 +1546,109 @@ Longer-term, requires scale or data that doesn't exist yet.
 | LLM natural language insights (SHAP → plain language) | future_integrations.md §4 |
 | Multi-echelon inventory optimization | §4.3 (brainstorm idea only) |
 | Online learning / continual adaptation | ml_improvement_plan.md §6.3 |
+| Domain generalization — LLM-as-domain-expert | §20 (brainstorm idea only) |
+
+---
+
+## 20. Domain Generalization — Vertical Expansion Strategy
+
+**Status: Future iteration — research thread, not a near-term commitment**
+
+### 20.1 The Problem
+
+ShelfOps' current ML stack encodes retail assumptions at multiple layers:
+
+- EOQ/ROP formulas assume bulk replenishment from distributors with multi-day lead times
+- Feature engineering (`detect_feature_tier()`, perishability windows, seasonality cadences) is calibrated for retail POS cadence
+- Pandera schema bounds reflect retail-range values (daily units, supplier lead times, etc.)
+- LSTM temporal patterns assume regular, high-frequency sales events
+
+A florist, restaurant, or custom fabricator breaks most of these. The stockout economics, demand distributions, supplier relationships, and replenishment cycles are all structurally different.
+
+### 20.2 Why "Hire Domain Experts Per Vertical" Doesn't Scale
+
+The naive solution — embed domain knowledge by hiring vertical experts — creates an org model that doesn't scale:
+
+- TAM fragments into a collection of vertical SaaS products with shared infrastructure
+- The ML team accumulates permanent domain-expert headcount per vertical
+- Codebase accumulates if/else branching by `business_type` throughout the pipeline
+- Each new vertical is a full product investment, not a configuration change
+
+### 20.3 The Proposed Approach: LLM as Domain Reasoning Layer
+
+Rather than encoding domain knowledge into training logic, treat it as a **pipeline configuration generation problem**. The LLM doesn't train the model — it produces a domain config object at onboarding time that parameterizes the existing pipeline.
+
+```
+Business Description (onboarding questionnaire)
+        ↓
+   LLM Domain Reasoner
+        ↓
+  Domain Config Object (saved as tenant config)
+  ├── feature_preset: "food_service" | "specialty_retail" | "general"
+  ├── seasonality_windows: [7, 30, 90]        ← LLM-suggested
+  ├── demand_distribution_prior: "heavy_tail" | "normal" | ...
+  ├── lead_time_range_days: [1, 5]
+  ├── perishability_window_days: 3
+  └── pandera_bounds: { daily_units_max: 200, lead_time_max: 7 }
+        ↓
+   Existing ML Pipeline (reads config, not hardcoded retail values)
+```
+
+Human-in-the-loop review of the generated config before it's saved. LLM is proposing, not deciding.
+
+### 20.4 Feature Engineering Implications
+
+`detect_feature_tier()` is the primary impact point. Currently detects data richness (27 vs. 45 features). Could also accept a domain context object that activates/deactivates feature modules:
+
+| Feature Module | Large Retail | Food Service | Specialty / Boutique |
+|---|---|---|---|
+| Bulk order cycle | ✓ | ✗ | partial |
+| Time-of-day demand | ✗ | ✓ | ✗ |
+| Weather correlation | partial | ✓ | ✓ |
+| Event-driven demand spikes | ✓ | ✓ | ✓ |
+| Lot expiry / freshness | partial | ✓ | ✗ |
+| Long-tail slow-mover handling | ✗ | ✗ | ✓ |
+
+SHAP already provides the signal for which features actually matter per tenant. Over time, clusters of tenants in the same vertical will converge on similar SHAP importance distributions — that's how domain feature presets could be **discovered empirically** rather than hardcoded.
+
+### 20.5 Meta-Learning Path (Much Longer Term)
+
+Once enough tenants exist across verticals:
+
+1. Cluster tenants by demand behavior patterns (not stated business type — let the data decide)
+2. Use cluster centroids as Bayesian priors for new tenants with sparse history
+3. Fine-tune pretrained weights on new verticals rather than training from scratch (transfer learning)
+
+The discovered clusters may not map to intuitive categories. A boutique and a specialty pharmacy might share enough demand structure to use the same prior. That's a research finding worth pursuing.
+
+### 20.6 Platform vs. Intelligence Product Split
+
+The cleanest way to handle verticals at a product level is to make the split explicit:
+
+- **Platform tier**: Domain-agnostic. Data ingestion, storage, API, alerting, dashboards. No domain assumptions baked in. Suitable for any business type with structured inventory data.
+- **Intelligence tier**: The ML stack + LLM domain reasoner. This is where vertical-specific value is added on top of the platform. A new vertical = "can the LLM domain reasoner produce a valid, sensible config for this business type?" — a much smaller lift than rearchitecting the pipeline per vertical.
+
+Customers who just want the platform don't touch the intelligence layer. Customers who want forecasting get the LLM-configured pipeline. This also creates a clear upsell path.
+
+### 20.7 Open Research Questions
+
+[ ] How do companies like Relex, Blue Yonder, and o9 Solutions actually handle vertical generalization — rule-based presets, customer-configured parameters, or something more dynamic?
+
+[ ] Is there published work on LLM-assisted ML pipeline configuration (AutoML adjacent but domain-driven rather than search-driven)?
+
+[ ] What does few-shot demand forecasting look like for sparse, high-variance SKUs (specialty retail) — is there a usable prior from the retail training data?
+
+[ ] At what tenant count does clustering-based prior discovery become statistically meaningful?
+
+[ ] Is the LLM domain config approach already being used in production somewhere, or is this genuinely novel?
+
+### 20.8 Prioritization Assessment
+
+This is **firmly P3 — future platform investment**, not because it's unimportant but because:
+
+- Current target market (retail SMB) doesn't require it
+- The architecture to support it (modular feature presets, domain config object) can be stubbed in incrementally without committing to the full system
+- The research questions in §20.7 should be answered before architectural decisions are made
+- It's a strong candidate for a dedicated research spike after Phase 3 closes
+
+**Suggested next step**: Research spike (1-2 days) focused on §20.7 questions before this moves to a spec.
