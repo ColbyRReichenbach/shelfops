@@ -2,12 +2,16 @@
 
 AI-powered retail inventory intelligence platform. Predicts stockouts 2-3 days early using POS/ERP data, then acts via dynamic reorder optimization and automated PO workflows. Multi-tenant SaaS (customer isolation via RLS).
 
-**Current Phase**: Phase 3 — Testing & Quality
+**Current Phase**: Phase 3 — Testing & Quality → Demo Readiness
+
+**Active Goal**: Build toward a scripted dual-audience demo (hiring managers + buyers).
+See `.claude/DEMO_PLAN.md` for the full plan, P0 checklist, and session handoff state.
+Start every session by reading DEMO_PLAN.md and running the test suite to confirm baseline.
 
 ## Stack
 
 - Python 3.11, FastAPI 0.109, PostgreSQL 15 + TimescaleDB, Redis, Celery
-- ML: LSTM + XGBoost ensemble (65/35 weights), MLflow, SHAP, Pandera
+- ML: LSTM + XGBoost ensemble (65/35 weights) → **switching to pure LightGBM (P0 demo task)**; MLflow, SHAP, Pandera
 - Frontend: React 18, TypeScript, Tailwind CSS, Recharts
 - Infra: Docker Compose (local dev), GCP Cloud Run (target)
 
@@ -46,3 +50,20 @@ PYTHONPATH=backend alembic upgrade head             # DB migrations
 - `backend/workers/celery_app.py` — 12 scheduled jobs
 - `docs/MLOPS_STANDARDS.md` — MLflow, SHAP, Pandera conventions
 - `docs/ROADMAP.md` — 8-week plan, phase status
+- `docs/BRAINSTORM.md` — 25-section strategy doc; §19 has P0/P1/P2 priority framework
+- `docs/demo/recruiter_demo_runbook.md` — hiring manager demo (exists)
+- `backend/scripts/run_recruiter_demo.py` — recruiter demo orchestrator (exists)
+
+## Test Baseline
+
+Current passing: **497 tests**. Every session must end at ≥ 497 passing.
+Command: `PYTHONPATH=backend pytest backend/tests/ -v --tb=short 2>&1 | tail -20`
+
+## Demo Work Protocol
+
+For every P0/P1 item in `.claude/DEMO_PLAN.md`:
+1. Run `/spec` to draft the spec before touching code
+2. Implement with tests alongside
+3. Run `/test-loop` until green
+4. Commit to `claude/analyze-codebase-FEu8K`, push
+5. Check off the item in `DEMO_PLAN.md §9`
