@@ -39,3 +39,13 @@
   case to work correctly end-to-end. The line is: don't over-engineer for customers you don't
   have yet, but don't under-build for the customer you are actively selling to.
 
+8. Self-hosted AI-assisted observability over external SaaS (`decided`)
+- Rationale: for a one-person team, the bottleneck on fix velocity is context assembly, not
+  error capture. An LLM that reads the stack trace, queries recent error history, reads the
+  relevant source file, and proposes a fix in plain English is more useful than a Sentry
+  dashboard. TimescaleDB (already in stack) handles time-series log storage. Claude API handles
+  diagnosis. Slack handles delivery. No external SaaS dependency needed.
+- Spec: `docs/engineering/observability_spec.md`
+- Auto-fix scope is deliberately limited: LLM proposes, human applies. Auto-applying code
+  changes is out of scope for v1.
+

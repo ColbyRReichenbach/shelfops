@@ -1501,6 +1501,7 @@ Correctness and reliability issues that matter once real customers are in the sy
 | Returns semantic typing (mask from demand signal) | Current sign policy handles the number but not the meaning | §11.2 |
 | Fulfillment type (dropship/consignment) on Product | Dropship SKUs generate false reorder alerts | §11.4 |
 | Staging environment (GCP Cloud Run, deploy on main merge) | Demo runs from same env as dev — one bad commit breaks demo | §10.2 |
+| AI-assisted observability (error tracking + log anomaly detection) | Prerequisite before first onboarding — enables fix-fast loop | `docs/engineering/observability_spec.md` |
 | RLS CI lint rule blocking `get_db` in routers | Multi-tenancy correctness should be automated, not manual | §13.1 |
 | MLflow experiment namespacing per tenant | Required for multi-tenant shadow training observability | §7 |
 | Arena gate individual test coverage (gates 3–7) | Current 3 tests for 7 gates is not sufficient for a gatekeeper | §17.2 |
