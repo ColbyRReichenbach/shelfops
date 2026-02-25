@@ -2179,3 +2179,300 @@ This is purely a presentation-layer suggestion, not a new optimization problem.
     a lot. For a retailer with expensive storage, holding cost is high. For one with a
     large warehouse, it's low. This should be a configurable tenant parameter, not a
     platform default.
+
+---
+
+## 23. API Coverage Audit — Untested Endpoints
+
+**Method**: Cross-referenced every file in `backend/api/v1/routers/` against
+`backend/tests/test_*api*.py`. Routers with no corresponding test file:
+
+| Router | Endpoints | Test file |
+|---|---|---|
+| `anomalies.py` | GET /, GET /stats, GET /ghost-stock, POST /detect | None |
+| `experiments.py` | GET /, GET /{id}, POST /, PATCH /{id}/approve, PATCH /{id}/reject, POST /{id}/complete, GET /{id}/results | None |
+| `ml_alerts.py` | GET /, GET /stats, GET /{id}, PATCH /{id}/read, PATCH /{id}/action | None |
+| `ml_ops.py` | GET /models, GET /models/{ver}/shap, GET /backtests, GET /experiments, GET /registry, GET /health, GET /effectiveness | None |
+| `outcomes.py` | POST /alert/{id}, POST /anomaly/{id}, GET /alerts/effectiveness, GET /anomalies/effectiveness, GET /roi | None |
+| `reports.py` | GET /inventory-health, GET /forecast-accuracy, GET /stockout-risk, GET /vendor-scorecard | None |
+
+**Total untested endpoints: 32** out of the full API surface. These aren't minor
+plumbing routes — they include the ROI endpoint (buyer's primary value proof), SHAP
+explainability endpoint (used in the demo), ghost-stock detection, and the experiment
+approval workflow.
+
+### 23.1 Coverage Priority Order
+
+Not all gaps are equally important to close for Phase 3.
+
+**P1 — Test now, blocks demo or correctness guarantees:**
+
+- `GET /outcomes/roi` — this is the ROI calculation the SMB buyer sees. If it returns
+  incorrect data (wrong time windows, double-counting), the demo is misleading.
+  A test that asserts the ROI calculation against a known PO outcome fixture is essential.
+
+- `GET /ml_ops/models/{version}/shap` — the SHAP endpoint drives the explainability
+  demo. Tests should assert: (a) it returns values for all features, (b) the feature
+  names match the current training feature set (drift guard), (c) tenant isolation
+  holds (Tenant A cannot retrieve Tenant B's SHAP values).
+
+- `GET /reports/stockout-risk` — the primary alert surface. Tests should cover:
+  query param validation, time horizon filtering, empty response when no risk SKUs,
+  and the response when `inventory_strategy = clearance` SKUs are present (they
+  should be excluded from risk alerts).
+
+- `GET /reports/inventory-health` — the dashboard summary metric. Tests need to
+  verify the aggregation logic produces correct `days_of_supply` calculations against
+  known fixture data.
+
+**P2 — Test before production, important but not demo-blocking:**
+
+- `POST /anomalies/detect` — on-demand anomaly detection. Main risk: what happens
+  when called against a tenant with < 30 rows of history? Should return a
+  graceful error, not a 500 from the Isolation Forest.
+
+- `GET /anomalies/ghost-stock` — ghost stock detection. Test: known fixture where
+  a SKU has `on_hand = 50` but zero sales velocity for 14 days → assert it appears
+  in the ghost-stock response.
+
+- `GET /outcomes/alerts/effectiveness` and `GET /outcomes/anomalies/effectiveness` —
+  these compute how often alerts led to buyer action. Test: seed a fixture with
+  known alert → acknowledge sequences and assert the effectiveness rate calculation
+  is correct.
+
+- `PATCH /ml_alerts/{id}/action` — buyer acts on an ML alert. Tests: valid action
+  types accepted, invalid action type returns 422, double-action on same alert
+  is idempotent or returns 409.
+
+**P3 — Test eventually, low correctness risk:**
+
+- `GET /ml_ops/experiments` and `GET /ml_ops/registry` — primarily read-through
+  from MLflow. Risk is MLflow connectivity, not logic bugs. Integration test
+  (with mocked MLflow client) is sufficient.
+
+- `PATCH /experiments/{id}/approve` and `PATCH /experiments/{id}/reject` —
+  the state transitions matter. Test: approve a non-pending experiment → 409.
+  Approve → reject same experiment → 409. Idempotent approval.
+
+### 23.2 Tenant Isolation Tests — Missing for Several Endpoints
+
+The existing security test suite (`test_security_guardrails.py`) covers the primary
+auth paths. But the untested routers above have no tenant isolation assertions.
+For each P1 endpoint, the test suite should include:
+
+```python
+# Pattern: Tenant B cannot see Tenant A's data
+def test_{endpoint}_tenant_isolation(client, tenant_a_token, tenant_b_token, tenant_a_fixture):
+    # seed data for Tenant A
+    response = client.get("/v1/{endpoint}", headers={"Authorization": f"Bearer {tenant_b_token}"})
+    assert response.status_code == 200
+    assert len(response.json()) == 0  # Tenant B sees nothing of Tenant A's data
+```
+
+The `get_tenant_db` pattern enforces this at the DB layer — but test coverage confirms
+the router is actually using `get_tenant_db` and not accidentally using `get_db`.
+
+### 23.3 What's Currently Tested Well (API Layer)
+
+For completeness, the routers with solid test coverage:
+
+- `forecasts.py` → `test_forecasts_api.py`
+- `inventory.py` → `test_inventory_api.py`
+- `purchase_orders.py` → `test_purchase_orders_api.py`
+- `alerts.py` → `test_alerts_api.py`
+- `integrations.py` → `test_integrations_api.py`
+- `products.py` → `test_products_api.py`
+- `stores.py` → `test_stores_api.py`
+- `models.py` → `test_models_api.py`
+
+These routers are lower risk. Focus test-writing effort on the 32 untested endpoints above.
+
+---
+
+## 24. End-to-End Integration Test Strategy
+
+Section 17 covers unit-level test gaps. This section addresses a different layer:
+**workflow-level integration tests** that simulate what a buyer actually does, end to end.
+
+Unit tests catch logic bugs in isolation. Integration tests catch broken workflows —
+cases where all the units work individually but the sequence doesn't produce the right
+outcome. ShelfOps has 63 test files and 0 end-to-end buyer workflow tests.
+
+### 24.1 The Three Buyer Journeys to Test
+
+**Journey 1: Stockout Alert → PO Creation → Outcome Recording**
+
+This is the core ShelfOps value chain. The sequence:
+
+1. `POST /v1/inventory/snapshot` — simulate a new inventory reading
+2. Assert: stockout alert created for at-risk SKU
+3. `GET /v1/forecasts/stockout-risk` — buyer reviews risk report
+4. `GET /v1/purchase_orders/suggested` — buyer views suggested PO
+5. `POST /v1/purchase_orders/` — buyer creates PO from suggestion
+6. `PATCH /v1/purchase_orders/{id}/approve` — buyer approves
+7. `POST /v1/outcomes/alert/{alert_id}` — outcome recorded (stockout avoided)
+8. `GET /v1/outcomes/roi` — buyer sees ROI from avoided stockout
+
+If any step in this chain is broken, the buyer's primary workflow fails. Currently
+no test covers this sequence from step 1 to step 8.
+
+**Journey 2: Model Improvement Visibility**
+
+The "your model is getting better" story that justifies ongoing subscription:
+
+1. Seed `ModelVersion` records: champion at MASE 0.95 → MASE 0.80 → MASE 0.71
+2. `GET /v1/ml_ops/models` — assert list returns champion + history
+3. `GET /v1/reports/forecast-accuracy` — assert accuracy trend data is correct
+4. `GET /v1/ml_ops/effectiveness` — assert effectiveness score reflects improvement
+
+This journey is currently untestable because the accuracy trend and effectiveness
+endpoints are untested (§23, P2 above).
+
+**Journey 3: Data Integration → First Forecast**
+
+The onboarding flow that every new tenant goes through:
+
+1. `POST /v1/integrations/` — create a new integration (Square test mode)
+2. `GET /v1/integrations/{id}/sync-health` — verify connection
+3. Simulate data ingestion (fixture: 30 days of transaction data)
+4. Assert: Pandera validation passes (no schema violations)
+5. `GET /v1/forecasts/` — assert first forecast exists for a SKU
+6. `GET /v1/inventory/` — assert reorder points calculated
+
+This tests the data path from integration to usable forecast. The individual components
+have unit tests; the end-to-end sequence does not.
+
+### 24.2 Test Infrastructure Needed
+
+These integration tests require a persistent test DB (not just in-memory fixtures).
+Options:
+
+**Option A: Docker Compose test environment** — spin up Postgres + TimescaleDB in CI,
+seed with fixture data, run the full API test suite against the live DB. Slower (adds
+2-3 minutes to CI) but catches real DB behavior (connection pooling, TimescaleDB
+hypertable partitioning, RLS policies).
+
+**Option B: TestContainers** — programmatic Docker containers in pytest. Each test
+class gets a fresh DB instance. Slower startup than fixtures but eliminates the
+"shared DB state leaks between tests" problem that plagues session-scoped fixtures.
+
+**Option C: Extend existing `conftest.py`** — the current conftest already sets up
+a test DB. The blocker is that multi-step journey tests need to chain requests with
+stateful side effects. SQLAlchemy's `rollback()` between tests resets state, breaking
+step 3 → step 4 sequences.
+
+**Recommendation**: Use a pytest `module` scope fixture for integration tests that
+creates a test DB, seeds it once, runs all steps in order, and tears down. Keep unit
+tests with function scope and `rollback`. Separate the two test layers clearly:
+`tests/unit/` and `tests/integration/`.
+
+### 24.3 Integration Test Priority
+
+| Journey | Business impact | Implementation effort | Priority |
+|---|---|---|---|
+| Stockout → PO → Outcome → ROI | Core value chain | Medium (needs outcome seeding) | P1 |
+| First Forecast Onboarding | Every new tenant | Low (ETL fixtures exist) | P1 |
+| Model Improvement Visibility | Demo story | Medium (accuracy trend fixture) | P2 |
+| Multi-tenant data isolation | Security | Low (pattern is simple) | P1 |
+| Clearance mode suppression | Business logic | Low | P2 |
+
+### 24.4 What Makes Integration Tests Different From Replay Tests
+
+`test_replay_simulation_script.py` exists and simulates demand replay scenarios.
+That's different from a buyer workflow integration test:
+
+- Replay tests: validate model predictions across a simulated time horizon
+- Integration tests: validate that the API + DB + business logic produce the right
+  buyer-facing outcomes for a given sequence of actions
+
+Both are needed. They're testing different layers of the system. The replay tests
+are already doing their job — the integration tests are the gap.
+
+---
+
+## 25. Performance and Load Testing Targets
+
+Neither a load test plan nor performance benchmarks appear anywhere in the current
+test suite or docs. For a SaaS product, performance regressions are invisible until
+they hit a buyer in production. This section captures baseline targets and the
+tests needed to enforce them.
+
+### 25.1 Latency Targets for Buyer-Facing Endpoints
+
+Derived from what's reasonable for a dashboard-driven SMB tool:
+
+| Endpoint | Target p95 latency | Notes |
+|---|---|---|
+| `GET /forecasts/stockout-risk` | < 500ms | Primary dashboard load |
+| `GET /purchase_orders/suggested` | < 800ms | Blocking buyer action |
+| `GET /reports/inventory-health` | < 1000ms | Dashboard summary |
+| `GET /ml_ops/models/{ver}/shap` | < 2000ms | SHAP is compute-heavy |
+| `POST /anomalies/detect` | < 3000ms | On-demand, acceptable wait |
+| WebSocket alert push | < 200ms from event | Real-time UX expectation |
+
+These targets are not currently measured or asserted anywhere. A buyer experiencing
+5-second dashboard loads will churn.
+
+### 25.2 Concurrency and Multi-Tenant Load
+
+The main multi-tenancy risk isn't individual request latency — it's **one tenant's
+heavy query degrading another tenant's experience**.
+
+The TimescaleDB chunk architecture + RLS should prevent cross-tenant query interference
+at the DB level. But the Celery worker pool is shared: a large tenant running a 45-feature
+retrain job consumes the same `ml` queue as a small tenant's 27-feature retrain.
+
+**Test needed**: Fire 5 simultaneous retrain jobs for different tenants. Assert that
+the p95 job-start-to-completion time for the smallest job doesn't exceed 3× its
+single-tenant baseline. If it does, the ML worker pool needs priority routing
+(e.g., a separate `ml_small` queue for < 1000-row retrains).
+
+### 25.3 Database Query Performance
+
+The TimescaleDB `InventorySnapshot` and `SalesTransaction` hypertables will grow fast.
+Performance targets that need `EXPLAIN ANALYZE` verification:
+
+- `stockout-risk` query: should use the time-partitioned index, not a full scan.
+  Target: < 50ms at 1M rows per tenant.
+- Feedback loop `PODecision` window query (30-day lookback): should use the
+  `(customer_id, created_at)` index. Target: < 20ms.
+- SHAP feature aggregation query: this is the most join-heavy query in the system.
+  Target: < 200ms at 500K inventory snapshots.
+
+**What to do**: Add a `tests/performance/` directory with pytest-benchmark tests that
+run these queries against a seeded fixture of known size and assert against time bounds.
+Fail CI if a query regresses beyond the target.
+
+### 25.4 Cold-Start Forecast Latency
+
+A new tenant's first forecast request (before any tenant-specific model is trained)
+falls through to the pre-trained global model. This cold-start path may have different
+latency characteristics than the warm path (tenant model cached in memory).
+
+**Risk**: The global pre-trained model may not be cached the same way as tenant models.
+If it's loaded from MLflow artifact store on every cold-start request, a new tenant's
+first dashboard load is extremely slow.
+
+**What to verify**: Is the global pre-trained model loaded into memory at startup, or
+on first use? If on first use, add a startup preload. Cold-start p95 target: < 2 seconds.
+
+### 25.5 WebSocket Alert Delivery Under Load
+
+`backend/alerts/websocket.py` handles real-time alert delivery. Under load (multiple
+tenants with active WebSocket connections), the delivery latency and connection stability
+are unknown.
+
+**Test needed**: Simulate 20 concurrent WebSocket connections across 5 tenants. Fire
+a batch of 10 alerts per tenant. Assert: all alerts delivered, median delivery time
+< 200ms, no dropped connections.
+
+This test requires a proper async test harness (pytest-asyncio + asyncio WebSocket
+client). It's not in the current test suite.
+
+[ ] Does the WebSocket implementation handle authentication token expiry mid-connection?
+    If the JWT expires while a buyer has the dashboard open, the WebSocket should
+    reconnect transparently, not silently drop alerts.
+
+[ ] Is there a backpressure mechanism if the WebSocket client is slow to consume?
+    Under high alert volume (a major stockout event affecting 50 SKUs simultaneously),
+    the server-side buffer could fill and drop messages if not handled.
