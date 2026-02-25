@@ -1807,3 +1807,375 @@ until we have live tenants with real data pipelines that can break.
 
 [ ] PSI requires binning continuous features. Use training distribution quantiles as
     bin edges. This needs to be serialized per model version, not computed on the fly.
+
+---
+
+## 22. Enterprise Patterns — ShelfOps Spin
+
+Real workflows from companies with serious ML and supply chain infrastructure.
+The pattern: enterprise tools solve these problems at enterprise scale with enterprise
+complexity. The question for each one is: what does the SMB version of this look like,
+and how does ShelfOps' existing architecture give us a head start?
+
+---
+
+### 22.1 Demand Sensing — Real-Time Forecast Adjustment
+
+**What enterprise retailers do**
+
+Blue Yonder, Relex, and o9 Solutions all have a dedicated "demand sensing" layer that sits
+on top of the statistical forecast. The statistical model (LSTM, LightGBM) produces a
+7–90 day baseline. The sensing layer is a short-horizon (0–72 hour) real-time adjustment.
+It watches current POS velocity and asks: is today's actual sell-through rate running
+ahead of or behind the forecast? If a store is selling through a SKU 35% faster than
+the model expected by noon, the sensing layer raises the demand estimate for the next
+48 hours proportionally. This adjustment feeds directly into the replenishment trigger
+without waiting for the next full retraining cycle.
+
+The enterprise version involves complex statistical corrections, demand decomposition, and
+hierarchy-level adjustments across thousands of stores simultaneously.
+
+**What ShelfOps currently has**
+
+The statistical forecast runs nightly. Alerts check `days_of_supply` on the most recent
+`InventorySnapshot`. There is no intraday velocity signal that adjusts reorder thresholds
+between forecast cycles. If a promotion fires Tuesday morning and demand spikes, the model
+doesn't know until the next forecast run.
+
+**The ShelfOps SMB spin**
+
+Not a separate ML model — an adjustment multiplier that runs hourly on top of the
+existing forecast:
+
+```
+velocity_ratio = actual_sales_last_6h / forecast_sales_last_6h
+
+# If running 30%+ ahead: raise the effective demand estimate for the next 48h
+if velocity_ratio > 1.30:
+    adjusted_daily_demand = base_forecast × velocity_ratio × decay_factor
+    # decay_factor smooths the adjustment back to baseline over 48h
+```
+
+The adjusted estimate feeds into the `days_of_supply` calculation for alert generation only
+— it does not contaminate the training data or the base forecast. The buyer sees:
+"Running 38% above forecast today — reorder point threshold adjusted."
+
+This is a single Celery job in `workers/`. It reads from `InventorySnapshot` (already
+populated hourly), compares to the stored `ForecastResult`, applies the multiplier, and
+updates a `velocity_adjusted_demand` field on the `InventorySnapshot` record. The alert
+engine reads this field instead of the raw forecast during high-velocity periods.
+
+**The ShelfOps angle over the enterprise version**: we don't need the full demand sensing
+pipeline. For an SMB with one or a few locations, the velocity signal is already close
+to the truth. The added value is speed-to-alert, not hierarchical decomposition.
+
+[ ] At what velocity divergence threshold does it make sense to trigger an intraday alert
+    vs. just adjusting the reorder threshold? Suggest: >30% divergence for > 3 consecutive
+    hourly readings = alert; single-hour divergence = threshold adjustment only.
+
+[ ] Should velocity sensing suppress as well as amplify? If demand is running 50% below
+    forecast (e.g., weather event killed foot traffic), the system should also delay an
+    impending reorder trigger — otherwise it fires a reorder for a slowdown, generating
+    excess inventory.
+
+---
+
+### 22.2 Buyer Copilot — Natural Language Over Model Outputs
+
+**What enterprise tools are building**
+
+Oracle Fusion, SAP Joule, Microsoft Copilot for Supply Chain, Blue Yonder's Co-Pilot:
+all use an LLM as a conversational interface over supply chain data. The buyer types
+"why is this SKU's reorder point so high?" and the system retrieves: lead time history,
+vendor reliability score, recent demand variance, current safety stock formula inputs,
+and produces a plain English answer.
+
+The enterprise version is a full RAG system over the ERP's data warehouse with auth
+scoping per user role. It handles everything from "who is my largest supplier by spend?"
+to "what would happen to my stockout rate if I reduced safety stock by 10%?"
+
+**What ShelfOps currently has**
+
+Section 20 (AI Domain Expert) uses an LLM to *configure the ML pipeline at onboarding*:
+the LLM reads a business description and generates a domain config object that
+parameterizes `detect_feature_tier()`, seasonality windows, Pandera bounds, etc. That's
+an internal, pipeline-facing LLM. It runs once at setup.
+
+**The ShelfOps SMB spin**
+
+A buyer-facing copilot is a different use of the same LLM infrastructure — not pipeline
+configuration, but *output narration*. The LLM doesn't make decisions; it translates
+what the model has already decided into language the buyer can interrogate.
+
+The architecture is thin. For any product detail page, the copilot endpoint assembles a
+structured context object and asks the LLM to narrate it:
+
+```python
+context = {
+    "forecast": forecast_result,           # from ForecastResult
+    "shap_values": shap_for_forecast,      # from §12.3 explain endpoint
+    "alert": current_alert_for_sku,        # from Alert
+    "vendor": vendor_reliability_for_sku,  # from SupplierMetrics
+    "promotion": upcoming_promotions,      # from PlannedPromotions
+    "last_po": last_po_decision,           # from PODecision
+}
+# LLM prompt: "Given this context, answer the buyer's question in plain language.
+# Do not speculate beyond the data provided."
+```
+
+The buyer's natural language question is passed alongside the structured context. The LLM
+has no access to anything beyond the context object for that tenant/SKU. This is important:
+the LLM is a narrator, not a retrieval system. All retrieval happens in Python before the
+LLM is called.
+
+**The ShelfOps angle over the enterprise version**: enterprise copilots need to handle
+arbitrary schema queries, multi-table joins, and cross-tenant comparisons. For ShelfOps
+the context is bounded and structured — the LLM's job is much simpler. It converts a
+pre-assembled dict into sentences. This is achievable with a small model (Haiku) at low
+cost per query.
+
+The connection to Section 20: the LLM domain expert configures the pipeline; the buyer
+copilot explains its outputs. They're the internal and external faces of the same AI layer.
+When the domain expert generates a config that activates the `food_service` feature preset,
+the buyer copilot knows to describe stockout risk in terms of "freshness days" rather than
+"days_of_supply."
+
+[ ] Where does the copilot live in the UI? Options: (a) a floating chat icon on every page
+    — answers questions about whatever is currently on screen; (b) a dedicated "Ask"
+    button per SKU/alert that opens a pre-framed answer using the SHAP + alert context;
+    (c) a standalone Copilot page. Option (b) is the most targeted and lowest scope.
+
+[ ] What's the fallback when SHAP values aren't available for a specific forecast (cold-start
+    model, or SHAP not yet computed)? The copilot should degrade gracefully: "I don't have
+    a detailed breakdown for this SKU yet — it needs more data before I can explain the
+    individual drivers."
+
+---
+
+### 22.3 Promotional Post-Mortem — Closing the Lift Feedback Loop
+
+**What enterprise retailers do**
+
+Walmart, Kroger, and CPG companies run formal promotion post-mortems. After every
+promotional event ends, an analytics team (or an automated pipeline) computes:
+- Baseline demand: what would have sold without the promotion (counterfactual)
+- Actual demand during the event
+- Lift = actual / baseline
+- Incremental revenue and margin
+- Whether the lift justified the markdown cost
+
+This feeds back into promotional planning for the next cycle. It's how they calibrate
+"we know a 15% off on this category generates a 22% volume lift" rather than guessing.
+Companies like Nielsen and IRI sell this as a standalone product (Trade Promotion
+Effectiveness). Large retailers build it internally.
+
+**What ShelfOps currently has**
+
+`is_promotion_active` and `promotion_lift` are features in `features.py`. Planned
+promotions exist as a brainstorm item (Section 3.4 — not yet built). The model learns
+promotion effects from historical data, but there's no explicit measurement of whether
+the model's learned lift coefficients are accurate. If the model consistently
+under-estimates a seasonal promotion by 30%, there's no automated signal of this.
+
+**The ShelfOps SMB spin**
+
+An automated post-mortem job that fires 48 hours after a promotion's `end_date`:
+
+```python
+# For each completed promotion event:
+baseline = rolling_mean_demand_pre_promo(sku, days=14)   # 14-day pre-promo average
+actual_during_promo = sum(daily_demand_during_promo)
+expected_during_promo = baseline × promo_duration_days
+actual_lift_pct = (actual_during_promo / expected_during_promo) - 1.0
+
+# Model's predicted lift (from ForecastResult during promo period):
+modeled_lift_pct = (avg_forecast_during_promo / baseline) - 1.0
+
+lift_error = actual_lift_pct - modeled_lift_pct
+```
+
+If `lift_error` is consistently positive (model under-forecasting promotions), write a
+`promotion_lift_bias` feature for that `(product_category, promotion_type)` pair into
+the feature matrix. This becomes a learned correction at the next retrain cycle.
+
+The buyer-facing version: "Your 20% off sale on beverages in January generated a 31% volume
+lift. The model predicted 18%. We've updated our forecast parameters for your next promo."
+
+**The ShelfOps angle over enterprise**: enterprise post-mortems require holdout panels,
+synthetic control groups, and geo-matched comparisons to isolate the promotion effect from
+external noise (weather, competitive activity). For an SMB with one or a few stores, the
+14-day pre-promo rolling mean is a reasonable counterfactual — imprecise but directionally
+correct and zero additional infrastructure. The key is flagging that the model is
+systematically wrong about promos, not producing a research-grade causal estimate.
+
+Note: this requires `PlannedPromotions` (Section 3.4) to exist first. Without promotion
+events recorded in the system, the post-mortem job has nothing to query. These are
+sequentially dependent.
+
+[ ] Should post-mortem results trigger a retrain, or just update a bias coefficient that
+    gets picked up at the next scheduled retrain? Triggering an immediate retrain after
+    every promotion creates a lot of training churn. Prefer: accumulate bias corrections
+    in a `PromotionLiftBias` table, apply at the next retrain, don't trigger early.
+
+[ ] Counterfactual baseline is noisy for promotions that happen during other demand events
+    (holidays, competitor stockouts). Flag these as `confounded_baseline = True` and
+    exclude from the bias correction calculation.
+
+---
+
+### 22.4 Markdown Optimization — ML-Driven Clearance Timing
+
+**What enterprise retailers do**
+
+Zara pioneered data-driven markdown timing in fast fashion. Relex and Blue Yonder sell
+"markdown optimization" as a dedicated module. The problem: given a fixed sell-by date
+(end of season, product discontinuation), find the markdown schedule that clears inventory
+while maximizing recovered margin. Markdown too early = recovered margin is lower than
+necessary. Markdown too late = residual inventory at end of season.
+
+The enterprise version uses a price elasticity model per category, a sell-through
+simulation that computes the distribution of outcomes under different markdown schedules,
+and an optimization objective (maximize expected revenue given the constraint of 0 units
+on date X). It's a full revenue management system.
+
+**What ShelfOps currently has**
+
+Section 11.6 introduces `inventory_strategy: normal | clearance | buildup` as a field
+on `ReorderPoint`. When `clearance`, reorder recommendations are suppressed. Section 18.4
+describes automated SKU phase-out detection. But the clearance mode is passive: it stops
+ordering, but it doesn't do anything active to improve sell-through.
+
+**The ShelfOps SMB spin**
+
+Two steps, the second builds on the first:
+
+**Step 1 — Sell-through trajectory projection** (lower complexity, immediate value)
+
+When `inventory_strategy = clearance` and `clearance_target_date` is set (new field),
+compute daily:
+
+```python
+days_remaining = clearance_target_date - today
+units_remaining = current_on_hand
+projected_daily_velocity = forecast_daily_demand  # from existing model
+projected_sell_through_pct = (units_remaining - projected_daily_velocity × days_remaining) / units_remaining
+
+if projected_sell_through_pct > 0.15:  # ≥15% residual at end of clearance period
+    alert_type = "clearance_at_risk"
+    # "At current velocity, 23 units (18%) will remain unsold by April 30."
+```
+
+This requires no new model — just arithmetic on existing forecast outputs.
+
+**Step 2 — Markdown recommendation** (medium complexity, requires price elasticity)
+
+Add a simple price elasticity coefficient per product category, buyer-editable
+(seeded from Favorita data, refined per tenant):
+
+```python
+# e.g., beverages elasticity = -1.3: a 10% price drop → 13% demand increase
+expected_demand_at_discount = base_demand × (1 + abs(elasticity) × discount_pct)
+revenue_at_discount = (unit_price × (1 - discount_pct)) × expected_demand_at_discount
+
+# Simulate: at what discount level does clearance_at_risk go away?
+for discount in [0.10, 0.15, 0.20, 0.25, 0.30]:
+    if simulate_sell_through(discount, days_remaining) >= 0.95:
+        recommend_markdown(discount)
+        break
+```
+
+The buyer sees: "To clear remaining inventory by April 30, we recommend a 15% markdown
+starting today. Expected sell-through: 97%."
+
+**The ShelfOps angle over the enterprise version**: we're not building a full revenue
+management system. We're adding a projection + a recommendation heuristic on top of
+the existing forecast. The price elasticity coefficient is a single float per category
+— a placeholder that gets refined over time. The enterprise version would model demand
+distribution stochastically with hundreds of parameters. The SMB version needs to answer
+one question: "will I sell through, and if not, how much do I need to mark down?"
+
+[ ] Where does the buyer enter `clearance_target_date`? Options: (a) on the product
+    detail page when setting `inventory_strategy = clearance`; (b) auto-detected from
+    the seasonal calendar (e.g., winter clearance always ends March 15). Both should
+    eventually exist.
+
+[ ] Price elasticity coefficients need to come from somewhere at cold start. Sourcing
+    academic retail elasticity estimates by category (beverages: -0.8 to -1.5, apparel:
+    -1.1 to -2.0, etc.) as defaults is a reasonable first step. BRAINSTORM: could these
+    also be outputs of the LLM domain expert (Section 20) at onboarding?
+
+---
+
+### 22.5 Cost-Aware Order Optimization — Quantity Break Pricing
+
+**What enterprise procurement tools do**
+
+SAP Materials Management, Coupa, Oracle Purchasing: all handle tiered supplier pricing
+(volume discounts). When a buyer is generating a PO, the system evaluates whether
+buying into the next pricing tier makes financial sense: the savings on unit cost may
+exceed the additional holding cost of the surplus inventory. Large retailers negotiate
+these tiers explicitly. The math is well-understood but requires the system to know
+the pricing schedule.
+
+**What ShelfOps currently has**
+
+`unit_cost` is a flat value on `Product`. The EOQ formula in `optimizer.py` minimizes
+`(order_cost × demand / order_qty) + (holding_cost × order_qty / 2)` using this flat
+cost. There is no concept of tiered pricing. A supplier offering 20% off at 500 units
+looks identical to a flat-rate supplier.
+
+**The ShelfOps SMB spin**
+
+A `SupplierPricingTier` table:
+
+```python
+class SupplierPricingTier(Base):
+    supplier_id: UUID
+    product_id: UUID
+    min_quantity: int        # minimum units to qualify for this tier
+    unit_price: Decimal      # price per unit at this tier
+    effective_from: date
+    effective_until: date | None
+```
+
+Buyer enters pricing tiers manually (or from a supplier quote PDF — future LLM parsing
+opportunity). The optimizer then evaluates EOQ at each available tier and computes:
+
+```
+For each tier where min_qty > standard_EOQ:
+    surplus_units = min_qty - standard_EOQ
+    surplus_holding_cost = surplus_units × holding_cost_per_unit × expected_days_to_sell
+    unit_cost_savings = (flat_price - tier_price) × min_qty
+    net_benefit = unit_cost_savings - surplus_holding_cost - opportunity_cost
+```
+
+Surface the comparison in the PO suggestion UI:
+- **Standard order**: 120 units @ $5.00 = $600
+- **Volume tier**: 250 units @ $4.25 = $1,063 — surplus sells through in ~11 days at
+  current velocity — **net saving vs. standard: $74**
+
+Buyer clicks "accept volume tier" or "use standard." Decision logged in `PODecision` with
+the tier reasoning attached. Over time, whether buyers accept or reject volume tier
+suggestions becomes a feature in the feedback loop (§3.1).
+
+**The ShelfOps angle over the enterprise version**: enterprise systems also model
+opportunity cost of working capital, multi-tier supplier negotiations, and currency
+hedging. The ShelfOps version skips all of that. The key insight for SMBs is that most
+small retailers negotiate volume discounts informally and track them in spreadsheets. We
+make the math visible and tie it to the actual velocity forecast, which a spreadsheet can't.
+
+A related extension: **freight consolidation**. If the buyer has three POs from the same
+supplier ready to send, combining them into one shipment may unlock a freight tier discount.
+ShelfOps could flag: "3 POs to Supplier X ready — consolidating saves $120 in freight."
+This is purely a presentation-layer suggestion, not a new optimization problem.
+
+[ ] The LLM parsing opportunity is real: many SMBs receive supplier price lists as PDFs
+    or Excel files. An LLM-assisted "upload your supplier's price list" flow that extracts
+    pricing tiers and populates `SupplierPricingTier` automatically would remove significant
+    friction. This connects the LLM domain expert (§20) to a concrete buyer-facing workflow.
+
+[ ] At what point does holding cost + working capital tie-up outweigh the volume discount?
+    The formula above captures this, but the `holding_cost_per_unit` assumption matters
+    a lot. For a retailer with expensive storage, holding cost is high. For one with a
+    large warehouse, it's low. This should be a configurable tenant parameter, not a
+    platform default.
