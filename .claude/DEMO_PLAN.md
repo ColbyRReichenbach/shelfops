@@ -2,360 +2,506 @@
 
 - Status: **Active — work in progress**
 - Updated: February 2026
-- Context: Scripted demo using existing seed data. No company data available.
-  No rush — getting demo-ready, not demoing now.
+- Branch: `claude/analyze-codebase-FEu8K`
 
 ---
 
-## 1. What We Are Building Toward
+## 1. Goal
 
-A single scripted walkthrough that tells two coherent stories in sequence.
-One codebase, one demo environment, two narrative tracks.
+Build a scripted, self-contained demo of ShelfOps using the live app + Shepherd.js
+guided tours. No separate portfolio site. The ShelfOps app itself is the demo,
+pre-loaded with the Summit Outdoor Supply dataset.
 
-### Audience A — Hiring Managers / Technical Interviewers
-
-They want to see engineering depth and ML rigor. Key questions they're evaluating:
-- "Can this person build production ML, not just notebooks?"
-- "Does the system have real observability and correctness guarantees?"
-- "Is multi-tenancy actually enforced or just claimed?"
-
-What resonates: Arena 7-gate promotion system, shadow/canary testing, SHAP
-explainability, Pandera validation gates, MLflow experiment tracking, Celery pipeline
-architecture, 497+ tests, feature engineering tier selection.
-
-**Existing asset**: `docs/demo/recruiter_demo_runbook.md` + `backend/scripts/run_recruiter_demo.py`
-This track already exists in partial form. It needs to be extended to showcase the
-Celery task chain and live Arena/shadow testing (see §4).
-
-### Audience B — Buyers / Operators (SMB Retail)
-
-They want to see value, not architecture. Key questions:
-- "Will this actually catch stockouts before they happen?"
-- "Can my team understand why it made a recommendation?"
-- "How do I know the model is getting better over time?"
-
-What resonates: stockout alert → PO recommendation → "saved $2,400", SHAP waterfall
-("here's why"), model improvement timeline ("your accuracy improved 23% since
-onboarding"), ROI dashboard.
-
-**Existing asset**: None. This track needs to be built from scratch.
+Two audiences, two Shepherd.js tour tracks, one deployment.
 
 ---
 
-## 2. Demo Architecture — Scripted Auto-Trigger Chain
+## 2. Audiences
 
-The challenge: we want to *show* the Celery auto-triggers without running the platform
-for 90 real days. The solution: a time-warp orchestration script that seeds data at
-different temporal stages and fires each pipeline step in sequence with visible output.
+### Track A — SMB Buyer
+Retail ops lead or owner. Not technical. Evaluating whether the product catches
+stockouts, explains itself, and proves its value over time.
 
-### The Event Chain to Show
+Core questions they're asking:
+- Will it actually catch problems before they happen?
+- Can I understand why it made a recommendation?
+- How do I know it's getting better?
 
-```
-[STEP 1]  Tenant onboarded
-          → cold-start model loaded (pre-trained on Favorita + M5)
-          → first forecast issued (honest confidence)
+### Track B — Hiring Manager / Technical Evaluator
+Senior engineer or ML lead at a large company. Evaluating engineering depth and
+production ML judgment.
 
-[STEP 2]  30 days of transaction data seeded (fast-forward)
-          → milestone_check Celery task fires
-          → 30-day density check passes
-          → shadow training job queued + executes
-          → Arena gate 1-7 evaluation runs
-          → if passes: challenger promoted to champion
-          → graduation notification generated ("Model updated with your data")
-
-[STEP 3]  Demand spike injected for SKU-X (anomaly)
-          → Isolation Forest: anomaly_score > threshold
-          → 3rd consecutive day: structural_shift_detected
-          → drift_retrain Celery task auto-fires
-          → new shadow model queued (can show in real time)
-
-[STEP 4]  Stockout risk surfaced
-          → stockout-risk API called
-          → PO recommendation generated
-          → buyer "approves" PO in the UI
-          → outcome recorded: stockout_avoided
-
-[STEP 5]  ROI dashboard
-          → GET /outcomes/roi
-          → "1 stockout avoided · $2,400 estimated savings"
-```
-
-### How to Implement This
-
-The orchestration script (`backend/scripts/run_buyer_demo.py`, to be created) will:
-1. Set `APP_ENV=demo` and point at a local DB with seeded fixture data
-2. Call each step via direct Python function calls (Celery tasks in ALWAYS_EAGER mode
-   for demo) or subprocess calls to the existing seed/trigger scripts
-3. Print structured progress output (step name, timing, what fired, what the result was)
-4. The buyer demo script should produce a markdown summary similar to the recruiter
-   scorecard, but in plain language
-
-For Celery tasks in demo mode:
-- Set `CELERY_TASK_ALWAYS_EAGER=True` in the demo environment
-- This runs tasks synchronously, inline, with visible output — no broker needed
-- Each task's result is captured and printed as the "auto-trigger" fires
+Core questions they're asking:
+- Is this production ML or a notebook dressed up?
+- Is multi-tenancy actually enforced?
+- Does the model governance system have real rigor?
+- What's enterprise-ready vs. roadmap?
 
 ---
 
-## 3. Technical Pre-Work — What Must Be Built
+## 3. Demo Format
 
-Ordered by priority. Each item must be tested to green before moving on.
-See §5 for the test discipline rules.
+### Primary Surface: Live App + Shepherd.js
 
-### P0 — Required for the demo to not be broken or embarrassing
+The ShelfOps frontend IS the demo. Pre-loaded with Summit Outdoor Supply data
+at Day 95 state (post-graduation, active shadow challenger in progress).
 
-| # | Item | Why | Files | Complexity |
-|---|---|---|---|---|
-| 1 | **Switch to pure LightGBM** (zero LSTM weight) | LSTM degrades every metric — demo shows a worse model | `ml/features.py`, `workers/retrain.py`, `ml/arena.py` | M |
-| 2 | **WAPE + MASE replacing MAPE** | MAPE is misleading near zero demand; metrics look bad even when model is good | `ml/metrics.py`, `ml/arena.py`, reports | S |
-| 3 | **Train pre-trained model on full Favorita + M5** | Cold-start model was trained on 27 rows — not demoable | `scripts/download_kaggle_data.py`, `scripts/run_training.py` | M |
-| 4 | **SHAP endpoint + waterfall UI** | Most compelling explainability visual; currently broken (not in API or UI) | New endpoint `GET /forecasts/{id}/explain`, `ProductDetailPage.tsx` | L |
-| 5 | **Model improvement history UI** | Core "value proof" moment; data exists in DB, no UI surface | Dashboard component, `GET /ml_ops/models` wired to timeline | M |
-| 6 | **Graduation event notification** | The milestone-fires moment is the demo's "wow" — needs to be visible | Celery task output, notification model, UI badge | M |
-| 7 | **Data freshness UI banner** | Stale demo data silently shows wrong forecasts — trust killer | `data_freshness_check` Celery job + UI suppression banner | S |
-| 8 | **Retrain orphan cleanup** (`status = failed`) | Orphaned `training` records silently block subsequent retrains | `workers/retrain.py` error handler | S |
-| 9 | **Redis lock for concurrent retrains** | Two simultaneous retrains corrupt `ModelVersion` state | `workers/retrain.py` lock acquire/release | S |
-| 10 | **Model quality regression test in CI** | Can't demo if a code change broke the model between sessions | `tests/test_model_quality_ci.py` | S |
+A welcome modal on first load presents two buttons:
+- "Show me the buyer experience" → launches Buyer Tour
+- "Show me the technical architecture" → launches Technical Tour
 
-### P1 — Required before first customer, not demo-blocking
+Shepherd.js drives each tour. Steps advance on user actions (not just "Next" clicks)
+so the tour feels live, not scripted.
 
-| # | Item | Section |
-|---|---|---|
-| 11 | Milestone triggers (30/90/180/365d) with density check | BRAINSTORM §2.3 |
-| 12 | Feedback quality filter (reason codes) | BRAINSTORM §3.3 |
-| 13 | PO suggestion override cache | BRAINSTORM §3.2 |
-| 14 | Staging environment (GCP Cloud Run) | BRAINSTORM §10.2 |
-| 15 | RLS CI lint rule (block `get_db` in routers) | BRAINSTORM §13.1 |
-| 16 | Arena per-segment evaluation | BRAINSTORM §6.2 |
-| 17 | Champion minimum hold period (14d) | BRAINSTORM §6.1 |
-| 18 | Webhook dead-letter queue | BRAINSTORM §10.4 |
+### Splash Page (Simple)
 
-### P2 — Post-demo, post-launch
+A single-page entry point before the app. Purpose: context + routing.
+- 3-sentence product description
+- Two track entry buttons (link directly into app with `?tour=buyer` or `?tour=technical`)
+- 2–3 embedded GIF clips of the most visually striking moments
+- Link to GitHub + "run it yourself" one-liner
 
-See `docs/BRAINSTORM.md §19` for the full P2/P3 lists.
+Built as a `/welcome` route inside the existing React app. Same codebase, same
+deployment. Not a separate site.
 
-### API test coverage (from §23 audit)
+### Recording Format
 
-These 32 untested endpoints should be covered before first customer.
-For demo: cover at minimum the P1 endpoints in `§23.1` (ROI, SHAP, stockout-risk,
-inventory-health). Run the test-loop command for each.
+Every tour recorded as a Loom: face cam (bottom-right corner) + screen + live voiceover.
+Not word-for-word scripted — talking point bullets per step, spoken naturally.
+
+Short GIF clips (30–60s each) cut from the full Loom recordings for the splash page.
+Terminal sections recorded with Asciinema (text-based, hire managers can pause/copy).
 
 ---
 
-## 4. Demo Script Architecture — Two-File Design
+## 4. Demo Dataset — Summit Outdoor Supply
 
-```
-backend/scripts/
-├── run_recruiter_demo.py    ← EXISTS: extend with Celery chain + shadow testing
-└── run_buyer_demo.py        ← NEW: buyer narrative, time-warp orchestration
+A purpose-built synthetic dataset. Not real company data. Not raw Favorita.
+Engineered to tell an interesting story with clear SHAP drivers.
 
-docs/demo/
-├── recruiter_demo_runbook.md ← EXISTS: update to reflect new capabilities
-└── buyer_demo_runbook.md     ← NEW: step-by-step buyer walkthrough
-```
+**The fictional retailer**: single-location outdoor gear shop, ~50 SKUs.
+Mix of fast-movers (water bottles, sunscreen, trail mix) and slow-movers
+(tents, kayak paddles, climbing harnesses). Clear summer seasonality.
+One Black Friday promo event. One supplier reliability incident (weeks 32–34).
 
-### `run_buyer_demo.py` — What It Does
+**Engineered patterns**:
+- Summer demand spike on kayak paddles → SHAP story: "seasonal driver +38%"
+- Black Friday lift on apparel SKUs → SHAP story: "promo event +29%"
+- Vendor X delivery failures weeks 32–34 → SHAP story: "supplier variance +15%"
+- 3 historical near-stockout events the model would have caught
+- A slow-mover SKU with intermittent demand (wide SHAP, uncertain forecast)
 
-```
-python3 backend/scripts/run_buyer_demo.py [--quick] [--output-dir ./demo_output]
-```
+**Demo state at load (Day 95)**:
+- Champion model: MASE 0.71 (graduated at Day 44 from cold-start 0.95)
+- Active shadow challenger: MASE 0.64, trained with promo features
+- Shadow challenger has been running 6 days, needs 8 more to auto-promote
+- 3 open stockout alerts on fast-moving SKUs
+- 1 PO recommendation pending buyer action
 
-Steps (each prints a visible header):
-1. `[ONBOARDING]` — seed tenant + initial data, show cold-start forecast
-2. `[30-DAY MILESTONE]` — seed 30d transactions, fire milestone check, show Arena gates
-3. `[GRADUATION]` — show champion promotion event + notification
-4. `[DRIFT EVENT]` — inject anomaly, show structural shift detection + auto-retrain
-5. `[STOCKOUT ALERT]` — show stockout-risk report, PO recommendation
-6. `[BUYER ACTION]` — simulate PO approval + outcome recording
-7. `[ROI SUMMARY]` — show ROI endpoint output in plain language
-
-Output: `buyer_demo_scorecard.md` in the output dir (mirrors recruiter scorecard format).
-
-### Extending `run_recruiter_demo.py`
-
-Add two new sections between strategy cycle and replay:
-- **Celery pipeline visualization**: call each scheduled task type explicitly, capture
-  and print what fired and why (showing the 12 scheduled jobs architecture)
-- **Shadow model walkthrough**: show a challenger being evaluated through all 7 Arena
-  gates, with per-gate pass/fail output
-
----
-
-## 5. Test Discipline — Non-Negotiable Rules
-
-Every feature on the P0/P1 list above follows this cycle before it is considered done:
-
-1. **Write a spec first** — use `/spec` command to draft the spec before touching code
-2. **Write tests alongside the implementation** — never ship an untested feature
-3. **Run `/test-loop`** — run tests, fix failures, re-run until fully green
-4. **No demo-only hacks in production code** — if a shortcut is needed for the demo,
-   it goes in the demo script, not in the API or ML pipeline code
-5. **Each P0 item gets a dedicated commit** — one item per commit, clear message,
-   pushed to `claude/analyze-codebase-FEu8K`
-
-### The Test Loop Command
-
-```bash
-PYTHONPATH=backend pytest backend/tests/ -v --tb=short 2>&1 | head -200
-```
-
-For a specific new test file:
-```bash
-PYTHONPATH=backend pytest backend/tests/test_{new_file}.py -v --tb=short
-```
-
-Current baseline: **497 tests passing**. Every session should end with ≥ 497 passing.
-If a commit breaks tests, fix before next task.
-
----
-
-## 6. Demo Data Strategy
-
-### What Exists
-
-- `data/seed/` — Favorita/M5/Rossmann training datasets
-- `backend/scripts/seed_test_data.py` — basic test data seeder
-- `backend/scripts/seed_commercial_data.py` — commercial tenant seeder
-- `backend/scripts/seed_forecasts.py` — forecast data seeder
-- `backend/scripts/bootstrap_square_demo_mapping.py` — Square POS demo mapping
-
-### What Needs to Be Created
-
-A **demo-specific seed dataset** that supports the buyer narrative arc:
-
+**File structure**:
 ```
 data/demo/
-├── demo_tenant.json          ← tenant config (single SMB retailer, ~50 SKUs)
-├── day_000_snapshot.csv      ← onboarding state (30d history, cold-start)
-├── day_030_transactions.csv  ← 30 days of sales (triggers first milestone)
-├── day_090_transactions.csv  ← additional 60 days (triggers graduation)
-├── anomaly_event.csv         ← 3-day demand spike on SKU-X
-└── README.md                 ← describes the fictional retailer and its SKUs
+├── README.md                    ← retailer description, SKU list, engineered patterns
+├── demo_tenant.json             ← tenant config
+├── transactions_day000_030.csv  ← onboarding period (cold-start)
+├── transactions_day031_090.csv  ← graduation period
+├── transactions_day091_095.csv  ← current period (with anomaly)
+└── seed_demo.py                 ← one script to load full demo state into DB
 ```
 
-The fictional retailer: a specialty outdoor gear shop, ~50 SKUs, mix of fast-movers
-(water bottles, sunscreen) and slow-movers (tents, kayak paddles). Clear seasonality.
-This gives us interesting SHAP stories ("summer promo event: +40% demand driver").
-
-### Avoiding Real Company Data
-
-All seed data is either:
-- Transformed public datasets (Favorita/M5 product names → outdoor gear names)
-- Synthetically generated from realistic distributions
-- The existing `seed_*` scripts extended with demo-specific parameters
+`seed_demo.py` is idempotent — run it any time to reset to the canonical Day 95 state.
 
 ---
 
-## 7. SHAP Implementation — Critical Path Detail
+## 5. UI Components to Build
 
-This is the most complex P0 item and is currently completely missing from the stack.
-Do not skip this — it is the single most compelling visual for both audiences.
+### 5.1 Platform Activity Feed
 
-### Backend Work
+Always-visible panel on the dashboard (collapsible). Shows the chronological
+history of everything the ML pipeline did automatically. This is the "behind
+the scenes" story made visible.
 
-1. New endpoint: `GET /api/v1/forecasts/{forecast_id}/explain`
-   - Loads champion model for tenant
-   - Reconstructs feature vector for the forecast
-   - Runs `shap.TreeExplainer` (LightGBM after P0 item #1)
-   - Returns `{feature: signed_shap_value}` dict
-   - Cache result in Redis: key `shap:{forecast_id}:{model_version}`, TTL 1 hour
+```
+⚙ Running in the background                    [last 95 days ▾]
+─────────────────────────────────────────────────────────────────
+Day 1    Tenant onboarded. Cold-start model activated.
+         First forecasts issued: 50 SKUs
 
-2. Schema: `ForecastExplainResponse` — separate from `ForecastResponse`
-   (SHAP not included in bulk forecast queries — too expensive)
+Day 30   Milestone: 30 days of data accumulated
+         Challenger model trained automatically
+         Arena: Gates 1–6 passed · Shadow period started
 
-3. Add `tests/test_forecasts_explain_api.py`:
-   - Response structure matches schema
-   - Tenant isolation (Tenant B cannot explain Tenant A's forecast)
-   - Feature names in response match current feature set (drift guard)
-   - Redis cache is populated on first call, served on second call
-   - Handles cold-start gracefully (no champion model → 404 with reason)
+Day 44   Shadow canary held (14 days) ✓
+         Champion promoted: MASE 0.95 → 0.71
+         Accuracy improved 25%
 
-### Frontend Work
+Day 52   Demand spike: Kayak Paddle Pro (day 3 consecutive)
+         Structural shift detected
+         Auto-retrain triggered
 
-In `ProductDetailPage.tsx`:
-- Collapsible "Why this forecast?" panel below the forecast chart
-- Horizontal bar chart (Recharts): positive bars = demand drivers, negative = suppressors
-- Sorted by absolute SHAP value descending
-- Top 8 features shown, "show more" expands to all
-- Plain-language labels: `rolling_7d_avg` → "7-day sales trend"
+Day 57   New challenger trained with promo features
+         Arena: Gate 2 passed (MASE 0.71 → 0.64)
+         Shadow phase started ● active
+
+Today    Champion: MASE 0.71
+         Shadow challenger: MASE 0.64 ● Day 6 of 14
+         Auto-promotes in 8 days if shadow holds
+```
+
+Data source: reads from `ModelVersion`, retrain event log, anomaly alerts.
+No new backend tables needed — just a new frontend component.
+
+### 5.2 System Events Panel
+
+Collapsible side drawer. Default: open in technical tour, closed in buyer tour.
+Powered by the existing WebSocket infrastructure.
+
+Shows a live event stream when buyer actions are taken:
+
+| Buyer action | System Events panel shows |
+|---|---|
+| Click "Approve PO" | PODecision written · trust_score stable · feedback_loop queued |
+| Click "Disapprove PO" | PODecision written · rejection_rate_30d ↑ · trust_score ↓ · Celery task queued |
+| View a product forecast | SHAP computed (42ms) · cached in Redis (TTL: 1hr) |
+| Page loads, data stale | data_freshness_check: 26h gap · WARNING banner triggered |
+| Milestone fires | milestone_check passed · shadow_training queued · Arena starting |
+
+This panel is what makes invisible background processes visible. Both tours use it
+at the feedback loop step.
+
+### 5.3 Welcome Modal
+
+Appears on first load (session storage flag prevents repeat on refresh).
+Two big buttons routing to each tour. Plain-language copy. No jargon.
+
+### 5.4 Mode Switching
+
+`?tour=buyer` or `?tour=technical` query param sets the demo mode:
+- Buyer mode: hides MLflow details, Arena gate specifics; shows ROI prominently
+- Technical mode: System Events panel open by default; SHAP shows raw feature names + friendly labels; Arena gate panel visible; links to GitHub/test files
 
 ---
 
-## 8. Model History UI — Critical Path Detail
+## 6. Buyer Tour — Step by Step
 
-### Backend Work (already exists, just needs wiring)
+**Shepherd.js, 8 steps. Plain language throughout. ~12 minutes.**
 
-`GET /api/v1/ml_ops/models` — returns `ModelVersion` list. Already implemented.
-`GET /api/v1/reports/forecast-accuracy` — currently **untested** (§23 audit).
+**Step 1 — Welcome / Activity Feed**
+Tooltip on Platform Activity Feed:
+> "Summit Outdoor Supply connected their Square POS 95 days ago. This is
+> everything that happened automatically while they were running their shop."
+Walk through the feed entries. Pause on the last line: active shadow challenger.
+> "Right now, a better model is being quietly evaluated. If it holds for 8 more
+> days, it auto-promotes. No one asked for this — it just runs."
+[Next →]
 
-Add tests for `reports.py`:
-- `test_reports_api.py` covering forecast-accuracy, inventory-health, stockout-risk
-- Specifically: accuracy trend returns values in time order, empty for tenant with no history
+**Step 2 — Today's Alerts**
+Shepherd points to stockout alert card:
+> "This alert fired automatically this morning. At current sales velocity,
+> Kayak Paddle Pro has 2.8 days of stock left. Supplier lead time is 4 days.
+> You're already behind if you don't act today."
+[Next →]
 
-### Frontend Work (new component)
+**Step 3 — Why This Forecast?**
+Tooltip on "Why this forecast?" button:
+> "Click here to see exactly what's driving this prediction."
+`advanceOn: { selector: '#shap-explain-btn', event: 'click' }`
+→ SHAP waterfall panel loads.
 
-On the main dashboard:
-- **Model Health card**: current MASE + sparkline (90 days). Arrow up/down.
-  Plain language: "Forecast accuracy improved 23% since onboarding."
-- **Timeline component**: key events in chronological order:
-  - "Onboarded: cold-start model active"
-  - "30-day milestone: first model trained on your data (MASE: 0.87)"
-  - "90-day graduation: model updated (MASE: 0.71) ↑ 18% improvement"
-  - "Drift detected: model auto-updated (MASE: 0.68)"
+**Step 4 — SHAP Waterfall**
+Tooltip on the waterfall chart:
+> "Summer seasonal demand is the biggest driver (+38%). You have a promo running
+> on this SKU (+29%). Your supplier has had delivery delays recently (+15%).
+> The model knows all of this. It's not a black box."
+[Next →]
 
-This is the "your model is getting better" story that justifies the subscription.
+**Step 5 — PO Recommendation**
+Shepherd points to PO recommendation card:
+> "Based on that forecast, here's what the system recommends ordering and by when.
+> You can approve it, adjust it, or push back entirely."
+[Next →]
+
+**Step 6 — Disapprove + Feedback Loop**
+Tooltip on Disapprove button:
+> "Let's say you disagree. Maybe you know the summer rush is over.
+> Click Disapprove."
+`advanceOn: { selector: '#po-disapprove-btn', event: 'click' }`
+→ System Events panel slides in and lights up with events.
+
+**Step 7 — System Events Panel**
+Shepherd highlights the System Events panel (fires after the click):
+> "Your decision was just recorded. The system updated your rejection rate for
+> this SKU. At the next model update, your correction patterns become training
+> features — the model learns your judgment, not just raw demand numbers."
+Show: rejection_rate_30d updated, trust_score adjusted, Celery task queued.
+[Next →]
+
+**Step 8 — Model Improvement + ROI**
+Shepherd points to Model Health card (accuracy sparkline):
+> "MASE 0.95 on day 1. MASE 0.71 today. 25% more accurate — from 95 days of
+> your actual data and 47 buyer corrections feeding back into training."
+Then pan to ROI card:
+> "This month: 3 stockouts avoided. $7,200 in prevented lost sales.
+> That's the number."
+[End of buyer tour]
+
+**Enterprise coda (final slide, static):**
+> "Summit Outdoor Supply is one store. The same platform handles multi-location
+> chains — each location isolated, each with its own model, same pipeline.
+> EDI X12 and SFTP enterprise integrations are in the codebase.
+> Enterprise onboarding available."
+Link → Technical tour for depth.
 
 ---
 
-## 9. Session Handoff — What Future Sessions Should Know
+## 7. Technical Tour — Step by Step
+
+**Shepherd.js, 9 steps. Implementation detail throughout. ~20 minutes.**
+
+**Step 1 — Welcome**
+Modal:
+> "This tour covers the ML pipeline, model governance, multi-tenancy enforcement,
+> and enterprise architecture. To run it yourself: one command, 497 tests."
+Show GitHub link. [Start →]
+
+**Step 2 — Platform Activity Feed (Technical Framing)**
+Tooltip on Activity Feed:
+> "This is the Arena log. Every entry was triggered automatically by the ML pipeline.
+> The system is running a continuous champion/challenger architecture. There is always
+> an active challenger being evaluated against the current champion."
+Highlight the active shadow challenger entry.
+[Next →]
+
+**Step 3 — Arena: 7-Gate Evaluation**
+Shepherd opens Arena gate panel (shows pre-computed gate artifact for current challenger):
+> "A challenger doesn't promote just because it scores better on backtesting.
+> It passes 7 gates."
+
+Show gate-by-gate reveal (step-by-step animation):
+```
+Gate 1: Minimum rows          ✓  18,247 rows (min: 1,000)
+Gate 2: MAE improvement       ✓  MASE 0.71 → 0.64  (−9.9%)
+Gate 3: Stockout miss rate    ✓  4.2% → 3.1%
+Gate 4: Overstock rate        ✓  8.7% → 7.2%
+Gate 5: Overstock dollars     ✓  $12,400 → $9,800
+Gate 6: SHAP stability        ✓  Top-5 features stable (Δ < 0.15)
+Gate 7: Shadow canary (14d)   ⏳  Day 6 of 14 — auto-promotes in 8 days
+```
+> "Gate 6 is the one most systems skip. SHAP stability means the new model
+> didn't just get lucky on the holdout — its feature importance structure is
+> consistent with the champion. A model that passes Gates 1–5 but scrambles
+> its feature weights is rejected."
+[Next →]
+
+**Step 4 — SHAP: Per-Prediction, Not Global**
+Shepherd navigates to two different product detail pages.
+First SKU (Kayak Paddle Pro):
+> "Seasonality dominant. Summer pattern drives 38% of this forecast."
+Second SKU (Climbing Harness):
+> "Vendor reliability dominant. Supplier delivery variance is the biggest
+> factor for this slow-mover. Same model, completely different story."
+> "SHAP values here are per-prediction, computed at inference time.
+> Not global feature importance — that's a much weaker claim."
+[Next →]
+
+**Step 5 — Feedback Loop: Buyer Corrections Become Features**
+Navigate to PO screen.
+> "The feedback loop is where this gets interesting. Watch what actually
+> happens when a buyer pushes back on a recommendation."
+Shepherd points to Disapprove button.
+`advanceOn: { selector: '#po-disapprove-btn', event: 'click' }`
+→ System Events panel lights up.
+
+**Step 6 — System Events Panel (Technical)**
+Shepherd highlights each event in the panel:
+> "Three things just happened. A PODecision record was written with the outcome
+> and quantity adjustment. rejection_rate_30d was recalculated for this SKU.
+> forecast_trust_score was updated. A Celery task was queued to propagate this
+> into the feature matrix at next retrain."
+> "This is not logging. These are training features. The model learns the
+> buyer's judgment pattern — not just raw demand signals."
+Show the feature names: `rejection_rate_30d`, `avg_qty_adjustment_pct`,
+`forecast_trust_score`. Link to `backend/ml/feedback_loop.py`.
+[Next →]
+
+**Step 7 — Multi-Tenancy: RLS Enforcement**
+Shepherd navigates to a test evidence panel (or links to GitHub):
+> "Multi-tenancy is enforced at the session level via SET LOCAL app.current_tenant.
+> Every authenticated route uses get_tenant_db — not get_db. This is a codebase
+> convention enforced by a CI lint rule."
+Show test output from `test_security_guardrails.py`:
+> "This test proves Tenant B gets zero rows from Tenant A's data.
+> Not claimed in documentation — proven by a test that fails if violated."
+[Next →]
+
+**Step 8 — Enterprise Architecture**
+> "The platform is SMB-GA. Enterprise architecture is designed in from the start."
+
+What's production-ready:
+- Multi-tenant RLS (every route)
+- EDI X12 integration (transaction sets 846, 856, 810)
+- Pandera validation at 3 gates (raw → features → predictions)
+- Horizontal Celery worker architecture (Cloud Run target)
+- Per-tenant MLflow namespacing (partial)
+
+What's on the roadmap (honest):
+- Native ERP connectors (SAP/Oracle/Dynamics — currently via SFTP/EDI)
+- HA Celery scheduler (RedBeat — single beat process today)
+- Staging environment (docker-compose local only today)
+- Multi-region / data residency
+
+> "I know what isn't built. The architecture is designed for it.
+> The SMB path is production. Enterprise is the next phase."
+[Next →]
+
+**Step 9 — Test Suite + Run It Yourself**
+> "497 tests. Feature leakage detection, security guardrails, model rollback drill,
+> replay simulation, Arena gate coverage, EDI ingest end-to-end."
+Show the one-liner: `PYTHONPATH=backend pytest backend/tests/ -v`
+Link to GitHub repo.
+> "Clone it. Run the tests. Everything here is real."
+[End of technical tour]
+
+---
+
+## 8. Recording Plan
+
+### Session 1 — Buyer Tour (record after Shepherd tour is built)
+- Tool: Loom (face cam bottom-right, screen, live voiceover)
+- Length: ~12–15 minutes full walkthrough
+- Talking points: one bullet per Shepherd step (speak naturally, not verbatim)
+- GIF cuts needed from this recording:
+  - Stockout alert card appearing (30s)
+  - SHAP waterfall loading after click (20s)
+  - System Events panel lighting up after Disapprove (45s)
+  - ROI card final view (20s)
+
+### Session 2 — Technical Tour (record after all backend features built)
+- Tool: Loom (same setup)
+- Length: ~18–22 minutes
+- GIF cuts needed:
+  - Arena gate-by-gate reveal animation (60s)
+  - System Events panel with technical labels (45s)
+  - Two SKUs side by side with different SHAP stories (45s)
+- Terminal sections: Asciinema for pytest run output (hiring managers can pause/copy)
+
+### Splash Page Embeds
+- 4–6 GIF clips from the recordings above
+- Autoplay, no sound, looped
+- Each under 60 seconds, one concept per clip
+
+---
+
+## 9. Build Order — Prioritized
+
+Each item: `/spec` first → implement + tests → `/test-loop` until green → commit.
+
+### Foundation (build first — everything depends on this)
+- [ ] **Demo dataset**: `data/demo/` + `seed_demo.py` — Summit Outdoor Supply, Day 95 state
+  with active shadow challenger engineered in
+
+### Backend P0 (model must be good before demo is recorded)
+- [ ] **LightGBM switch** — zero LSTM weight; LSTM degrades every metric
+- [ ] **WAPE + MASE metrics** — replace MAPE; current metrics mislead
+- [ ] **Pre-trained model** — train on full Favorita + M5; cold-start on 27 rows is not demoable
+- [ ] **SHAP endpoint** — `GET /forecasts/{id}/explain`; Redis cache; tenant isolation test
+- [ ] **Retrain orphan cleanup** — `status = failed` on error; prevents silent retrain blocks
+- [ ] **Redis retrain lock** — concurrent retrains corrupt ModelVersion state
+- [ ] **Model quality CI test** — `test_model_quality_ci.py`; fails if MASE > 1.0 after code change
+
+### Frontend P0 (what the demo shows)
+- [ ] **Platform Activity Feed** — dashboard component; reads ModelVersion + retrain event log
+- [ ] **System Events Panel** — WebSocket side drawer; wired to buyer actions
+- [ ] **SHAP waterfall UI** — collapsible panel in ProductDetailPage; Recharts horizontal bars;
+  plain-language feature label mapping
+- [ ] **Model improvement timeline** — Model Health card + sparkline + event annotations
+- [ ] **Graduation notification** — in-app badge/toast when milestone fires
+- [ ] **Data freshness banner** — suppression banner when data gap > 48h
+- [ ] **Welcome modal** — two-button routing into tour tracks
+- [ ] **Mode switching** — `?tour=buyer` / `?tour=technical` query param
+
+### Shepherd.js Tours
+- [ ] **Shepherd.js installed** — `npm install shepherd.js`
+- [ ] **Buyer tour** — 8 steps per §6; `advanceOn` wired to disapprove click
+- [ ] **Technical tour** — 9 steps per §7; Arena gate panel; GitHub links
+- [ ] **Reactive step dependency** — System Events panel WebSocket must be live before
+  Shepherd step 6/7 can work; build panel first, tour second
+
+### Splash Page
+- [ ] **`/welcome` route** — single page; two CTA buttons; GIF embeds (add after recording)
+
+### API Test Coverage (32 untested endpoints from BRAINSTORM §23)
+- [ ] `test_reports_api.py` — stockout-risk, inventory-health, forecast-accuracy (P1 for demo)
+- [ ] `test_outcomes_api.py` — ROI endpoint (P1 for demo — this is what the buyer sees)
+- [ ] `test_forecasts_explain_api.py` — SHAP endpoint (P1 — used in both tours)
+- [ ] Remaining 25 endpoints — P2, before first customer
+
+---
+
+## 10. Shepherd.js Reactive Steps — Implementation Note
+
+The key technical challenge: Shepherd step 6 (System Events panel lights up) must
+fire AFTER the WebSocket event arrives from the Disapprove click — not immediately
+when the click happens.
+
+Implementation pattern:
+```typescript
+// Step 5: advance on disapprove click
+{
+  id: 'disapprove-cta',
+  advanceOn: { selector: '#po-disapprove-btn', event: 'click' }
+}
+
+// Step 6: wait for WebSocket event before showing tooltip
+{
+  id: 'system-events-reveal',
+  beforeShowPromise: () => new Promise(resolve => {
+    // WebSocket handler sets a flag when feedback_loop event arrives
+    const check = setInterval(() => {
+      if (window.__demoEventReceived) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 100);
+  }),
+  text: 'Your decision just triggered three automatic processes...',
+  attachTo: { element: '#system-events-panel', on: 'left' }
+}
+```
+
+The WebSocket event handler sets `window.__demoEventReceived = true` when the
+feedback_loop event arrives. Shepherd polls for the flag before showing step 6.
+This makes the step feel genuinely reactive — the tooltip appears because something
+real just happened, not because the user clicked Next.
+
+---
+
+## 11. Enterprise Positioning Summary
+
+| Component | Status | Demo treatment |
+|---|---|---|
+| Multi-tenant RLS | Production-ready | Shown in technical tour step 7 (test proof) |
+| EDI X12 (846/856/810) | Production-ready | Mentioned in technical tour step 8 |
+| Celery horizontal scaling | Architected | Mentioned in technical tour step 8 |
+| Pandera 3-gate validation | Production-ready | Mentioned in technical tour step 8 |
+| Per-tenant MLflow namespacing | Partial | Honest "partial" in technical tour |
+| Native ERP connectors | Roadmap | Honest roadmap in technical tour |
+| HA Celery scheduler | Roadmap | Honest roadmap in technical tour |
+| Staging environment | Roadmap | Honest roadmap in technical tour |
+
+---
+
+## 12. Session Handoff State
 
 When a new session picks up this plan:
 
-1. **Read this file first**
-2. **Check BRAINSTORM.md §19** for the full P0/P1 priority context
-3. **Run the test suite** to confirm the current green baseline:
-   ```bash
-   PYTHONPATH=backend pytest backend/tests/ -v --tb=short 2>&1 | tail -20
-   ```
-4. **Pick the next unchecked P0 item** from §3 above and use `/spec` to draft
-   the spec before starting implementation
-5. **Use `/test-loop` after each implementation** until fully green
-6. **Commit each item separately** with a clear message, push to `claude/analyze-codebase-FEu8K`
+1. Read this file
+2. Read `docs/BRAINSTORM.md §19` for full P0/P1 context
+3. Run the test suite: `PYTHONPATH=backend pytest backend/tests/ -v --tb=short 2>&1 | tail -20`
+4. Check the build order in §9 — find the first unchecked item
+5. Run `/spec` before touching any code
+6. Run `/test-loop` after implementation until green
+7. Commit each item separately, push to `claude/analyze-codebase-FEu8K`
+8. Check the item off in §9
 
-### Current State (February 2026)
-
-- [x] BRAINSTORM.md — comprehensive, 25 sections, living document
-- [ ] P0 item #1 — LightGBM switch (not started)
-- [ ] P0 item #2 — WAPE + MASE metrics (not started)
-- [ ] P0 item #3 — Pre-trained model on full Favorita + M5 (not started)
-- [ ] P0 item #4 — SHAP endpoint + UI (not started — highest complexity)
-- [ ] P0 item #5 — Model history UI (not started)
-- [ ] P0 item #6 — Graduation event notification (not started)
-- [ ] P0 item #7 — Data freshness banner (not started)
-- [ ] P0 item #8 — Retrain orphan cleanup (not started)
-- [ ] P0 item #9 — Redis retrain lock (not started)
-- [ ] P0 item #10 — Model quality CI test (not started)
-- [ ] Demo data seed dataset (not started)
-- [ ] `run_buyer_demo.py` script (not started)
-- [ ] API test coverage for 32 untested endpoints (not started)
-
----
-
-## 10. Open Decisions
-
-These need answers before the corresponding implementation starts:
-
-- [ ] **SHAP feature labels**: what mapping from internal feature names (`rolling_7d_avg`,
-  `lead_time_days`) to buyer-friendly labels ("7-day sales trend", "Supplier lead time")?
-  This lives in a config file, not hardcoded. Where does the config file live?
-
-- [ ] **Demo retailer profile**: outdoor gear shop (current suggestion) vs. something else?
-  The fictional business type determines which SHAP features will be most interesting.
-
-- [ ] **Graduation notification UX**: in-app toast, persistent notification bell, or
-  email? For demo purposes, an in-app badge is sufficient. Real decision can wait.
-
-- [ ] **Buyer demo script format**: pure terminal output (like recruiter demo), or
-  should it drive a live browser session (Playwright/Selenium for UI)? Terminal is
-  simpler and more reliable for a scripted demo. Browser automation is more visually
-  compelling but more fragile.
+**Current state (February 2026)**: All §9 items unchecked. Start with demo dataset.
