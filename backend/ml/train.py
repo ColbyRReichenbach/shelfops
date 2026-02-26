@@ -93,8 +93,27 @@ def train_lightgbm(
         "n_estimators": 500,
         "random_state": 42,
     }
+    # XGBoost-compat params that are not valid LightGBM params — strip them
+    _XGBOOST_ONLY_PARAMS = {
+        "early_stopping_rounds",
+        "reg_alpha",
+        "reg_lambda",
+        "min_child_weight",
+        "colsample_bytree",  # LightGBM uses feature_fraction
+        "subsample",         # LightGBM uses bagging_fraction
+        "max_depth",         # LightGBM uses num_leaves instead
+        "n_estimators",      # Handled via num_boost_round
+    }
     if params:
-        default_params.update(params)
+        for k, v in params.items():
+            if k == "n_estimators":
+                default_params["n_estimators"] = v  # Map to num_boost_round
+            elif k == "subsample":
+                default_params["bagging_fraction"] = v  # Map to LightGBM equivalent
+            elif k == "colsample_bytree":
+                default_params["feature_fraction"] = v  # Map to LightGBM equivalent
+            elif k not in _XGBOOST_ONLY_PARAMS:
+                default_params[k] = v
 
     X = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0)
     y = features_df[target_col].clip(lower=0)  # Poisson requires non-negative targets
@@ -156,7 +175,7 @@ def train_lightgbm(
         lgb_params,
         full_data,
         num_boost_round=n_rounds,
-        callbacks=[lgb.log_evaluation(-1)],
+        # No callbacks for final full-data training (no eval set, no early stopping)
     )
 
     metrics = {
