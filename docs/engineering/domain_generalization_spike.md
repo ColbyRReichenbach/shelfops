@@ -107,7 +107,7 @@ statistically stable clusters.
   high-dimensional feature importance vectors? (Rule-of-thumb: 5× the feature dimension, but
   what do practitioners actually observe?)
 - Has tenant clustering for ML prior initialization been done in SaaS ML platforms?
-  Check: Sagemaker, Vertex AI, Azure ML documentation and whitepapers.
+  Check: Sagemaker, Azure ML documentation and whitepapers.
 - Is there a simpler intermediate approach — e.g., two manually curated cluster centroids
   (retail vs. food service) that get replaced by discovered centroids once enough tenants exist?
 - What metadata features (beyond SHAP) are most predictive of which cluster a new tenant

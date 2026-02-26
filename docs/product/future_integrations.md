@@ -19,7 +19,7 @@ Replace or augment the current 5-minute Celery beat polling with a persistent ev
 The existing EDI X12, Kafka, and SFTP pathways cover a wide surface, but enterprise buyers are standardized on specific platforms. Priority connector targets: SAP S/4HANA, Oracle NetSuite, Microsoft Dynamics 365, and Shopify Plus. Each would use the existing `Integration` model and `IntegrationSyncLog` pattern — the framework is already in place.
 
 **Data lakehouse cold tier**
-Historical ML training data (>18 months) is expensive to keep in Postgres. A two-tier architecture — hot data in TimescaleDB, cold data in GCP BigQuery or Snowflake — would reduce DB costs, enable cross-tenant aggregate analytics (anonymized), and unlock larger training windows for the LSTM without memory pressure.
+Historical ML training data (>18 months) is expensive to keep in Postgres. A two-tier architecture — hot data in TimescaleDB, cold data in Snowflake or a similar cloud data warehouse — would reduce DB costs, enable cross-tenant aggregate analytics (anonymized), and unlock larger training windows for the LSTM without memory pressure.
 
 **Change Data Capture (CDC)**
 For enterprise source systems where polling is disruptive, a CDC pipeline (Debezium + Kafka Connect) would capture row-level changes from the customer's ERP without hitting production query load. Feeds directly into the existing ingest normalization layer.

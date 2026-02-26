@@ -33,7 +33,7 @@ Models are trained per-tenant with time-based cross-validation splits. There is 
 ## Infrastructure and Scalability
 
 **Single-region deployment**
-The current architecture targets a single GCP Cloud Run region. There are no multi-region routing, data residency controls, or cross-region failover mechanisms. This is a blocker for enterprise buyers in regulated markets (EU data residency, HIPAA-adjacent supply chains).
+The current deployment targets a single region. There are no multi-region routing, data residency controls, or cross-region failover mechanisms. This is a blocker for enterprise buyers in regulated markets (EU data residency, HIPAA-adjacent supply chains).
 
 **Celery beat is a single scheduler process**
 The 12 scheduled jobs run through a single Celery beat process. There is no high-availability (HA) scheduler configuration. If the beat process crashes, scheduled jobs stop until it is restarted. This is acceptable for the current SMB deployment target but would require an HA scheduler (e.g., RedBeat with Redis locking) for enterprise SLO commitments.
