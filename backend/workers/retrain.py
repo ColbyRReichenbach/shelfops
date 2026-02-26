@@ -4,7 +4,7 @@ ML Retraining Workers — Scheduled model retraining.
 Runs the full ML pipeline:
   1. Load training data (CSV cold-start or DB query)
   2. Feature engineering (auto-detects tier)
-  3. Train XGBoost + LSTM ensemble
+  3. Train LightGBM model (pure LightGBM mode)
   4. Save models + register in model registry
   5. Refresh alerts with updated forecasts
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import redis
 import structlog
 
 from ml.contract_mapper import build_canonical_result
@@ -26,6 +27,52 @@ from ml.data_contracts import load_canonical_transactions
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+
+def _acquire_retrain_lock(customer_id: str, timeout: int = 3600) -> bool:
+    """
+    Acquire a Redis lock for tenant retraining. Returns True if acquired.
+
+    Uses SET NX EX to atomically set a lock key with a TTL. If the lock
+    is already held by another worker for this tenant, returns False.
+
+    Fails open (returns True) if Redis is unavailable — this prevents
+    Redis outages from blocking the retraining pipeline entirely.
+
+    Args:
+        customer_id: Tenant identifier used as the lock key suffix.
+        timeout: Lock TTL in seconds (default 3600 = 1 hour).
+
+    Returns:
+        True if the lock was acquired (or Redis is unavailable).
+        False if the lock is held by another worker.
+    """
+    try:
+        r = redis.from_url(REDIS_URL)
+        lock_key = f"retrain_lock:{customer_id}"
+        return bool(r.set(lock_key, "1", ex=timeout, nx=True))
+    except Exception:
+        # Fail open: if Redis is down, don't block retraining
+        return True
+
+
+def _release_retrain_lock(customer_id: str) -> None:
+    """
+    Release the Redis retrain lock for a tenant.
+
+    Swallows all exceptions — lock expiry (TTL) handles cleanup automatically
+    if this call fails.
+
+    Args:
+        customer_id: Tenant identifier whose lock should be released.
+    """
+    try:
+        r = redis.from_url(REDIS_URL)
+        r.delete(f"retrain_lock:{customer_id}")
+    except Exception:
+        pass
 
 
 def _next_version() -> str:
@@ -664,6 +711,20 @@ def retrain_forecast_model(
         dataset_name=dataset_name,
     )
 
+    # ── Redis lock: prevent concurrent retrains for the same tenant ──
+    lock_customer = customer_id or "global"
+    if not _acquire_retrain_lock(lock_customer):
+        logger.warning(
+            "retrain.skipped_lock_held",
+            customer_id=customer_id,
+            reason="Another retrain is already running for this tenant.",
+        )
+        return {
+            "status": "skipped",
+            "reason": "lock_held",
+            "customer_id": customer_id,
+        }
+
     try:
         # ── Step 1: Load data ────────────────────────────────────────
         if contract_path and sample_path:
@@ -1073,3 +1134,7 @@ def retrain_forecast_model(
         if isinstance(exc, (OSError, IOError)):
             raise self.retry(exc=exc)
         raise
+
+    finally:
+        # Always release the Redis retrain lock (success or failure)
+        _release_retrain_lock(lock_customer)
