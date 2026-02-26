@@ -13,8 +13,8 @@ These are known boundaries of the current design, not defects. Each is a deliber
 **Static lead times in the optimizer**
 The reorder point (ROP) and EOQ calculations in `backend/inventory/optimizer.py` treat supplier lead times as fixed inputs per vendor. There is no mechanism to dynamically adjust lead time estimates based on external signals (weather events, carrier delays, port congestion). Buyers must manually update lead time values when disruptions occur.
 
-**Point estimates only — no uncertainty quantification**
-The LSTM + XGBoost ensemble outputs a single forecast value per SKU per day. Prediction intervals or confidence bounds are not surfaced to buyers or returned by the API. This makes it harder for buyers to calibrate trust, particularly for high-variance or low-history SKUs.
+**Prediction uncertainty fields unpopulated**
+The API contract and database schema include `lower_bound`, `upper_bound`, and `confidence` on every forecast record, but the current model does not compute prediction intervals — all three are returned as `null`. Buyers have no way to calibrate trust for high-variance or low-history SKUs until the forecasting pipeline is updated to produce uncertainty estimates.
 
 **Binary feature tier selection**
 `detect_feature_tier()` in `backend/ml/features.py` selects either the 27-feature baseline tier or the 45-feature enriched tier based on a single threshold (history depth). There is no per-feature importance scoring or dynamic feature selection — a tenant either qualifies for the enriched tier in full or falls back to baseline.
@@ -77,8 +77,8 @@ Enterprise ERP platforms (SAP S/4HANA, Oracle NetSuite, Microsoft Dynamics 365) 
 **No prediction interval visualization**
 The dashboard surfaces forecast values and SHAP feature importance but does not display confidence intervals or model uncertainty. Buyers have no visual signal for when the model is operating outside its reliable range.
 
-**SHAP output is API-only**
-SHAP feature importance values are returned in the API response for individual forecasts but are not rendered in a dedicated dashboard view. There is no waterfall chart, driver summary, or week-over-week explanation UI.
+**SHAP explanations not surfaced in buyer-facing views**
+SHAP feature importance is rendered in the ML Ops page (`FeatureImportance` component, Models tab) for operator/technical users. It is not available in the buyer-facing forecast or reorder recommendation views — buyers do not see a per-prediction driver summary or week-over-week explanation alongside their suggested POs.
 
 **No tenant-level observability dashboard**
 There is no operator-facing view of per-tenant model health, forecast accuracy trends, data freshness, or integration sync status. Monitoring is logged to the database (`IntegrationSyncLog`, accuracy backfill tables) but not surfaced in the UI.
