@@ -404,6 +404,7 @@ Each item: `/spec` first → implement + tests → `/test-loop` until green → 
 - [ ] **LightGBM switch** — zero LSTM weight; LSTM degrades every metric
 - [ ] **WAPE + MASE metrics** — replace MAPE; current metrics mislead
 - [ ] **Pre-trained model** — train on full Favorita + M5; cold-start on 27 rows is not demoable
+- [ ] **Timezone-aware feature engineering** — all temporal features wrong for non-Eastern tenants
 - [ ] **SHAP endpoint** — `GET /forecasts/{id}/explain`; Redis cache; tenant isolation test
 - [ ] **Retrain orphan cleanup** — `status = failed` on error; prevents silent retrain blocks
 - [ ] **Redis retrain lock** — concurrent retrains corrupt ModelVersion state
