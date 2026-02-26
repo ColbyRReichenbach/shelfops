@@ -1,6 +1,6 @@
 # ShelfOps — Demo Readiness Plan
 
-- Status: **Active — work in progress**
+- Status: **Active — Frontend P0 complete; Shepherd.js tours next**
 - Updated: February 2026
 - Branch: `claude/analyze-codebase-FEu8K`
 
@@ -397,29 +397,33 @@ Link to GitHub repo.
 Each item: `/spec` first → implement + tests → `/test-loop` until green → commit.
 
 ### Foundation (build first — everything depends on this)
-- [ ] **Demo dataset**: `data/demo/` + `seed_demo.py` — Summit Outdoor Supply, Day 95 state
-  with active shadow challenger engineered in
+- [x] **Demo dataset**: `data/demo/` + `seed_demo.py` — Summit Outdoor Supply, Day 95 state
+  with active shadow challenger engineered in (WS-1.1, WS-1.2)
 
 ### Backend P0 (model must be good before demo is recorded)
-- [ ] **LightGBM switch** — zero LSTM weight; LSTM degrades every metric
-- [ ] **WAPE + MASE metrics** — replace MAPE; current metrics mislead
+- [x] **LightGBM switch** — zero LSTM weight; pure LightGBM pipeline (WS-2.1)
+- [x] **WAPE + MASE metrics** — replaced MAPE; training pipeline updated (WS-2.2)
 - [ ] **Pre-trained model** — train on full Favorita + M5; cold-start on 27 rows is not demoable
-- [ ] **Timezone-aware feature engineering** — all temporal features wrong for non-Eastern tenants
-- [ ] **SHAP endpoint** — `GET /forecasts/{id}/explain`; Redis cache; tenant isolation test
-- [ ] **Retrain orphan cleanup** — `status = failed` on error; prevents silent retrain blocks
-- [ ] **Redis retrain lock** — concurrent retrains corrupt ModelVersion state
-- [ ] **Model quality CI test** — `test_model_quality_ci.py`; fails if MASE > 1.0 after code change
+- [x] **Timezone-aware feature engineering** — all temporal features now tz-correct (WS-2.4)
+- [x] **SHAP endpoint** — `GET /forecasts/{id}/explain`; Redis cache; tenant isolation (WS-3, WS-7.1)
+- [x] **Retrain orphan cleanup** — `status = failed` on error; prevents silent retrain blocks (WS-2.6)
+- [x] **Redis retrain lock** — concurrent retrains guarded with Redis distributed lock (WS-2.5)
+- [x] **Model quality CI test** — `test_model_quality_ci.py`; MASE < 1.0 gate (WS-2.7)
 
 ### Frontend P0 (what the demo shows)
-- [ ] **Platform Activity Feed** — dashboard component; reads ModelVersion + retrain event log
-- [ ] **System Events Panel** — WebSocket side drawer; wired to buyer actions
-- [ ] **SHAP waterfall UI** — collapsible panel in ProductDetailPage; Recharts horizontal bars;
-  plain-language feature label mapping
-- [ ] **Model improvement timeline** — Model Health card + sparkline + event annotations
-- [ ] **Graduation notification** — in-app badge/toast when milestone fires
-- [ ] **Data freshness banner** — suppression banner when data gap > 48h
-- [ ] **Welcome modal** — two-button routing into tour tracks
-- [ ] **Mode switching** — `?tour=buyer` / `?tour=technical` query param
+- [x] **Platform Activity Feed** — `ActivityFeed.tsx`; 95-day Summit arc; mounted on DashboardPage
+- [x] **System Events Panel** — `SystemEventsPanel.tsx`; live WS feed; auto-expands on `?tour=technical`;
+  mounted on DashboardPage; sets `window.__demoEventReceived` for Shepherd interop
+- [x] **SHAP waterfall UI** — `SHAPWaterfall.tsx`; horizontal Recharts bars; plain-language labels;
+  lazy-fetches on expand; wired into ForecastsPage top movers
+- [x] **Model improvement timeline** — `ModelTimeline.tsx`; MASE sparkline Day 1→95; champion/challenger
+  annotations; mounted on DashboardPage
+- [x] **Graduation notification** — `GraduationToast.tsx`; Radix UI Toast; built, not yet wired to WS event
+- [x] **Data freshness banner** — `DataFreshnessBanner.tsx`; shows when `hoursSinceSync > 48`; built,
+  not yet mounted (no active stale-data scenario in demo)
+- [x] **Welcome modal** — `WelcomeModal.tsx`; sessionStorage flag; mounted in `ModernDashboardLayout`
+- [x] **Mode switching** — `useDemoMode.ts` hook; `?tour=buyer|technical`; wired into SystemEventsPanel
+  and SHAPWaterfall; DashboardPage and ForecastsPage use it
 
 ### Shepherd.js Tours
 - [ ] **Shepherd.js installed** — `npm install shepherd.js`
@@ -433,7 +437,7 @@ Each item: `/spec` first → implement + tests → `/test-loop` until green → 
 
 ### API Test Coverage (32 untested endpoints from BRAINSTORM §23)
 - [ ] `test_reports_api.py` — stockout-risk, inventory-health, forecast-accuracy (P1 for demo)
-- [ ] `test_outcomes_api.py` — ROI endpoint (P1 for demo — this is what the buyer sees)
+- [x] `test_outcomes_api.py` — ROI endpoint tests: unit + schema + HTTP integration layers
 - [ ] `test_forecasts_explain_api.py` — SHAP endpoint (P1 — used in both tours)
 - [ ] Remaining 25 endpoints — P2, before first customer
 
@@ -505,4 +509,19 @@ When a new session picks up this plan:
 7. Commit each item separately, push to `claude/analyze-codebase-FEu8K`
 8. Check the item off in §9
 
-**Current state (February 2026)**: All §9 items unchecked. Start with demo dataset.
+**Current state (February 2026)**:
+
+Backend P0: **7/8 done**. Only remaining item is pre-trained model (cold-start still on 27 rows).
+
+Frontend P0: **8/8 done** (all components built and mounted). Two edge-case items not actively
+wired: `GraduationToast` (needs WS graduation event trigger) and `DataFreshnessBanner` (no stale
+data scenario in demo; only relevant if sync gap > 48h).
+
+Demo flow end-to-end functional:
+- `/ → WelcomeModal → ?tour=buyer|technical`
+- DashboardPage: KPIs + ModelTimeline + ActivityFeed + SystemEventsPanel
+- ForecastsPage: top movers with inline SHAPWaterfall per product
+
+**Next**: Shepherd.js tours (§9 — Shepherd.js Tours). Start with `npm install shepherd.js`,
+then buyer tour (8 steps), then technical tour (9 steps). Buyer tour first — shorter and simpler,
+establishes the `advanceOn` + `beforeShowPromise` pattern needed for both.
