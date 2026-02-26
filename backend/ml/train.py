@@ -101,7 +101,7 @@ def train_lightgbm(
 
     # Time-series split: never shuffle
     tscv = TimeSeriesSplit(n_splits=n_splits)
-    maes, mapes = [], []
+    maes, mapes, wapes, mases = [], [], [], []
 
     for train_idx, val_idx in tscv.split(X):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
@@ -132,10 +132,16 @@ def train_lightgbm(
 
         from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
-        maes.append(mean_absolute_error(y_val, preds))
-        nonzero_mask = y_val > 0
+        from ml.metrics import mase as compute_mase
+        from ml.metrics import wape as compute_wape
+
+        y_val_arr = y_val.values if hasattr(y_val, "values") else np.asarray(y_val)
+        maes.append(mean_absolute_error(y_val_arr, preds))
+        nonzero_mask = y_val_arr > 0
         if nonzero_mask.sum() > 0:
-            mapes.append(mean_absolute_percentage_error(y_val[nonzero_mask], preds[nonzero_mask]))
+            mapes.append(mean_absolute_percentage_error(y_val_arr[nonzero_mask], preds[nonzero_mask]))
+        wapes.append(compute_wape(y_val_arr, preds))
+        mases.append(compute_mase(y_val_arr, preds, seasonality=7))
 
     # Train final model on all data
     n_rounds = default_params.pop("n_estimators", 500)
@@ -156,6 +162,8 @@ def train_lightgbm(
     metrics = {
         "mae": float(np.mean(maes)),
         "mape": float(np.mean(mapes)) if mapes else 0.0,
+        "wape": float(np.mean(wapes)),
+        "mase": float(np.mean(mases)),
         "cv_folds": n_splits,
         "model_type": "lightgbm",
         "feature_tier": tier,
