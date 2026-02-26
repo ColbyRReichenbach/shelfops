@@ -1,0 +1,8 @@
+{
+  "customer_id": "00000000-0000-0000-0000-000000000099",
+  "name": "Summit Outdoor Supply",
+  "slug": "summit-outdoor",
+  "timezone": "America/Denver",
+  "tier": "smb",
+  "demo": true
+}
