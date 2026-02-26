@@ -139,13 +139,35 @@ def get_feature_cols(tier: FeatureTier) -> list[str]:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
-    """Extract 10 temporal features from a date column."""
+def _temporal_features(df: pd.DataFrame, date_col: str = "date", timezone: str = "UTC") -> pd.DataFrame:
+    """Extract 10 temporal features from a date column.
+
+    Args:
+        df: Input DataFrame.
+        date_col: Name of the date column.
+        timezone: IANA timezone string (e.g. 'America/Denver'). Dates are
+            localized to this timezone before extracting day_of_week, month,
+            etc., so that features reflect local retail time rather than UTC.
+    """
     dt = pd.to_datetime(df[date_col], errors="coerce")
 
     # Fill NaT with a default (e.g. first date) to prevent crash, though upstream should filter
     if dt.isna().any():
         dt = dt.fillna(dt.min())
+
+    # Localize to tenant timezone before extracting temporal features.
+    # This ensures day_of_week/month reflect local retail time, not UTC.
+    if timezone != "UTC":
+        try:
+            # If timestamps are already tz-naive, localize then convert.
+            # If already tz-aware, just convert.
+            if dt.dt.tz is None:
+                dt = dt.dt.tz_localize("UTC").dt.tz_convert(timezone)
+            else:
+                dt = dt.dt.tz_convert(timezone)
+        except Exception:
+            # Fallback: keep original timestamps if localization fails
+            pass
 
     return df.assign(
         day_of_week=dt.dt.dayofweek.fillna(0).astype(int),
@@ -363,6 +385,7 @@ def create_features(
     macro_df: pd.DataFrame | None = None,
     target_date: str | None = None,
     force_tier: FeatureTier | None = None,
+    timezone: str = "UTC",
 ) -> pd.DataFrame:
     """
     Create features for demand forecasting.
@@ -381,6 +404,10 @@ def create_features(
         macro_df: Macro data (optional) — oil_price (e.g., from Favorita)
         target_date: Reference date for promo features
         force_tier: Override auto-detection ("cold_start" or "production")
+        timezone: IANA timezone string for the tenant (e.g. 'America/Denver').
+            Dates are localized to this timezone before extracting temporal
+            features so that day_of_week, month, etc. reflect local retail
+            time rather than UTC. Defaults to 'UTC'.
 
     Returns:
         DataFrame with engineered features + _feature_tier attribute
@@ -390,8 +417,8 @@ def create_features(
 
     # ── Phase-independent features (both tiers) ─────────────────────
 
-    # 1. Temporal (10)
-    features = _temporal_features(transactions_df, "date")
+    # 1. Temporal (10) — localized to tenant timezone
+    features = _temporal_features(transactions_df, "date", timezone=timezone)
 
     # 2. Sales History (12)
     features = _sales_history_features(features)
