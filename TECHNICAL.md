@@ -1,22 +1,26 @@
-# ShelfOps — Technical README
+<div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?style=flat-square&logo=fastapi&logoColor=white)
-![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x_async-D71F00?style=flat-square)
-![Celery](https://img.shields.io/badge/Celery-5-37814A?style=flat-square&logo=celery&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql&logoColor=white)
-![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2-FDB515?style=flat-square&logo=timescale&logoColor=black)
-![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)
-![XGBoost](https://img.shields.io/badge/XGBoost-Ensemble-FF6600?style=flat-square)
-![PyTorch](https://img.shields.io/badge/PyTorch-LSTM-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
-![MLflow](https://img.shields.io/badge/MLflow-Tracking-0194E2?style=flat-square&logo=mlflow&logoColor=white)
-![SHAP](https://img.shields.io/badge/SHAP-Explainability-FF6B6B?style=flat-square)
-![Pandera](https://img.shields.io/badge/Pandera-Schema_Validation-1E90FF?style=flat-square)
-![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)
+# ShelfOps — Technical Reference
+**Architecture reference for engineers and technical hiring managers.**
+**For the product story, see [README.md](./README.md).**
 
-Architecture reference for engineers and technical hiring managers. For the product story, see [README.md](./README.md).
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-D71F00)](https://www.sqlalchemy.org/)
+[![Celery](https://img.shields.io/badge/Celery-5-37814A?logo=celery&logoColor=white)](https://docs.celeryq.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2-FDB515?logo=timescale&logoColor=black)](https://www.timescale.com/)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
+[![LightGBM](https://img.shields.io/badge/LightGBM-Forecasting-FF6600)](https://lightgbm.readthedocs.io/)
+[![MLflow](https://img.shields.io/badge/MLflow-Tracking-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![SHAP](https://img.shields.io/badge/SHAP-Explainability-FF6B6B)](https://shap.readthedocs.io/)
+[![Pandera](https://img.shields.io/badge/Pandera-Schema%20Validation-1E90FF)](https://pandera.readthedocs.io/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
+[![pytest](https://img.shields.io/badge/pytest-497%20passing-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+
+</div>
 
 ---
 
