@@ -1,6 +1,6 @@
 # ShelfOps Evidence Policy
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: maintainers and reviewers
 - Scope: curated evidence retention and artifact policy
 - Source of truth: this policy and `.gitignore` artifact rules

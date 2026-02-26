@@ -1,6 +1,6 @@
 # ShelfOps Production Decision Log
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: engineering leadership and reviewers
 - Scope: durable architecture and release decisions
 - Source of truth: this decision log
@@ -24,3 +24,28 @@
 
 6. Profile-driven contract boundary with explicit adapter escalation (`implemented`)
 - Rationale: enables no-code onboarding for representable schema variants.
+
+7. Ship-find-fix over speculative pre-engineering (`decided`)
+- Rationale: AI-assisted iteration velocity has moved the crossover point where pre-engineering
+  pays off significantly later. Unknown unknowns from real customer data are cheaper to fix on
+  contact than to anticipate upfront. This applies specifically to: vertical generalization,
+  domain-specific feature presets, edge cases in the optimizer, and schema variants outside
+  current retail assumptions. None of these should be built until a real customer produces the
+  need.
+- Prerequisite before first onboarding: observability must be in place (error tracking with
+  tenant context, structured logging, basic health metrics) so that "fix fast" is actually fast.
+  Without it, the loop breaks — you can't fix what you can't see.
+- What this does NOT defer: anything required for a reliable demo or for the retail SMB use
+  case to work correctly end-to-end. The line is: don't over-engineer for customers you don't
+  have yet, but don't under-build for the customer you are actively selling to.
+
+8. Self-hosted AI-assisted observability over external SaaS (`decided`)
+- Rationale: for a one-person team, the bottleneck on fix velocity is context assembly, not
+  error capture. An LLM that reads the stack trace, queries recent error history, reads the
+  relevant source file, and proposes a fix in plain English is more useful than a Sentry
+  dashboard. TimescaleDB (already in stack) handles time-series log storage. Claude API handles
+  diagnosis. Slack handles delivery. No external SaaS dependency needed.
+- Spec: `docs/engineering/observability_spec.md`
+- Auto-fix scope is deliberately limited: LLM proposes, human applies. Auto-applying code
+  changes is out of scope for v1.
+

@@ -1,6 +1,6 @@
 # ShelfOps SMB Onboarding Runbook
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: onboarding, ops, data engineering
 - Scope: SMB CSV/SFTP onboarding path
 - Source of truth: contract profiles and onboarding scripts
@@ -26,4 +26,4 @@ PYTHONPATH=backend python3 backend/scripts/run_onboarding_flow.py --help
 
 ## Policy Note
 
-Square/REST normalization depth is deferred in the current priority cycle (`partial`).
+Square/REST normalization and webhook processors are implemented (`implemented`).

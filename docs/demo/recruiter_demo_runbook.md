@@ -1,6 +1,6 @@
 # ShelfOps Recruiter Demo Runbook
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: recruiters, hiring managers, interviewers
 - Scope: one-command demo, replay evidence, and talking points
 - Source of truth: `backend/scripts/run_recruiter_demo.py`, replay scripts, active readiness docs

@@ -1,6 +1,6 @@
 # ShelfOps ML Effectiveness
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: ML ops, product engineering, reviewers
 - Scope: runtime effectiveness contract and interpretation rules
 - Source of truth: `backend/api/v1/routers/ml_ops.py`, `backend/ml/metrics_contract.py`

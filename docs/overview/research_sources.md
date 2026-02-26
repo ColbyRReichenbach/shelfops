@@ -1,6 +1,6 @@
 # ShelfOps Research Sources
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: documentation authors, reviewers, interview preparation
 - Scope: external context sources and safe claim policy
 - Source of truth: SEC filings and NRF primary publications listed below

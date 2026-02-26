@@ -1,6 +1,6 @@
 # ShelfOps Executive Overview
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: recruiters, hiring managers, business stakeholders
 - Scope: concise product and readiness narrative
 - Source of truth: `docs/product/production_readiness.md`, `docs/product/decision_log.md`
@@ -13,7 +13,7 @@ ShelfOps is an inventory intelligence platform designed for SMB launch-candidate
 
 - Demand forecasting and decision support: `implemented`
 - Contract-driven onboarding for heterogeneous source schemas: `implemented`
-- Enterprise integration validation harness (EDI/SFTP/event): `pilot_validated`
+- Enterprise integration validation harness (EDI/SFTP/event): `implemented`
 - Broad enterprise onboarding availability: `blocked`
 
 ## Readiness Statement

@@ -1,6 +1,6 @@
 # ShelfOps Integration Incident Runbook
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: operations and integration engineering
 - Scope: incident response for EDI/SFTP/event and sync-health degradations
 - Source of truth: integration router contracts and worker behavior

@@ -1,6 +1,6 @@
 # Curated Snapshot Allowlist
 
-- Last verified date: February 15, 2026
+- Last verified date: February 24, 2026
 - Audience: maintainers and CI reviewers
 - Scope: tracked evidence snapshots under `docs/productization_artifacts`
 - Source of truth: this file and `scripts/validate_docs.sh`
