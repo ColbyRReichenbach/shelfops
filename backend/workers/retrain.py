@@ -75,6 +75,68 @@ def _release_retrain_lock(customer_id: str) -> None:
         pass
 
 
+def _mark_model_version_failed(
+    customer_id: str,
+    model_name: str,
+    version: str,
+    error_message: str = "",
+) -> None:
+    """
+    Set ModelVersion.status = 'failed' for the given tenant + model + version.
+
+    Called in the retrain exception handler to ensure a ModelVersion row is
+    never left in a 'candidate' or 'training' state after the task dies.
+    If no matching row exists (e.g., failure happened before registration),
+    this is a no-op.
+
+    Args:
+        customer_id: Tenant UUID string.
+        model_name: Model type identifier.
+        version: Version string (e.g., 'v3').
+        error_message: Human-readable failure reason, stored in metrics JSON.
+    """
+    import asyncio
+
+    from sqlalchemy import select, text, update
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from db.models import ModelVersion
+
+    async def _update() -> None:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+
+                await db.execute(
+                    update(ModelVersion)
+                    .where(
+                        ModelVersion.customer_id == uuid.UUID(customer_id),
+                        ModelVersion.model_name == model_name,
+                        ModelVersion.version == version,
+                        ModelVersion.status.notin_(["champion", "archived"]),
+                    )
+                    .values(
+                        status="failed",
+                        metrics={"error": error_message, "failed_at": datetime.utcnow().isoformat()},
+                    )
+                )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_update())
+
+
 def _next_version() -> str:
     """Auto-increment model version by scanning existing model directories."""
     from ml.train import MODEL_DIR
@@ -1122,6 +1184,13 @@ def retrain_forecast_model(
                 )
             except Exception as retrain_log_exc:
                 logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
+
+            # Mark ModelVersion.status = 'failed' so it is never stuck as
+            # 'candidate' or 'training' after the task dies.
+            try:
+                _mark_model_version_failed(customer_id, model_name, ver, error_message=str(exc))
+            except Exception as mark_exc:
+                logger.warning("retrain.mark_failed_error", error=str(mark_exc), exc_info=True)
 
         logger.error(
             "retrain.failed",
