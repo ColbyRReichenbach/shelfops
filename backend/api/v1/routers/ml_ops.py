@@ -275,8 +275,13 @@ async def get_ml_health(
     )
     recent_backtests = backtest_result.scalar() or 0
 
+    if not champions or recent_backtests == 0:
+        health_status = "degraded"
+    else:
+        health_status = "healthy"
+
     return {
-        "status": "healthy",
+        "status": health_status,
         "model_counts": status_counts,
         "champions": champions,
         "recent_backtests_7d": recent_backtests,

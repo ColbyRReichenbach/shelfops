@@ -92,7 +92,6 @@ export default function ExecutiveDashboard() {
             .map(([date, vals]) => ({
                 date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
                 predicted: Math.round(vals.predicted),
-                actual: 0, // actual sales data requires transaction endpoint — left as 0 until available
                 at_risk: Math.round(vals.predicted * ((alertSummary?.critical ?? 0) / Math.max(1, alertSummary?.total ?? 1))),
             }))
     }, [forecasts, alertSummary])

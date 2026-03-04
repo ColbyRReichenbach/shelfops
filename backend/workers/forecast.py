@@ -141,6 +141,30 @@ async def _resolve_model_version(
     return None
 
 
+async def _resolve_challenger_version(
+    db: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    model_name: str,
+    champion_version: str,
+) -> str | None:
+    from db.models import ModelVersion
+
+    challenger = await db.execute(
+        select(ModelVersion.version)
+        .where(
+            ModelVersion.customer_id == customer_id,
+            ModelVersion.model_name == model_name,
+            ModelVersion.status == "challenger",
+            ModelVersion.version != champion_version,
+        )
+        .order_by(ModelVersion.created_at.desc())
+        .limit(1)
+    )
+    row = challenger.one_or_none()
+    return str(row.version) if row else None
+
+
 @celery_app.task(
     name="workers.forecast.generate_forecasts",
     bind=True,
@@ -159,8 +183,9 @@ def generate_forecasts(
     Generate forward demand forecasts and persist them to demand_forecasts.
     """
     from core.config import get_settings
-    from db.models import DemandForecast
+    from db.models import DemandForecast, ShadowPrediction
     from ml.features import create_features
+    from ml.feedback_loop import get_feedback_features
     from ml.predict import load_models, predict_demand
 
     settings = get_settings()
@@ -177,6 +202,7 @@ def generate_forecasts(
     async def _run():
         engine = create_async_engine(settings.database_url)
         created = 0
+        shadow_created = 0
         skipped = 0
         try:
             async_session = async_sessionmaker(engine, class_=AsyncSession)
@@ -207,7 +233,12 @@ def generate_forecasts(
                 if transactions_df.empty:
                     return {"status": "skipped", "reason": "no_transactions_available"}
 
-                features_df = create_features(transactions_df=transactions_df, force_tier="cold_start")
+                feedback_df = await get_feedback_features(db, customer_id=customer_uuid, lookback_days=30)
+                features_df = create_features(
+                    transactions_df=transactions_df,
+                    force_tier="cold_start",
+                    feedback_df=feedback_df,
+                )
                 if features_df.empty:
                     return {"status": "skipped", "reason": "feature_generation_empty"}
 
@@ -231,6 +262,25 @@ def generate_forecasts(
                     )
                     return {"status": "failed", "reason": "model_load_failed", "error": str(exc)}
 
+                challenger_version = await _resolve_challenger_version(
+                    db,
+                    customer_id=customer_uuid,
+                    model_name=model_name,
+                    champion_version=resolved_version,
+                )
+                challenger_models = None
+                if challenger_version:
+                    try:
+                        challenger_models = load_models(challenger_version)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "forecast_generation.challenger_model_load_failed",
+                            customer_id=customer_id,
+                            challenger_version=challenger_version,
+                            error=str(exc),
+                        )
+                        challenger_models = None
+
                 start_date = date.today() + timedelta(days=1)
                 forecast_dates = [start_date + timedelta(days=i) for i in range(forecast_horizon)]
 
@@ -243,10 +293,24 @@ def generate_forecasts(
                         DemandForecast.forecast_date <= forecast_dates[-1],
                     )
                 )
+                await db.execute(
+                    delete(ShadowPrediction).where(
+                        ShadowPrediction.customer_id == customer_uuid,
+                        ShadowPrediction.forecast_date >= forecast_dates[0],
+                        ShadowPrediction.forecast_date <= forecast_dates[-1],
+                    )
+                )
 
                 for offset, forecast_date in enumerate(forecast_dates, start=1):
                     feature_batch = _apply_future_temporal_columns(latest_features, forecast_date, day_offset=offset)
                     preds = predict_demand(feature_batch, models=models, confidence_level=0.90)
+                    challenger_map: dict[tuple[str, str], float] = {}
+                    if challenger_models is not None:
+                        challenger_preds = predict_demand(feature_batch, models=challenger_models, confidence_level=0.90)
+                        challenger_map = {
+                            (str(row.store_id), str(row.product_id)): float(max(row.forecasted_demand, 0.0))
+                            for row in challenger_preds.itertuples(index=False)
+                        }
 
                     for row in preds.itertuples(index=False):
                         store_uuid = _coerce_uuid(row.store_id)
@@ -272,6 +336,19 @@ def generate_forecasts(
                             )
                         )
                         created += 1
+                        challenger_pred = challenger_map.get((str(row.store_id), str(row.product_id)))
+                        if challenger_pred is not None:
+                            db.add(
+                                ShadowPrediction(
+                                    customer_id=customer_uuid,
+                                    store_id=store_uuid,
+                                    product_id=product_uuid,
+                                    forecast_date=forecast_date,
+                                    champion_prediction=float(max(row.forecasted_demand, 0.0)),
+                                    challenger_prediction=challenger_pred,
+                                )
+                            )
+                            shadow_created += 1
 
                 await db.commit()
                 return {
@@ -280,6 +357,8 @@ def generate_forecasts(
                     "model_version": resolved_version,
                     "horizon_days": forecast_horizon,
                     "forecast_rows_created": created,
+                    "shadow_rows_created": shadow_created,
+                    "challenger_version": challenger_version,
                     "rows_skipped_invalid_ids": skipped,
                     "generated_at": datetime.now(timezone.utc).isoformat(),
                 }

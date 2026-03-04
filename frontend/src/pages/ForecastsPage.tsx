@@ -5,8 +5,20 @@ import { useForecasts, useProducts } from '@/hooks/useShelfOps'
 
 export default function ForecastsPage() {
     const [activeCategory, setActiveCategory] = useState('All')
+    const [windowDays, setWindowDays] = useState<7 | 30>(7)
 
-    const { data: forecasts = [], isLoading, isError } = useForecasts()
+    const dateFilter = useMemo(() => {
+        const end = new Date()
+        const start = new Date()
+        start.setDate(end.getDate() - windowDays + 1)
+        const toIsoDate = (d: Date) => d.toISOString().slice(0, 10)
+        return {
+            start_date: toIsoDate(start),
+            end_date: toIsoDate(end),
+        }
+    }, [windowDays])
+
+    const { data: forecasts = [], isLoading, isError } = useForecasts(dateFilter)
     const { data: products = [] } = useProducts()
 
     // Build a product lookup
@@ -82,12 +94,18 @@ export default function ForecastsPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button className="btn-secondary text-xs px-3 h-8 gap-2">
+                    <button
+                        onClick={() => setWindowDays(7)}
+                        className={`text-xs px-3 h-8 gap-2 ${windowDays === 7 ? 'btn-primary' : 'btn-secondary'}`}
+                    >
                         <Filter className="h-3 w-3" />
                         Last 7 Days
                     </button>
-                    <button className="btn-primary text-xs px-3 h-8">
-                        Export Report
+                    <button
+                        onClick={() => setWindowDays(30)}
+                        className={`text-xs px-3 h-8 ${windowDays === 30 ? 'btn-primary' : 'btn-secondary'}`}
+                    >
+                        Last 30 Days
                     </button>
                 </div>
             </div>

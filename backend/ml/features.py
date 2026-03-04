@@ -1,11 +1,11 @@
 """
 Feature Engineering — Two-Phase Demand Forecasting Features.
 
-Phase 1 "Cold Start" (27 features):
+Phase 1 "Cold Start" (30 features):
   Trained on Kaggle public data (Favorita, Walmart, Rossmann).
   Uses only features that real public datasets actually provide.
 
-Phase 2 "Production" (45 features):
+Phase 2 "Production" (49 features):
   Activated after 90+ days of real retailer data flows in via
   EDI/SFTP/Kafka adapters. Weekly retraining auto-upgrades.
 
@@ -29,6 +29,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from ml.feedback_loop import enrich_features_with_feedback
 from retail.calendar import RetailCalendar
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -73,9 +74,12 @@ COLD_START_FEATURE_COLS = [
     "temperature",
     "precipitation",
     "oil_price",
-]  # 27 total
+    "rejection_rate_30d",
+    "avg_qty_adjustment_pct",
+    "forecast_trust_score",
+]  # 30 total
 
-# Phase 2 — Production (full 45 features)
+# Phase 2 — Production (full 49 features)
 # Requires real retailer data flowing through adapters.
 PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     # Product (7) — from product catalog via EDI/ERP
@@ -101,7 +105,7 @@ PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     # Promotions extended (2) — from real promo calendar
     "promotion_discount_pct",
     "promotion_days_remaining",
-]  # 45 total
+]  # 49 total
 
 # Legacy alias (backward compat with existing saved models)
 FEATURE_COLS = PRODUCTION_FEATURE_COLS
@@ -361,6 +365,8 @@ def create_features(
     promotions_df: pd.DataFrame | None = None,
     weather_df: pd.DataFrame | None = None,
     macro_df: pd.DataFrame | None = None,
+    feedback_df: pd.DataFrame | None = None,
+    receiving_df: pd.DataFrame | None = None,
     target_date: str | None = None,
     force_tier: FeatureTier | None = None,
 ) -> pd.DataFrame:
@@ -368,8 +374,8 @@ def create_features(
     Create features for demand forecasting.
 
     Auto-detects feature tier based on available data:
-      - cold_start (27 features): Only needs transactions + optional weather/macro
-      - production (45 features): Needs inventory, products, stores too
+      - cold_start (30 features): Only needs transactions + optional weather/macro
+      - production (49 features): Needs inventory, products, stores too
 
     Args:
         transactions_df: Daily-aggregated transactions (store_id, product_id, date, quantity)
@@ -379,6 +385,7 @@ def create_features(
         promotions_df: Active promotions (optional)
         weather_df: Weather data (optional) — temperature, precipitation
         macro_df: Macro data (optional) — oil_price (e.g., from Favorita)
+        feedback_df: Planner feedback features keyed by (store_id, product_id)
         target_date: Reference date for promo features
         force_tier: Override auto-detection ("cold_start" or "production")
 
@@ -447,6 +454,12 @@ def create_features(
         )
     if "oil_price" not in features.columns:
         features["oil_price"] = np.nan
+
+    features = enrich_features_with_feedback(
+        features,
+        feedback_df if feedback_df is not None else pd.DataFrame(),
+        receiving_df=receiving_df,
+    )
 
     # ── Determine tier ──────────────────────────────────────────────
 

@@ -350,6 +350,84 @@ def _load_db_data(
     return canonical
 
 
+def _load_feedback_features(customer_id: str, lookback_days: int = 30) -> pd.DataFrame:
+    """
+    Load planner feedback aggregates for the tenant from po_decisions.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from ml.feedback_loop import get_feedback_features
+
+    async def _query() -> pd.DataFrame:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+                return await get_feedback_features(db, customer_id=customer_id, lookback_days=lookback_days)
+        finally:
+            await engine.dispose()
+
+    feedback_df = asyncio.run(_query())
+    logger.info(
+        "retrain.feedback_features_loaded",
+        customer_id=customer_id,
+        lookback_days=lookback_days,
+        rows=int(len(feedback_df)),
+    )
+    return feedback_df
+
+
+def _load_receiving_discrepancy_features(customer_id: str, lookback_days: int = 90) -> pd.DataFrame:
+    """
+    Load receiving discrepancy aggregates for the tenant from receiving_discrepancies.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from ml.feedback_loop import get_receiving_discrepancy_features
+
+    async def _query() -> pd.DataFrame:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+                return await get_receiving_discrepancy_features(db, customer_id=customer_id, lookback_days=lookback_days)
+        finally:
+            await engine.dispose()
+
+    receiving_df = asyncio.run(_query())
+    logger.info(
+        "retrain.receiving_features_loaded",
+        customer_id=customer_id,
+        lookback_days=lookback_days,
+        rows=int(len(receiving_df)),
+    )
+    return receiving_df
+
+
 def _apply_training_cutoff(transactions_df: pd.DataFrame, train_end_date: str) -> tuple[pd.DataFrame, str]:
     """
     Enforce a strict training cutoff date (inclusive).
@@ -619,11 +697,25 @@ def retrain_forecast_model(
                 rows=len(transactions_df),
             )
 
+        feedback_df = pd.DataFrame()
+        receiving_df = pd.DataFrame()
+        if customer_id:
+            try:
+                feedback_df = _load_feedback_features(customer_id=customer_id, lookback_days=30)
+            except Exception as feedback_exc:  # noqa: BLE001
+                logger.warning("retrain.feedback_features_failed", error=str(feedback_exc), exc_info=True)
+            try:
+                receiving_df = _load_receiving_discrepancy_features(customer_id=customer_id, lookback_days=90)
+            except Exception as receiving_exc:  # noqa: BLE001
+                logger.warning("retrain.receiving_features_failed", error=str(receiving_exc), exc_info=True)
+
         # ── Step 2: Feature engineering ──────────────────────────────
         logger.info("retrain.creating_features", rows=len(transactions_df))
         features_df = create_features(
             transactions_df=transactions_df,
             force_tier="cold_start" if data_dir else None,
+            feedback_df=feedback_df,
+            receiving_df=receiving_df,
         )
         logger.info(
             "retrain.features_created",
