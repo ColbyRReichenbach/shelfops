@@ -18,7 +18,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![pytest](https://img.shields.io/badge/pytest-497%20passing-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![CI](https://img.shields.io/badge/CI-release%20matrix%20green-0A9EDC)](https://docs.github.com/actions)
 
 </div>
 
@@ -61,8 +61,8 @@ POS / ERP / Kafka / SFTP / EDI X12
 | Task queue | Celery 5 + Redis | 12 scheduled beat jobs across 3 queues (`ml`, `sync`, `default`) |
 | Time-series | PostgreSQL 15 + TimescaleDB | Hypertable partitioning on `daily_inventory_snapshot` |
 | Cache / broker | Redis 7 | Celery broker, result backend, debounce locks |
-| ML — gradient boost | XGBoost | Short-term demand signals, promotional effects, vendor patterns |
-| ML — sequence model | PyTorch LSTM | Longer-range seasonality and trend capture |
+| ML — primary forecaster | LightGBM | Poisson-count demand forecasting with time-series CV |
+| ML — legacy sequence path | TensorFlow/Keras LSTM | Present for backward compatibility; disabled in default serving path |
 | ML lifecycle | MLflow | Experiment tracking, model registry, artifact versioning |
 | Explainability | SHAP | Per-forecast feature importance, surfaced in dashboard and API |
 | Data validation | Pandera | Schema contracts at 3 ingest/processing gates |
@@ -75,11 +75,11 @@ POS / ERP / Kafka / SFTP / EDI X12
 
 ### Model Architecture
 
-LSTM + XGBoost ensemble with a **65/35 weight split** (XGBoost dominant):
+LightGBM-first forecasting with legacy compatibility hooks for older model artifacts:
 
-- **XGBoost** handles short-term demand signals: lag features, rolling averages, promotional indicators, day-of-week patterns, vendor reliability scores
-- **LSTM** captures longer-range seasonality and trend patterns that gradient boosting misses
-- Ensemble output passes through a **promotion gate** before a new model version can enter production
+- **LightGBM** is the active default training and serving path in `backend/ml/train.py`
+- **LSTM** remains disabled in the current runtime path and can be loaded only for legacy artifacts
+- Candidate output still passes through a **promotion gate** before a new model version can enter production
 
 ### Feature Engineering (`backend/ml/features.py`)
 
@@ -87,8 +87,8 @@ Two feature tiers selected automatically based on data depth available per tenan
 
 | Tier | Features | Activation |
 |---|---|---|
-| Baseline | 27 features: lags, rolling windows, store signals, day-of-week | Default |
-| Enriched | 45 features: + promotion flags, vendor metrics, weather proxies | When history depth ≥ threshold |
+| Baseline | 30 features: lags, rolling windows, store signals, day-of-week, feedback-loop inputs | Default |
+| Enriched | 49 features: + promotion flags, vendor metrics, inventory context, weather proxies | When history depth ≥ threshold |
 
 `detect_feature_tier()` selects the tier per tenant at training time.
 
@@ -185,7 +185,7 @@ cd frontend && npm install && npm run dev                  # :5173
 PYTHONPATH=backend pytest backend/tests/ -v
 ```
 
-**497 passing, 1 skipped, 0 failing.** Key coverage areas:
+Current `main` release matrix is green in GitHub Actions as of March 8, 2026. Key coverage areas:
 
 | Area | What's tested |
 |---|---|
@@ -229,4 +229,4 @@ Time-series CV split is enforced throughout — no `shuffle=True` anywhere in th
 | `backend/workers/forecast.py` | Runtime inference, 2–3 day lookahead |
 | `backend/integrations/edi_adapter.py` | EDI X12 parser (846, 856, 810) |
 | `backend/core/constants.py` | `DEV_CUSTOMER_ID` and shared constants |
-| `docs/MLOPS_STANDARDS.md` | MLflow, SHAP, and Pandera conventions |
+| `docs/engineering/model_readiness.md` | Canonical model-readiness surface for active docs |

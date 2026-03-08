@@ -1,5 +1,5 @@
 """
-ML Prediction — Ensemble inference with business rules.
+ML Prediction — LightGBM-first inference with legacy compatibility paths.
 
 Supports both cold_start (27-feature) and production (45-feature)
 models, reading the tier from saved model metadata.
@@ -145,7 +145,7 @@ def predict_demand(
     confidence_level: float = 0.90,
 ) -> pd.DataFrame:
     """
-    Generate demand forecast using LSTM + XGBoost ensemble.
+    Generate demand forecasts from the active LightGBM-first serving path.
 
     Args:
         features_df: Pre-processed features from create_features()
@@ -161,11 +161,11 @@ def predict_demand(
     feature_cols = models.get("feature_cols", FEATURE_COLS)
     X = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0)
 
-    # XGBoost prediction
+    # Primary model prediction. The "xgboost" key is kept for backward compatibility.
     xgb_preds = models["xgboost"].predict(X)
     xgb_preds = np.maximum(xgb_preds, 0)
 
-    # LSTM prediction (if available and runtime metadata is present)
+    # Legacy LSTM prediction path (used only when old artifacts still include it)
     if models.get("lstm") is not None:
         lstm_model = models["lstm"]
         norm_mean = getattr(lstm_model, "_norm_mean", None)
@@ -195,7 +195,7 @@ def predict_demand(
     ensemble_preds = lgb_weight * xgb_preds + lstm_weight * lstm_preds
     ensemble_preds = np.maximum(ensemble_preds, 0)
 
-    # Prediction intervals using residual-based approach
+    # Heuristic prediction intervals. These are directional bands, not calibrated quantiles.
     residual_std = np.std(xgb_preds - lstm_preds) if models.get("lstm") else np.std(xgb_preds) * 0.2
     z = Z_SCORES.get(confidence_level, 1.645)
     lower = np.maximum(ensemble_preds - z * residual_std, 0)

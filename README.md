@@ -53,13 +53,13 @@ ShelfOps connects to your point-of-sale and ERP data, learns your demand pattern
 
 ## Built For
 
-Small and mid-size retailers who need enterprise-grade inventory intelligence without the enterprise complexity. The integration layer supports EDI (X12 846/856/810), SFTP batch files, and real-time event streams (Kafka/Redpanda), so the platform scales with you as your operation grows.
+Small and mid-size retailers who need enterprise-grade inventory intelligence without the enterprise complexity. The integration layer supports EDI (X12 846/856/810), SFTP batch files, and event-stream integrations (Kafka/Redpanda via scheduled consumers), so the platform scales with you as your operation grows.
 
 ---
 
 ## Demo
 
-> Screenshots and live demo coming soon.
+Runbook and demo assets live in [`docs/demo/`](./docs/demo).
 
 ---
 
@@ -71,4 +71,3 @@ Small and mid-size retailers who need enterprise-grade inventory intelligence wi
 - [Known Limitations](./docs/product/known_limitations.md) — current architectural boundaries and design tradeoffs
 
 ---
-

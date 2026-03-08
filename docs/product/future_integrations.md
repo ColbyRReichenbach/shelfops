@@ -31,7 +31,7 @@ The current RLS architecture is single-region. Enterprise buyers in regulated ma
 
 ## 2. Social Media and News Sentiment for Trend Prediction
 
-The LSTM + XGBoost ensemble is trained exclusively on historical POS data. It has no signal for exogenous demand shocks — a product going viral on TikTok, a brand appearing in a major news cycle, or a celebrity endorsement can drain a store's inventory in 48 hours with zero historical precedent.
+The current LightGBM-first forecasting stack is trained exclusively on historical POS data. It has no signal for exogenous demand shocks — a product going viral on TikTok, a brand appearing in a major news cycle, or a celebrity endorsement can drain a store's inventory in 48 hours with zero historical precedent.
 
 **Trend ingestion pipeline**
 A new Celery beat job (likely every 4–6 hours) would pull from Google Trends, Reddit product/brand subreddits, TikTok hashtag trends, and Twitter/X brand mentions. Output is normalized to a per-SKU-category time series stored in TimescaleDB alongside POS data.

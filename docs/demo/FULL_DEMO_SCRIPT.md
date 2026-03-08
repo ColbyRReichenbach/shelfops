@@ -191,7 +191,7 @@ Code-backed references:
 Say:
 1. "ShelfOps today is a credible mid-market operating system with auditable AI workflows."
 2. "Enterprise adapters and controls are implemented; hardening remains an active gate, not a claim."
-3. "Current default training mode is XGBoost-only for runtime reliability and simpler deployment; LSTM ensemble remains opt-in."
+3. "Current default training mode is LightGBM-first; legacy XGBoost/LSTM paths remain only for backward compatibility and older artifacts."
 4. "Model quality will improve as tenant-specific customer data replaces synthetic/seed-only signals."
 
 ## 7. Optional Technical Appendix (5 Minutes): DS Hypothesis Loop

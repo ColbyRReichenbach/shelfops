@@ -1,6 +1,6 @@
 # ShelfOps Known Issues
 
-- Last verified date: February 24, 2026
+- Last verified date: March 8, 2026
 - Audience: engineering and operations
 - Scope: active unresolved items only
 - Source of truth: this file
@@ -24,7 +24,7 @@
 - Promotion gate fail-closed behavior (`implemented`).
 - Model registry/champion artifacts synchronized to runtime DB lifecycle in retrain flow (`implemented`).
 - Enterprise seed validation and integration test coverage (`implemented`).
-- EDI ingest worker complete; full suite green at 497 passing (`implemented`).
+- EDI ingest worker complete; release matrix green on `main` as of March 8, 2026 (`implemented`).
 - Kafka event-stream ingest pipeline wired to Celery beat schedule (`implemented`).
 - Multi-event-stream tenant dispatch fixed (`implemented`).
 - Square normalization and webhook processor expansion (`implemented`).

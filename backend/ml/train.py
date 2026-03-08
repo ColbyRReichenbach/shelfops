@@ -274,12 +274,12 @@ def train_ensemble(
     model_name: str = "demand_forecast",
 ) -> dict[str, Any]:
     """
-    Train pure LightGBM ensemble with full MLOps instrumentation.
+    Train the active LightGBM-first forecast path with full MLOps instrumentation.
 
-    Auto-detects feature tier from the data. Replaces the previous
-    LSTM + XGBoost ensemble for P0 demo readiness.
+    Auto-detects feature tier from the data and preserves legacy-compatible
+    return keys for older runtime consumers.
 
-    Ensemble weights: 100% LightGBM, 0% LSTM (per P0 demo spec).
+    Ensemble weights: 100% LightGBM, 0% LSTM.
 
     Integrations:
       - MLflow experiment tracking (params, metrics, artifacts)

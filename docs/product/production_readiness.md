@@ -1,6 +1,6 @@
 # ShelfOps Production Readiness
 
-- Last verified date: February 24, 2026
+- Last verified date: March 8, 2026
 - Audience: engineering leadership, operators, reviewers
 - Scope: canonical readiness statement, capability status, and release gates
 - Source of truth: this file (single canonical readiness board)
@@ -29,7 +29,7 @@ Enterprise integration paths are in production code and validated in determinist
 | Retraining event audit persistence | `implemented` | Retrain events are written to `model_retraining_log` for runtime health visibility. |
 | File model-log parity with DB runtime state | `implemented` | Runtime retrain sync aligns file registry/champion artifacts with DB/API lifecycle truth. |
 | Contract-driven onboarding boundary | `implemented` | Representable vs adapter-required behavior is explicit. |
-| EDI/SFTP/event validation depth | `implemented` | EDI ingest worker complete; Kafka event-stream wired; multi-tenant dispatch fixed; 497 tests passing. |
+| EDI/SFTP/event validation depth | `implemented` | EDI ingest worker complete; Kafka event-stream wired; multi-tenant dispatch fixed; release matrix green on `main` as of March 8, 2026. |
 | Branch-protection enforcement outside codebase | `partial` | Repository settings are operational dependency. |
 | Broad enterprise onboarding availability | `blocked` | Non-GA product policy. |
 

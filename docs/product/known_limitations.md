@@ -1,6 +1,6 @@
 # ShelfOps — Known Platform Limitations
 
-- Last updated: February 24, 2026
+- Last updated: March 8, 2026
 - Audience: engineers, technical reviewers, enterprise evaluators
 - Scope: current architectural constraints and platform boundaries — distinct from operational P0/P1 blockers in `docs/product/known_issues.md`
 
@@ -13,8 +13,8 @@ These are known boundaries of the current design, not defects. Each is a deliber
 **Static lead times in the optimizer**
 The reorder point (ROP) and EOQ calculations in `backend/inventory/optimizer.py` treat supplier lead times as fixed inputs per vendor. There is no mechanism to dynamically adjust lead time estimates based on external signals (weather events, carrier delays, port congestion). Buyers must manually update lead time values when disruptions occur.
 
-**Prediction uncertainty fields unpopulated**
-The API contract and database schema include `lower_bound`, `upper_bound`, and `confidence` on every forecast record, but the current model does not compute prediction intervals — all three are returned as `null`. Buyers have no way to calibrate trust for high-variance or low-history SKUs until the forecasting pipeline is updated to produce uncertainty estimates.
+**Prediction intervals are heuristic, not calibrated**
+The forecast pipeline populates `lower_bound`, `upper_bound`, and `confidence`, but the interval logic in `backend/ml/predict.py` is still a residual-based heuristic rather than calibrated quantile regression. Buyers get directional uncertainty bands, not statistically validated coverage guarantees.
 
 **Binary feature tier selection**
 `detect_feature_tier()` in `backend/ml/features.py` selects either the 27-feature baseline tier or the 45-feature enriched tier based on a single threshold (history depth). There is no per-feature importance scoring or dynamic feature selection — a tenant either qualifies for the enriched tier in full or falls back to baseline.
@@ -23,7 +23,7 @@ The API contract and database schema include `lower_bound`, `upper_bound`, and `
 The model is trained entirely on historical POS and inventory data. It has no awareness of external signals — social media trends, news events, competitor stockouts, or macroeconomic indicators — that can drive demand shocks with no historical analog.
 
 **Minimum training history requirement**
-The LSTM component requires a minimum window of historical data to produce meaningful sequence predictions. New tenants or newly added product lines start with degraded model confidence until sufficient history accumulates. The promotion gate in `arena.py` provides some protection, but early-window forecasts for new tenants are less reliable.
+New tenants and newly added product lines still start with limited tenant-specific history. ShelfOps falls back to cold-start feature tiers and conservative promotion-gate behavior, but early-window forecasts remain less personalized until sufficient tenant data accumulates.
 
 **Time-series CV only — no cross-tenant model sharing**
 Models are trained per-tenant with time-based cross-validation splits. There is no cross-tenant knowledge transfer or pre-training. A new tenant with 30 days of history is starting cold; it cannot benefit from patterns observed across other tenants.
