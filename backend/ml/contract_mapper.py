@@ -83,7 +83,7 @@ def _coerce_type(series: pd.Series, target_type: str) -> pd.Series:
     if t == "float":
         return pd.to_numeric(series, errors="coerce")
     if t == "date":
-        return pd.to_datetime(series, errors="coerce")
+        return pd.to_datetime(series, errors="coerce", format="mixed")
     if t == "bool":
         return series.apply(_parse_bool).astype("Int64")
     return series

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 ML Training Pipeline — Pure LightGBM (demo mode).
 
@@ -23,7 +25,6 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import structlog
@@ -42,8 +43,25 @@ from ml.validate import validate_features
 
 logger = structlog.get_logger()
 
+try:
+    import lightgbm as lgb
+except ModuleNotFoundError:  # pragma: no cover - exercised in CI dependency validation
+    lgb = None
+
 TARGET_COL = "quantity"
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "..", "models")
+
+
+def _require_lightgbm() -> Any:
+    if lgb is None:
+        raise ModuleNotFoundError(
+            "lightgbm is required for training. Install backend/requirements-ml.txt before running ML workflows."
+        )
+    return lgb
+
+
+def _is_lightgbm_booster(model: Any) -> bool:
+    return lgb is not None and isinstance(model, lgb.Booster)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -74,6 +92,8 @@ def train_lightgbm(
     Returns:
         (booster, metrics_dict)
     """
+    lightgbm = _require_lightgbm()
+
     if feature_cols is None:
         tier = detect_feature_tier(features_df)
         feature_cols = get_feature_cols(tier)
@@ -126,8 +146,8 @@ def train_lightgbm(
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
         y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
 
-        train_data = lgb.Dataset(X_train, label=y_train)
-        val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+        train_data = lightgbm.Dataset(X_train, label=y_train)
+        val_data = lightgbm.Dataset(X_val, label=y_val, reference=train_data)
 
         # Extract n_estimators for num_boost_round; remove it from params
         n_rounds = default_params.pop("n_estimators", 500)
@@ -135,12 +155,12 @@ def train_lightgbm(
         lgb_params = dict(default_params)
         lgb_params["seed"] = random_state
 
-        booster = lgb.train(
+        booster = lightgbm.train(
             lgb_params,
             train_data,
             num_boost_round=n_rounds,
             valid_sets=[val_data],
-            callbacks=[lgb.early_stopping(30, verbose=False), lgb.log_evaluation(-1)],
+            callbacks=[lightgbm.early_stopping(30, verbose=False), lightgbm.log_evaluation(-1)],
         )
 
         # Restore for next fold
@@ -170,8 +190,8 @@ def train_lightgbm(
     # Remove metric to allow final training without validation set
     lgb_params.pop("metric", None)
 
-    full_data = lgb.Dataset(X, label=y)
-    final_booster = lgb.train(
+    full_data = lightgbm.Dataset(X, label=y)
+    final_booster = lightgbm.train(
         lgb_params,
         full_data,
         num_boost_round=n_rounds,
@@ -405,7 +425,7 @@ def save_models(
 
     # LightGBM — use native save_model (not joblib)
     lgb_model = ensemble_result.get("lightgbm", {}).get("model") or ensemble_result.get("xgboost", {}).get("model")
-    if lgb_model is not None and isinstance(lgb_model, lgb.Booster):
+    if _is_lightgbm_booster(lgb_model):
         lgb_model.save_model(os.path.join(version_dir, "lightgbm.txt"))
     elif lgb_model is not None:
         # Fallback: joblib for any non-Booster object
