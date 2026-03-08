@@ -6,6 +6,7 @@ Show product value first, then prove controls:
 2. Human-in-the-loop approvals with audit trail.
 3. MLOps monitoring + experiment governance.
 4. Reproducible model iteration evidence.
+5. Enterprise-style backend discipline behind an SMB-facing product.
 
 ## Timing
 1. 0:00-2:00 Slides: problem + positioning.
@@ -16,6 +17,16 @@ Show product value first, then prove controls:
 
 ## Core Opening Line
 "ShelfOps gives smaller retailers the operating discipline large retailers get from expensive systems: better inventory visibility, guided purchase decisions, and an auditable model lifecycle."
+
+## Core Framing Line
+"This is a product for SMB retailers, built with enterprise-grade backend and MLOps patterns."
+
+## Must-Hit Themes
+1. 4+ years of retail experience shaped the problem selection.
+2. Forecasts are only useful because they connect to purchase-order decisions.
+3. Human review is deliberate, not a missing feature.
+4. LightGBM is the current default because it is the most practical fit for this data and runtime.
+5. Enterprise adapters exist to prove scale and technical depth, not to overclaim GA enterprise readiness.
 
 ## Bring-Up
 ```bash

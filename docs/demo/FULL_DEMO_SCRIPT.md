@@ -12,6 +12,10 @@ What this demo must prove:
 ## 2. Core Positioning (Use This Verbatim)
 "ShelfOps gives smaller retailers the operating discipline large retailers get from expensive systems: better inventory visibility, guided purchase decisions, and an auditable model lifecycle. It is mid-market ready now, with enterprise adapters and governance implemented and actively hardened."
 
+Secondary line:
+
+"The way I describe it is: product for SMB, project for enterprise."
+
 ## 3. Audience Translation (What To Say in Plain Language)
 Use these one-liners so non-technical viewers stay engaged:
 - Forecasting: "We estimate what each store-product pair will likely sell next, so buying is proactive."
@@ -19,6 +23,7 @@ Use these one-liners so non-technical viewers stay engaged:
 - HITL approvals: "Managers stay in control. The system suggests; humans decide."
 - MLOps: "Models are monitored like employees: tracked, reviewed, and retrained when performance slips."
 - Drift detection: "If reality changes and forecasts degrade, we detect it and trigger retraining review."
+- Enterprise architecture: "The backend is built with larger-scale patterns so the customer workflow can stay simple."
 
 ## 4. Demo Asset Split (What To Show vs Where)
 - Slides (2-3 min): Problem, positioning, architecture, "live now vs hardening".
@@ -49,7 +54,8 @@ npm run dev
 Say:
 1. "I built ShelfOps because poor inventory decisions are usually manual, inconsistent, and expensive."
 2. "From 4 years in retail operations, I saw visual checks replace data-driven planning, which causes stockouts, overstock, and ghost inventory."
-3. "ShelfOps is built for SMB operators first, while preserving enterprise-style controls."
+3. "ShelfOps is built for SMB operators first, while preserving enterprise-style backend controls."
+4. "That is why I call it a product for SMB and a project for enterprise."
 
 Show:
 - Slide: stockout vs overstock problem.
@@ -118,6 +124,7 @@ docker compose exec -T db psql -U shelfops -d shelfops -c "select po_id,decision
 Say:
 - "This is not black box automation; human decisions are explicit and stored."
 - "Decision reasons are the bridge between operations and future model improvement."
+- "This is where retail domain knowledge matters: buyers override for budget, shelf constraints, vendor timing, and local context that a forecast alone does not know."
 
 Code-backed references:
 - PO endpoints: `backend/api/v1/routers/purchase_orders.py`
@@ -182,6 +189,7 @@ curl -s "http://localhost:8000/ml-alerts?alert_type=experiment_complete&limit=5"
 
 Say:
 - "Experiments are hypotheses with approvals and outcomes, not ad-hoc notebook changes."
+- "I wanted the AI layer to be explainable and governable, not just impressive in isolation."
 
 Code-backed references:
 - Experiment endpoints: `backend/api/v1/routers/experiments.py`
@@ -193,6 +201,7 @@ Say:
 2. "Enterprise adapters and controls are implemented; hardening remains an active gate, not a claim."
 3. "Current default training mode is LightGBM-first; legacy XGBoost/LSTM paths remain only for backward compatibility and older artifacts."
 4. "Model quality will improve as tenant-specific customer data replaces synthetic/seed-only signals."
+5. "The backend, security, and orchestration story is just as important as the model story, because that is what makes an operations product trustworthy."
 
 ## 7. Optional Technical Appendix (5 Minutes): DS Hypothesis Loop
 Use this when interviewers want to see your DS/ML workflow directly.
@@ -239,6 +248,13 @@ ls -1 backend/reports/iteration_notes | tail -n 10
 - Automated: scheduled sync, alert checks, drift checks, backtests, retrain jobs (via Celery beat and workers).
 - Manual: business approvals, model promotion decisions, experiment sign-off.
 - Hybrid design principle: "Automate detection and recommendation; keep high-impact decisions human-controlled."
+
+## 8.1 Backend Topics Worth Talking About in Q&A
+- Multi-tenant isolation and why tenant-scoped DB sessions matter
+- Why workers are split by queue instead of one generic async process
+- Why enterprise adapters exist even though the target product is SMB-first
+- Why auditability and validation matter more than flashy model complexity
+- Why seeded/demo data is still useful for proving workflow correctness
 
 ## 9. Trigger Map (Source of Truth)
 Source: `backend/workers/celery_app.py`

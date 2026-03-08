@@ -4,7 +4,7 @@
 This orchestrates existing model/evaluation scripts into one reproducible flow:
   1) In-domain baseline benchmarks (single datasets)
   2) Pairwise combo benchmarks
-  3) Model strategy cycle (XGBoost vs LSTM + ensemble sweep)
+  3) Model strategy cycle (LightGBM-first current path plus legacy strategy artifacts)
   4) Replay lifecycle simulation (retrain/trigger/HITL evidence)
 
 Usage:
@@ -106,9 +106,9 @@ def _render_scorecard_md(summary: dict[str, Any], output_path: Path) -> None:
         "",
         "## Model Families Demonstrated",
         "",
-        "- XGBoost baseline",
-        "- LSTM challenger (when available)",
-        "- Ensemble weight sweep (XGBoost/LSTM blend policy)",
+        "- LightGBM-first current training path",
+        "- Legacy strategy artifacts for earlier XGBoost/LSTM comparisons",
+        "- Replay lifecycle proof for retrain/trigger/HITL behavior",
         "",
         "## Initial Benchmark Snapshot",
         "",
@@ -135,7 +135,7 @@ def _render_scorecard_md(summary: dict[str, Any], output_path: Path) -> None:
         "## Interview Narrative",
         "",
         "1. I can establish reproducible baseline metrics across datasets and combinations.",
-        "2. I can evaluate model-family strategy decisions (single vs ensemble) with traceable criteria.",
+        "2. I can evaluate model-family strategy decisions with traceable criteria instead of ad-hoc model swapping.",
         "3. I can operate an end-to-end lifecycle: retrain triggers, HITL decisions, and promotion evidence.",
         "4. I understand production boundaries: deterministic artifacts, gating, and auditable outputs.",
     ]
