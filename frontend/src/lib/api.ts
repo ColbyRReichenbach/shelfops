@@ -14,16 +14,20 @@ export interface ApiError {
 
 async function request<T>(
     path: string,
-    token: string,
+    token: string | null,
     options: RequestInit = {},
 ): Promise<T> {
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...(options.headers as Record<string, string> | undefined),
+    }
+    if (token) {
+        headers.Authorization = `Bearer ${token}`
+    }
+
     const response = await fetch(`${API_BASE}${path}`, {
         ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-            ...options.headers,
-        },
+        headers,
     })
 
     if (!response.ok) {
@@ -39,7 +43,7 @@ export function useApi() {
 
     const getToken = async () => {
         if (import.meta.env.DEV) {
-            return 'mock-token'
+            return null
         }
         return await getAccessTokenSilently()
     }

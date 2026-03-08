@@ -65,17 +65,17 @@ class TestFeatureTierDetection:
 class TestGetFeatureCols:
     """Test feature column list retrieval."""
 
-    def test_cold_start_has_27_features(self):
+    def test_cold_start_has_30_features(self):
         from ml.features import get_feature_cols
 
         cols = get_feature_cols("cold_start")
-        assert len(cols) == 27
+        assert len(cols) == 30
 
-    def test_production_has_46_features(self):
+    def test_production_has_49_features(self):
         from ml.features import get_feature_cols
 
         cols = get_feature_cols("production")
-        assert len(cols) == 46
+        assert len(cols) == 49
 
     def test_production_superset_of_cold_start(self):
         from ml.features import get_feature_cols
@@ -91,6 +91,56 @@ class TestGetFeatureCols:
         cols2 = get_feature_cols("cold_start")
         cols1.append("extra")
         assert "extra" not in cols2
+
+
+class TestFeedbackFeatures:
+    """Test planner feedback feature integration."""
+
+    def test_create_features_defaults_feedback_columns(self):
+        from ml.features import create_features
+
+        df = pd.DataFrame(
+            {
+                "date": pd.date_range("2025-01-01", periods=5),
+                "store_id": ["S1"] * 5,
+                "product_id": ["P1"] * 5,
+                "quantity": [10, 11, 12, 13, 14],
+            }
+        )
+        result = create_features(transactions_df=df, force_tier="cold_start")
+        assert "rejection_rate_30d" in result.columns
+        assert "avg_qty_adjustment_pct" in result.columns
+        assert "forecast_trust_score" in result.columns
+        assert (result["rejection_rate_30d"] == 0.0).all()
+        assert (result["avg_qty_adjustment_pct"] == 0.0).all()
+        assert (result["forecast_trust_score"] == 1.0).all()
+
+    def test_create_features_merges_feedback_columns(self):
+        from ml.features import create_features
+
+        df = pd.DataFrame(
+            {
+                "date": pd.date_range("2025-01-01", periods=4),
+                "store_id": ["S1", "S1", "S2", "S2"],
+                "product_id": ["P1", "P1", "P2", "P2"],
+                "quantity": [10, 12, 8, 9],
+            }
+        )
+        feedback_df = pd.DataFrame(
+            {
+                "store_id": ["S1"],
+                "product_id": ["P1"],
+                "rejection_rate_30d": [0.25],
+                "avg_qty_adjustment_pct": [12.5],
+                "forecast_trust_score": [0.75],
+            }
+        )
+        result = create_features(transactions_df=df, force_tier="cold_start", feedback_df=feedback_df)
+        s1_rows = result[(result["store_id"] == "S1") & (result["product_id"] == "P1")]
+        assert not s1_rows.empty
+        assert (s1_rows["rejection_rate_30d"] == 0.25).all()
+        assert (s1_rows["avg_qty_adjustment_pct"] == 12.5).all()
+        assert (s1_rows["forecast_trust_score"] == 0.75).all()
 
 
 class TestTemporalFeatures:

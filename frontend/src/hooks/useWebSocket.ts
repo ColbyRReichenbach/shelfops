@@ -26,11 +26,12 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
 
     const connect = useCallback(async () => {
         try {
-            const token = import.meta.env.DEV
-                ? 'mock-token'
-                : await getAccessTokenSilently()
             const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-            const ws = new WebSocket(`${protocol}://${window.location.host}/ws/alerts?token=${token}`)
+            const token = import.meta.env.DEV ? null : await getAccessTokenSilently()
+            const wsUrl = token
+                ? `${protocol}://${window.location.host}/ws/alerts?token=${encodeURIComponent(token)}`
+                : `${protocol}://${window.location.host}/ws/alerts`
+            const ws = new WebSocket(wsUrl)
 
             ws.onopen = () => {
                 setConnected(true)

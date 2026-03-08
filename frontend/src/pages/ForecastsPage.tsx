@@ -2,11 +2,24 @@ import { useState, useMemo } from 'react'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
 import { ArrowUpRight, ArrowDownRight, Filter, Loader2, AlertCircle } from 'lucide-react'
 import { useForecasts, useProducts } from '@/hooks/useShelfOps'
+import SHAPWaterfall from '@/components/forecasts/SHAPWaterfall'
 
 export default function ForecastsPage() {
     const [activeCategory, setActiveCategory] = useState('All')
+    const [windowDays, setWindowDays] = useState<7 | 30>(7)
 
-    const { data: forecasts = [], isLoading, isError } = useForecasts()
+    const dateFilter = useMemo(() => {
+        const end = new Date()
+        const start = new Date()
+        start.setDate(end.getDate() - windowDays + 1)
+        const toIsoDate = (d: Date) => d.toISOString().slice(0, 10)
+        return {
+            start_date: toIsoDate(start),
+            end_date: toIsoDate(end),
+        }
+    }, [windowDays])
+
+    const { data: forecasts = [], isLoading, isError } = useForecasts(dateFilter)
     const { data: products = [] } = useProducts()
 
     // Build a product lookup
@@ -71,6 +84,18 @@ export default function ForecastsPage() {
     const topMovers = productForecasts.slice(0, 3)
     const bottomMovers = productForecasts.slice(-3).reverse()
 
+    // Latest forecast record per product — used to supply forecastId to SHAPWaterfall
+    const latestForecastByProduct = useMemo(() => {
+        const map = new Map<string, { id: string; demand: number; date: string }>()
+        forecasts.forEach(f => {
+            const existing = map.get(f.product_id)
+            if (!existing || f.forecast_date > existing.date) {
+                map.set(f.product_id, { id: f.forecast_id, demand: f.forecasted_demand, date: f.forecast_date })
+            }
+        })
+        return map
+    }, [forecasts])
+
     return (
         <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -82,12 +107,18 @@ export default function ForecastsPage() {
                     </p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button className="btn-secondary text-xs px-3 h-8 gap-2">
+                    <button
+                        onClick={() => setWindowDays(7)}
+                        className={`text-xs px-3 h-8 gap-2 ${windowDays === 7 ? 'btn-primary' : 'btn-secondary'}`}
+                    >
                         <Filter className="h-3 w-3" />
                         Last 7 Days
                     </button>
-                    <button className="btn-primary text-xs px-3 h-8">
-                        Export Report
+                    <button
+                        onClick={() => setWindowDays(30)}
+                        className={`text-xs px-3 h-8 ${windowDays === 30 ? 'btn-primary' : 'btn-secondary'}`}
+                    >
+                        Last 30 Days
                     </button>
                 </div>
             </div>
@@ -203,15 +234,25 @@ export default function ForecastsPage() {
                                 </h3>
                             </div>
                             <div className="divide-y divide-shelf-foreground/5">
-                                {topMovers.length > 0 ? topMovers.map((item, i) => (
-                                    <div key={i} className="p-4 flex items-center justify-between hover:bg-shelf-primary/5 transition-colors">
-                                        <div>
-                                            <p className="text-sm font-medium text-shelf-foreground">{item.name}</p>
-                                            <p className="text-xs text-shelf-foreground/60">{item.total.toLocaleString()} units forecast</p>
+                                {topMovers.length > 0 ? topMovers.map((item, i) => {
+                                    const forecast = latestForecastByProduct.get(item.productId)
+                                    return (
+                                        <div key={i} className="hover:bg-shelf-primary/5 transition-colors">
+                                            <div className="p-4 flex items-center justify-between">
+                                                <div>
+                                                    <p className="text-sm font-medium text-shelf-foreground">{item.name}</p>
+                                                    <p className="text-xs text-shelf-foreground/60">{item.total.toLocaleString()} units forecast</p>
+                                                </div>
+                                                <span className="badge bg-green-100 text-green-700 border-green-200">#{i + 1}</span>
+                                            </div>
+                                            {forecast && (
+                                                <div className="px-4 pb-3">
+                                                    <SHAPWaterfall forecastId={forecast.id} predictedValue={forecast.demand} />
+                                                </div>
+                                            )}
                                         </div>
-                                        <span className="badge bg-green-100 text-green-700 border-green-200">#{i + 1}</span>
-                                    </div>
-                                )) : (
+                                    )
+                                }) : (
                                     <div className="p-8 text-center text-shelf-foreground/40 text-sm">No forecast data</div>
                                 )}
                             </div>

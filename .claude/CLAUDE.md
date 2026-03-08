@@ -2,16 +2,17 @@
 
 AI-powered retail inventory intelligence platform. Predicts stockouts 2-3 days early using POS/ERP data, then acts via dynamic reorder optimization and automated PO workflows. Multi-tenant SaaS (customer isolation via RLS).
 
-**Current Phase**: Phase 3 — Testing & Quality → Demo Readiness
+**Current Phase**: Phase 3 — Demo Readiness (Sprint 3 in progress)
 
-**Active Goal**: Build toward a scripted dual-audience demo (hiring managers + buyers).
+**Active Goal**: Shepherd.js guided tours (WS-5) — buyer tour first, then technical tour, then /welcome route.
 See `.claude/DEMO_PLAN.md` for the full plan, P0 checklist, and session handoff state.
+See `.claude/PROJECT_PLAN.md` for workstream status and sprint progress.
 Start every session by reading DEMO_PLAN.md and running the test suite to confirm baseline.
 
 ## Stack
 
 - Python 3.11, FastAPI 0.109, PostgreSQL 15 + TimescaleDB, Redis, Celery
-- ML: LSTM + XGBoost ensemble (65/35 weights) → **switching to pure LightGBM (P0 demo task)**; MLflow, SHAP, Pandera
+- ML: Pure LightGBM (switched from LSTM+XGBoost ensemble); WAPE + MASE metrics; MLflow, SHAP, Pandera
 - Frontend: React 18, TypeScript, Tailwind CSS, Recharts
 - Infra: Docker Compose (local dev), GCP Cloud Run (target)
 

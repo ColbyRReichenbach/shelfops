@@ -31,6 +31,16 @@ backend/models/*.h5
 backend/models/*.pkl
 notebooks/.ipynb_checkpoints/
 
+# Keep demo dataset tracked for scripted demo
+!data/demo/
+data/demo/*
+!data/demo/README.md
+!data/demo/demo_tenant.json
+!data/demo/transactions_day000_030.csv
+!data/demo/transactions_day031_090.csv
+!data/demo/transactions_day091_095.csv
+!data/demo/seed_demo.py
+
 # Keep strict EDI seed fixtures tracked for deterministic validation
 !data/seed/
 data/seed/*

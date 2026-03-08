@@ -38,13 +38,14 @@ export function TableRowSkeleton({ columns = 5 }: { columns?: number }) {
 }
 
 export function ChartSkeleton() {
+    const heights = ['32%', '45%', '38%', '52%', '61%', '49%', '56%', '63%', '58%', '67%', '54%', '70%']
     return (
         <div className="card border border-white/40 shadow-sm p-6 h-[350px] flex items-end gap-2">
-            {Array.from({ length: 12 }).map((_, i) => (
+            {heights.map((height, i) => (
                 <Skeleton
                     key={i}
                     className="flex-1"
-                    style={{ height: `${30 + Math.random() * 60}%` }}
+                    style={{ height }}
                 />
             ))}
         </div>

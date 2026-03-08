@@ -248,7 +248,7 @@ async def approve_purchase_order(
     po.ordered_at = datetime.utcnow()
 
     # Log decision
-    decided_by = user.get("email") or user.get("sub", "system")
+    decision_actor = user.get("email") or user.get("sub") or "unknown"
     decision = PODecision(
         customer_id=po.customer_id,
         po_id=po.po_id,
@@ -257,7 +257,7 @@ async def approve_purchase_order(
         final_qty=final_qty,
         reason_code=body.reason_code,
         notes=body.notes,
-        decided_by=decided_by,
+        decided_by=decision_actor,
     )
     db.add(decision)
 
@@ -290,7 +290,7 @@ async def reject_purchase_order(
 
     po.status = "cancelled"
 
-    decided_by = user.get("email") or user.get("sub", "system")
+    decision_actor = user.get("email") or user.get("sub") or "unknown"
     decision = PODecision(
         customer_id=po.customer_id,
         po_id=po.po_id,
@@ -299,7 +299,7 @@ async def reject_purchase_order(
         final_qty=0,
         reason_code=body.reason_code,
         notes=body.notes,
-        decided_by=decided_by,
+        decided_by=decision_actor,
     )
     db.add(decision)
 

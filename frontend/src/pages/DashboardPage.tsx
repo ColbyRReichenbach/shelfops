@@ -4,6 +4,9 @@
  */
 
 import ExecutiveDashboard from '@/components/dashboard/ExecutiveDashboard'
+import ActivityFeed from '@/components/dashboard/ActivityFeed'
+import ModelTimeline from '@/components/dashboard/ModelTimeline'
+import SystemEventsPanel from '@/components/dashboard/SystemEventsPanel'
 
 export default function DashboardPage() {
     return (
@@ -14,8 +17,17 @@ export default function DashboardPage() {
                 <p className="text-sm text-shelf-foreground/60 mt-1">Real-time revenue risk assessment</p>
             </div>
 
-            {/* Dashboard Content */}
+            {/* KPI + charts */}
             <ExecutiveDashboard />
+
+            {/* Model accuracy sparkline — visible to both tracks */}
+            <ModelTimeline />
+
+            {/* Activity timeline + live events side by side */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ActivityFeed />
+                <SystemEventsPanel />
+            </div>
         </div>
     )
 }

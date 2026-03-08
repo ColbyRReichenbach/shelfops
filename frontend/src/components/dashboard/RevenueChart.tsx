@@ -11,7 +11,7 @@ import {
 
 interface RevenueData {
     date: string
-    actual: number
+    actual?: number
     predicted: number
     at_risk: number
 }
@@ -21,6 +21,8 @@ interface RevenueChartProps {
 }
 
 export default function RevenueChart({ data }: RevenueChartProps) {
+    const hasActualSeries = data.some((point) => typeof point.actual === 'number')
+
     return (
         <div className="card h-[350px] border border-white/40 shadow-sm">
             <div className="flex items-center justify-between mb-4">
@@ -30,10 +32,12 @@ export default function RevenueChart({ data }: RevenueChartProps) {
                         <span className="w-2 h-2 rounded-full bg-shelf-primary"></span>
                         <span className="text-shelf-foreground/70">Predicted</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-shelf-secondary"></span>
-                        <span className="text-shelf-foreground/70">Actual</span>
-                    </div>
+                    {hasActualSeries && (
+                        <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-shelf-secondary"></span>
+                            <span className="text-shelf-foreground/70">Actual</span>
+                        </div>
+                    )}
                     <div className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-shelf-accent"></span>
                         <span className="text-shelf-foreground/70">At Risk</span>
@@ -100,15 +104,17 @@ export default function RevenueChart({ data }: RevenueChartProps) {
                         name="Predicted"
                     />
 
-                    {/* Actual Line */}
-                    <Line
-                        type="monotone"
-                        dataKey="actual"
-                        stroke="#5ba2b6"
-                        strokeWidth={2}
-                        dot={{ r: 4, fill: '#5ba2b6', strokeWidth: 2, stroke: '#fff' }}
-                        name="Actual"
-                    />
+                    {hasActualSeries && (
+                        <Line
+                            type="monotone"
+                            dataKey="actual"
+                            stroke="#5ba2b6"
+                            strokeWidth={2}
+                            dot={{ r: 4, fill: '#5ba2b6', strokeWidth: 2, stroke: '#fff' }}
+                            name="Actual"
+                            connectNulls
+                        />
+                    )}
                 </AreaChart>
             </ResponsiveContainer>
         </div>

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import WelcomeModal from '@/components/demo/WelcomeModal'
 import { useAlertSummary } from '@/hooks/useShelfOps'
 
 const navItems = [
@@ -151,6 +152,7 @@ export default function ModernDashboardLayout() {
                     </div>
                 </header>
 
+                <WelcomeModal />
                 <div className="animate-fade-in p-0">
                     <ErrorBoundary>
                         <Outlet />

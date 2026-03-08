@@ -28,13 +28,32 @@ Z_SCORES = {0.80: 1.28, 0.85: 1.44, 0.90: 1.645, 0.95: 1.96}
 
 
 def load_models(version: str) -> dict[str, Any]:
-    """Load trained models and tier metadata from disk."""
+    """Load trained models and tier metadata from disk.
+
+    Supports both LightGBM (new) and XGBoost (legacy) model files.
+    """
     version_dir = os.path.join(MODEL_DIR, version)
 
     metadata = joblib.load(os.path.join(version_dir, "metadata.joblib"))
 
+    # Load model — prefer LightGBM native format, fall back to legacy XGBoost joblib
+    lgb_txt_path = os.path.join(version_dir, "lightgbm.txt")
+    lgb_joblib_path = os.path.join(version_dir, "lightgbm.joblib")
+    xgb_path = os.path.join(version_dir, "xgboost.joblib")
+
+    if os.path.exists(lgb_txt_path):
+        import lightgbm as lgb
+        primary_model = lgb.Booster(model_file=lgb_txt_path)
+    elif os.path.exists(lgb_joblib_path):
+        primary_model = joblib.load(lgb_joblib_path)
+    elif os.path.exists(xgb_path):
+        primary_model = joblib.load(xgb_path)
+    else:
+        raise FileNotFoundError(f"No model file found in {version_dir}")
+
     result = {
-        "xgboost": joblib.load(os.path.join(version_dir, "xgboost.joblib")),
+        "xgboost": primary_model,  # backward-compat key for predict_demand()
+        "lightgbm": primary_model,
         "metadata": metadata,
         # Read tier info; fall back to production for legacy models
         "feature_tier": metadata.get("feature_tier", "production"),
@@ -168,9 +187,11 @@ def predict_demand(
     else:
         lstm_preds = xgb_preds  # XGBoost-only fallback
 
-    # Weighted ensemble
+    # Weighted ensemble — handle both old (xgboost/lstm) and new (lightgbm/lstm) weight keys
     weights = models.get("metadata", {}).get("weights", ENSEMBLE_WEIGHTS)
-    ensemble_preds = weights.get("xgboost", 0.65) * xgb_preds + weights.get("lstm", 0.35) * lstm_preds
+    lgb_weight = weights.get("lightgbm", weights.get("xgboost", 1.0))
+    lstm_weight = weights.get("lstm", 0.0)
+    ensemble_preds = lgb_weight * xgb_preds + lstm_weight * lstm_preds
     ensemble_preds = np.maximum(ensemble_preds, 0)
 
     # Prediction intervals using residual-based approach

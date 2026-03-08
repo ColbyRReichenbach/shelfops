@@ -1,11 +1,11 @@
 """
 Feature Engineering — Two-Phase Demand Forecasting Features.
 
-Phase 1 "Cold Start" (27 features):
+Phase 1 "Cold Start" (30 features):
   Trained on Kaggle public data (Favorita, Walmart, Rossmann).
   Uses only features that real public datasets actually provide.
 
-Phase 2 "Production" (45 features):
+Phase 2 "Production" (49 features):
   Activated after 90+ days of real retailer data flows in via
   EDI/SFTP/Kafka adapters. Weekly retraining auto-upgrades.
 
@@ -29,6 +29,7 @@ from typing import Literal
 import numpy as np
 import pandas as pd
 
+from ml.feedback_loop import enrich_features_with_feedback
 from retail.calendar import RetailCalendar
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -73,9 +74,12 @@ COLD_START_FEATURE_COLS = [
     "temperature",
     "precipitation",
     "oil_price",
-]  # 27 total
+    "rejection_rate_30d",
+    "avg_qty_adjustment_pct",
+    "forecast_trust_score",
+]  # 30 total
 
-# Phase 2 — Production (full 45 features)
+# Phase 2 — Production (full 49 features)
 # Requires real retailer data flowing through adapters.
 PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     # Product (7) — from product catalog via EDI/ERP
@@ -101,7 +105,7 @@ PRODUCTION_FEATURE_COLS = COLD_START_FEATURE_COLS + [
     # Promotions extended (2) — from real promo calendar
     "promotion_discount_pct",
     "promotion_days_remaining",
-]  # 45 total
+]  # 49 total
 
 # Legacy alias (backward compat with existing saved models)
 FEATURE_COLS = PRODUCTION_FEATURE_COLS
@@ -139,13 +143,35 @@ def get_feature_cols(tier: FeatureTier) -> list[str]:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def _temporal_features(df: pd.DataFrame, date_col: str = "date") -> pd.DataFrame:
-    """Extract 10 temporal features from a date column."""
+def _temporal_features(df: pd.DataFrame, date_col: str = "date", timezone: str = "UTC") -> pd.DataFrame:
+    """Extract 10 temporal features from a date column.
+
+    Args:
+        df: Input DataFrame.
+        date_col: Name of the date column.
+        timezone: IANA timezone string (e.g. 'America/Denver'). Dates are
+            localized to this timezone before extracting day_of_week, month,
+            etc., so that features reflect local retail time rather than UTC.
+    """
     dt = pd.to_datetime(df[date_col], errors="coerce")
 
     # Fill NaT with a default (e.g. first date) to prevent crash, though upstream should filter
     if dt.isna().any():
         dt = dt.fillna(dt.min())
+
+    # Localize to tenant timezone before extracting temporal features.
+    # This ensures day_of_week/month reflect local retail time, not UTC.
+    if timezone != "UTC":
+        try:
+            # If timestamps are already tz-naive, localize then convert.
+            # If already tz-aware, just convert.
+            if dt.dt.tz is None:
+                dt = dt.dt.tz_localize("UTC").dt.tz_convert(timezone)
+            else:
+                dt = dt.dt.tz_convert(timezone)
+        except Exception:
+            # Fallback: keep original timestamps if localization fails
+            pass
 
     return df.assign(
         day_of_week=dt.dt.dayofweek.fillna(0).astype(int),
@@ -361,15 +387,18 @@ def create_features(
     promotions_df: pd.DataFrame | None = None,
     weather_df: pd.DataFrame | None = None,
     macro_df: pd.DataFrame | None = None,
+    feedback_df: pd.DataFrame | None = None,
+    receiving_df: pd.DataFrame | None = None,
     target_date: str | None = None,
     force_tier: FeatureTier | None = None,
+    timezone: str = "UTC",
 ) -> pd.DataFrame:
     """
     Create features for demand forecasting.
 
     Auto-detects feature tier based on available data:
-      - cold_start (27 features): Only needs transactions + optional weather/macro
-      - production (45 features): Needs inventory, products, stores too
+      - cold_start (30 features): Only needs transactions + optional weather/macro
+      - production (49 features): Needs inventory, products, stores too
 
     Args:
         transactions_df: Daily-aggregated transactions (store_id, product_id, date, quantity)
@@ -379,8 +408,13 @@ def create_features(
         promotions_df: Active promotions (optional)
         weather_df: Weather data (optional) — temperature, precipitation
         macro_df: Macro data (optional) — oil_price (e.g., from Favorita)
+        feedback_df: Planner feedback features keyed by (store_id, product_id)
         target_date: Reference date for promo features
         force_tier: Override auto-detection ("cold_start" or "production")
+        timezone: IANA timezone string for the tenant (e.g. 'America/Denver').
+            Dates are localized to this timezone before extracting temporal
+            features so that day_of_week, month, etc. reflect local retail
+            time rather than UTC. Defaults to 'UTC'.
 
     Returns:
         DataFrame with engineered features + _feature_tier attribute
@@ -390,8 +424,8 @@ def create_features(
 
     # ── Phase-independent features (both tiers) ─────────────────────
 
-    # 1. Temporal (10)
-    features = _temporal_features(transactions_df, "date")
+    # 1. Temporal (10) — localized to tenant timezone
+    features = _temporal_features(transactions_df, "date", timezone=timezone)
 
     # 2. Sales History (12)
     features = _sales_history_features(features)
@@ -447,6 +481,12 @@ def create_features(
         )
     if "oil_price" not in features.columns:
         features["oil_price"] = np.nan
+
+    features = enrich_features_with_feedback(
+        features,
+        feedback_df if feedback_df is not None else pd.DataFrame(),
+        receiving_df=receiving_df,
+    )
 
     # ── Determine tier ──────────────────────────────────────────────
 

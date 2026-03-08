@@ -4,7 +4,7 @@ ML Retraining Workers — Scheduled model retraining.
 Runs the full ML pipeline:
   1. Load training data (CSV cold-start or DB query)
   2. Feature engineering (auto-detects tier)
-  3. Train XGBoost + LSTM ensemble
+  3. Train LightGBM model (pure LightGBM mode)
   4. Save models + register in model registry
   5. Refresh alerts with updated forecasts
 """
@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import redis
 import structlog
 
 from ml.contract_mapper import build_canonical_result
@@ -26,6 +27,114 @@ from ml.data_contracts import load_canonical_transactions
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+
+def _acquire_retrain_lock(customer_id: str, timeout: int = 3600) -> bool:
+    """
+    Acquire a Redis lock for tenant retraining. Returns True if acquired.
+
+    Uses SET NX EX to atomically set a lock key with a TTL. If the lock
+    is already held by another worker for this tenant, returns False.
+
+    Fails open (returns True) if Redis is unavailable — this prevents
+    Redis outages from blocking the retraining pipeline entirely.
+
+    Args:
+        customer_id: Tenant identifier used as the lock key suffix.
+        timeout: Lock TTL in seconds (default 3600 = 1 hour).
+
+    Returns:
+        True if the lock was acquired (or Redis is unavailable).
+        False if the lock is held by another worker.
+    """
+    try:
+        r = redis.from_url(REDIS_URL)
+        lock_key = f"retrain_lock:{customer_id}"
+        return bool(r.set(lock_key, "1", ex=timeout, nx=True))
+    except Exception:
+        # Fail open: if Redis is down, don't block retraining
+        return True
+
+
+def _release_retrain_lock(customer_id: str) -> None:
+    """
+    Release the Redis retrain lock for a tenant.
+
+    Swallows all exceptions — lock expiry (TTL) handles cleanup automatically
+    if this call fails.
+
+    Args:
+        customer_id: Tenant identifier whose lock should be released.
+    """
+    try:
+        r = redis.from_url(REDIS_URL)
+        r.delete(f"retrain_lock:{customer_id}")
+    except Exception:
+        pass
+
+
+def _mark_model_version_failed(
+    customer_id: str,
+    model_name: str,
+    version: str,
+    error_message: str = "",
+) -> None:
+    """
+    Set ModelVersion.status = 'failed' for the given tenant + model + version.
+
+    Called in the retrain exception handler to ensure a ModelVersion row is
+    never left in a 'candidate' or 'training' state after the task dies.
+    If no matching row exists (e.g., failure happened before registration),
+    this is a no-op.
+
+    Args:
+        customer_id: Tenant UUID string.
+        model_name: Model type identifier.
+        version: Version string (e.g., 'v3').
+        error_message: Human-readable failure reason, stored in metrics JSON.
+    """
+    import asyncio
+
+    from sqlalchemy import select, text, update
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from db.models import ModelVersion
+
+    async def _update() -> None:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+
+                await db.execute(
+                    update(ModelVersion)
+                    .where(
+                        ModelVersion.customer_id == uuid.UUID(customer_id),
+                        ModelVersion.model_name == model_name,
+                        ModelVersion.version == version,
+                        ModelVersion.status.notin_(["champion", "archived"]),
+                    )
+                    .values(
+                        status="failed",
+                        metrics={"error": error_message, "failed_at": datetime.utcnow().isoformat()},
+                    )
+                )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_update())
 
 
 def _next_version() -> str:
@@ -444,6 +553,84 @@ def _load_db_data(
     return canonical
 
 
+def _load_feedback_features(customer_id: str, lookback_days: int = 30) -> pd.DataFrame:
+    """
+    Load planner feedback aggregates for the tenant from po_decisions.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from ml.feedback_loop import get_feedback_features
+
+    async def _query() -> pd.DataFrame:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+                return await get_feedback_features(db, customer_id=customer_id, lookback_days=lookback_days)
+        finally:
+            await engine.dispose()
+
+    feedback_df = asyncio.run(_query())
+    logger.info(
+        "retrain.feedback_features_loaded",
+        customer_id=customer_id,
+        lookback_days=lookback_days,
+        rows=int(len(feedback_df)),
+    )
+    return feedback_df
+
+
+def _load_receiving_discrepancy_features(customer_id: str, lookback_days: int = 90) -> pd.DataFrame:
+    """
+    Load receiving discrepancy aggregates for the tenant from receiving_discrepancies.
+    """
+    import asyncio
+
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from core.config import get_settings
+    from ml.feedback_loop import get_receiving_discrepancy_features
+
+    async def _query() -> pd.DataFrame:
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession)
+            async with session_factory() as db:
+                try:
+                    await db.execute(
+                        text("SELECT set_config('app.current_customer_id', :customer_id, false)"),
+                        {"customer_id": customer_id},
+                    )
+                except Exception:
+                    pass
+                return await get_receiving_discrepancy_features(db, customer_id=customer_id, lookback_days=lookback_days)
+        finally:
+            await engine.dispose()
+
+    receiving_df = asyncio.run(_query())
+    logger.info(
+        "retrain.receiving_features_loaded",
+        customer_id=customer_id,
+        lookback_days=lookback_days,
+        rows=int(len(receiving_df)),
+    )
+    return receiving_df
+
+
 def _apply_training_cutoff(transactions_df: pd.DataFrame, train_end_date: str) -> tuple[pd.DataFrame, str]:
     """
     Enforce a strict training cutoff date (inclusive).
@@ -664,6 +851,20 @@ def retrain_forecast_model(
         dataset_name=dataset_name,
     )
 
+    # ── Redis lock: prevent concurrent retrains for the same tenant ──
+    lock_customer = customer_id or "global"
+    if not _acquire_retrain_lock(lock_customer):
+        logger.warning(
+            "retrain.skipped_lock_held",
+            customer_id=customer_id,
+            reason="Another retrain is already running for this tenant.",
+        )
+        return {
+            "status": "skipped",
+            "reason": "lock_held",
+            "customer_id": customer_id,
+        }
+
     try:
         # ── Step 1: Load data ────────────────────────────────────────
         if contract_path and sample_path:
@@ -713,11 +914,25 @@ def retrain_forecast_model(
                 rows=len(transactions_df),
             )
 
+        feedback_df = pd.DataFrame()
+        receiving_df = pd.DataFrame()
+        if customer_id:
+            try:
+                feedback_df = _load_feedback_features(customer_id=customer_id, lookback_days=30)
+            except Exception as feedback_exc:  # noqa: BLE001
+                logger.warning("retrain.feedback_features_failed", error=str(feedback_exc), exc_info=True)
+            try:
+                receiving_df = _load_receiving_discrepancy_features(customer_id=customer_id, lookback_days=90)
+            except Exception as receiving_exc:  # noqa: BLE001
+                logger.warning("retrain.receiving_features_failed", error=str(receiving_exc), exc_info=True)
+
         # ── Step 2: Feature engineering ──────────────────────────────
         logger.info("retrain.creating_features", rows=len(transactions_df))
         features_df = create_features(
             transactions_df=transactions_df,
             force_tier="cold_start" if data_dir else None,
+            feedback_df=feedback_df,
+            receiving_df=receiving_df,
         )
         logger.info(
             "retrain.features_created",
@@ -1062,6 +1277,13 @@ def retrain_forecast_model(
             except Exception as retrain_log_exc:
                 logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
 
+            # Mark ModelVersion.status = 'failed' so it is never stuck as
+            # 'candidate' or 'training' after the task dies.
+            try:
+                _mark_model_version_failed(customer_id, model_name, ver, error_message=str(exc))
+            except Exception as mark_exc:
+                logger.warning("retrain.mark_failed_error", error=str(mark_exc), exc_info=True)
+
         logger.error(
             "retrain.failed",
             run_id=run_id,
@@ -1073,3 +1295,7 @@ def retrain_forecast_model(
         if isinstance(exc, (OSError, IOError)):
             raise self.retry(exc=exc)
         raise
+
+    finally:
+        # Always release the Redis retrain lock (success or failure)
+        _release_retrain_lock(lock_customer)

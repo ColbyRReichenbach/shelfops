@@ -41,7 +41,7 @@ def detect_model_drift(self, customer_id: str):
 
     async def _detect():
         from core.config import get_settings
-        from db.models import Alert, ForecastAccuracy
+        from db.models import Alert, ForecastAccuracy, ModelVersion
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
@@ -49,6 +49,24 @@ def detect_model_drift(self, customer_id: str):
             async_session = async_sessionmaker(engine, class_=AsyncSession)
 
             async with async_session() as db:
+                customer_uuid = uuid.UUID(customer_id)
+                champion_row = (
+                    await db.execute(
+                        select(ModelVersion.version)
+                        .where(
+                            ModelVersion.customer_id == customer_uuid,
+                            ModelVersion.model_name == "demand_forecast",
+                            ModelVersion.status == "champion",
+                        )
+                        .order_by(ModelVersion.promoted_at.desc())
+                        .limit(1)
+                    )
+                ).one_or_none()
+                champion_version = str(champion_row.version) if champion_row else None
+                if not champion_version:
+                    logger.warning("drift.no_champion", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "no_champion_model"}
+
                 cutoff = datetime.utcnow() - timedelta(days=7)
 
                 # Get recent MAE
@@ -60,7 +78,8 @@ def detect_model_drift(self, customer_id: str):
                         func.avg(ForecastAccuracy.mape).label("recent_mape"),
                         func.count(ForecastAccuracy.id).label("sample_count"),
                     ).where(
-                        ForecastAccuracy.customer_id == customer_id,
+                        ForecastAccuracy.customer_id == customer_uuid,
+                        ForecastAccuracy.model_version == champion_version,
                         ForecastAccuracy.evaluated_at >= cutoff,
                     )
                 )
@@ -79,7 +98,8 @@ def detect_model_drift(self, customer_id: str):
                             "baseline_mae"
                         ),
                     ).where(
-                        ForecastAccuracy.customer_id == customer_id,
+                        ForecastAccuracy.customer_id == customer_uuid,
+                        ForecastAccuracy.model_version == champion_version,
                         ForecastAccuracy.evaluated_at < cutoff,
                     )
                 )
@@ -132,21 +152,23 @@ def detect_model_drift(self, customer_id: str):
                                 "drift_pct": round(drift_pct * 100, 1),
                                 "baseline_mae": round(baseline_mae, 2),
                                 "recent_mae": round(recent_mae, 2),
+                                "champion_version": champion_version,
                             },
                         },
                     )
 
                 await db.commit()
 
-            return {
-                "status": "drift_detected" if is_drifting else "healthy",
-                "customer_id": customer_id,
-                "recent_mae": round(recent_mae, 2),
-                "baseline_mae": round(baseline_mae, 2),
-                "drift_pct": round(drift_pct * 100, 1),
-                "sample_count": sample_count,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }
+                return {
+                    "status": "drift_detected" if is_drifting else "healthy",
+                    "customer_id": customer_id,
+                    "champion_version": champion_version,
+                    "recent_mae": round(recent_mae, 2),
+                    "baseline_mae": round(baseline_mae, 2),
+                    "drift_pct": round(drift_pct * 100, 1),
+                    "sample_count": sample_count,
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
         finally:
             await engine.dispose()
 
@@ -154,6 +176,156 @@ def detect_model_drift(self, customer_id: str):
         return asyncio.run(_detect())
     except Exception as exc:
         logger.error("drift.failed", error=str(exc), exc_info=True)
+        raise self.retry(exc=exc)
+
+
+@celery_app.task(
+    name="workers.monitoring.check_feedback_health",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=120,
+    acks_late=True,
+)
+def check_feedback_health(
+    self,
+    customer_id: str,
+    rejection_threshold: float = 0.60,
+    min_decisions: int = 5,
+    lookback_days: int = 30,
+    cooldown_days: int = 7,
+):
+    """
+    Daily job: Check if planners are rejecting POs at high rates.
+
+    If rejection_rate > threshold for any (store, product) with enough
+    decisions, triggers a feedback-driven retrain. A cooldown prevents
+    retrain storms from the same persistent pattern.
+    """
+    run_id = self.request.id or "manual"
+    logger.info("feedback_health.started", customer_id=customer_id, run_id=run_id)
+
+    async def _check():
+        from core.config import get_settings
+        from db.models import MLAlert, PODecision, PurchaseOrder
+
+        settings = get_settings()
+        engine = create_async_engine(settings.database_url)
+        try:
+            async_session = async_sessionmaker(engine, class_=AsyncSession)
+
+            async with async_session() as db:
+                customer_uuid = uuid.UUID(customer_id)
+
+                # Cooldown: skip if we already triggered a feedback retrain recently
+                cooldown_cutoff = datetime.utcnow() - timedelta(days=cooldown_days)
+                recent_alert = (
+                    await db.execute(
+                        select(MLAlert.ml_alert_id)
+                        .where(
+                            MLAlert.customer_id == customer_id,
+                            MLAlert.alert_type == "feedback_drift",
+                            MLAlert.created_at >= cooldown_cutoff,
+                        )
+                        .limit(1)
+                    )
+                ).one_or_none()
+
+                if recent_alert:
+                    logger.info("feedback_health.cooldown", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "feedback_retrain_cooldown"}
+
+                # Aggregate rejection rates per (store, product)
+                cutoff = datetime.utcnow() - timedelta(days=lookback_days)
+                result = await db.execute(
+                    select(
+                        PurchaseOrder.store_id,
+                        PurchaseOrder.product_id,
+                        func.count(PODecision.decision_id).label("total_decisions"),
+                        func.count(
+                            case(
+                                (PODecision.decision_type == "rejected", 1),
+                            )
+                        ).label("rejections"),
+                    )
+                    .join(PurchaseOrder, PODecision.po_id == PurchaseOrder.po_id)
+                    .where(
+                        PurchaseOrder.customer_id == customer_uuid,
+                        PODecision.decided_at >= cutoff,
+                    )
+                    .group_by(PurchaseOrder.store_id, PurchaseOrder.product_id)
+                    .having(func.count(PODecision.decision_id) >= min_decisions)
+                )
+                rows = result.all()
+
+                flagged = []
+                for row in rows:
+                    total = row.total_decisions or 1
+                    rejection_rate = (row.rejections or 0) / total
+                    if rejection_rate > rejection_threshold:
+                        flagged.append(
+                            {
+                                "store_id": str(row.store_id),
+                                "product_id": str(row.product_id),
+                                "rejection_rate": round(rejection_rate, 3),
+                                "total_decisions": total,
+                            }
+                        )
+
+                if flagged:
+                    logger.warning(
+                        "feedback_health.drift_detected",
+                        customer_id=customer_id,
+                        flagged_count=len(flagged),
+                    )
+
+                    alert = MLAlert(
+                        ml_alert_id=uuid.uuid4(),
+                        customer_id=customer_id,
+                        alert_type="feedback_drift",
+                        severity="warning",
+                        title=f"Planner Feedback Drift — {len(flagged)} product(s) with >{int(rejection_threshold * 100)}% rejection rate",
+                        message=f"Planners are rejecting POs at high rates for {len(flagged)} product(s). Feedback-driven retrain triggered.",
+                        alert_metadata={
+                            "flagged_products": flagged,
+                            "threshold": rejection_threshold,
+                            "lookback_days": lookback_days,
+                        },
+                        status="unread",
+                        action_url="/models/review",
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    db.add(alert)
+
+                    from workers.retrain import retrain_forecast_model
+
+                    retrain_forecast_model.apply_async(
+                        args=[customer_id],
+                        kwargs={
+                            "trigger": "feedback_drift",
+                            "trigger_metadata": {
+                                "flagged_products_count": len(flagged),
+                                "flagged_products": flagged[:10],  # Cap metadata size
+                                "threshold": rejection_threshold,
+                            },
+                        },
+                    )
+
+                await db.commit()
+
+                return {
+                    "status": "feedback_drift_detected" if flagged else "healthy",
+                    "customer_id": customer_id,
+                    "products_checked": len(rows),
+                    "flagged_products_count": len(flagged),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }
+        finally:
+            await engine.dispose()
+
+    try:
+        return asyncio.run(_check())
+    except Exception as exc:
+        logger.error("feedback_health.failed", error=str(exc), exc_info=True)
         raise self.retry(exc=exc)
 
 
@@ -370,7 +542,7 @@ def compute_forecast_accuracy(
         import pandas as pd
 
         from core.config import get_settings
-        from db.models import DemandForecast, ForecastAccuracy, ModelVersion, Transaction
+        from db.models import DemandForecast, ForecastAccuracy, ModelVersion, ShadowPrediction, Transaction
         from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
 
         settings = get_settings()
@@ -442,7 +614,7 @@ def compute_forecast_accuracy(
                 ).all()
 
                 actual_map = {
-                    (str(row.store_id), str(row.product_id), row.sale_date): float(row.actual_quantity or 0.0)
+                    (str(row.store_id), str(row.product_id), str(row.sale_date)): float(row.actual_quantity or 0.0)
                     for row in actual_rows
                 }
 
@@ -457,7 +629,7 @@ def compute_forecast_accuracy(
 
                 inserted = 0
                 for row in forecast_rows:
-                    key = (str(row.store_id), str(row.product_id), row.forecast_date)
+                    key = (str(row.store_id), str(row.product_id), str(row.forecast_date))
                     actual = float(actual_map.get(key, 0.0))
                     forecasted = float(row.forecasted_demand or 0.0)
                     mae = abs(forecasted - actual)
@@ -477,6 +649,26 @@ def compute_forecast_accuracy(
                         )
                     )
                     inserted += 1
+
+                shadow_rows = (
+                    await db.execute(
+                        select(ShadowPrediction).where(
+                            ShadowPrediction.customer_id == customer_uuid,
+                            ShadowPrediction.forecast_date >= start_date,
+                            ShadowPrediction.forecast_date <= end_date,
+                        )
+                    )
+                ).scalars().all()
+                shadow_updated = 0
+                for shadow in shadow_rows:
+                    key = (str(shadow.store_id), str(shadow.product_id), str(shadow.forecast_date))
+                    if key not in actual_map:
+                        continue
+                    actual = float(actual_map[key])
+                    shadow.actual_demand = actual
+                    shadow.champion_error = abs(float(shadow.champion_prediction or 0.0) - actual)
+                    shadow.challenger_error = abs(float(shadow.challenger_prediction or 0.0) - actual)
+                    shadow_updated += 1
 
                 tx_rows = (
                     await db.execute(
@@ -548,6 +740,7 @@ def compute_forecast_accuracy(
                     "window_end": str(end_date),
                     "forecasts_evaluated": len(forecast_rows),
                     "accuracy_rows_written": inserted,
+                    "shadow_rows_updated": shadow_updated,
                     "readiness": readiness,
                 }
         finally:

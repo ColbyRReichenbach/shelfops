@@ -41,9 +41,6 @@ export interface Store {
     status: string
     created_at: string
     updated_at: string
-    // Computed / UI fields (not from API)
-    health_score?: number
-    last_sync?: string
 }
 
 export interface Alert {

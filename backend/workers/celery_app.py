@@ -94,6 +94,12 @@ celery_app.conf.update(
             "kwargs": {"task_name": "workers.monitoring.detect_model_drift"},
             "options": {"queue": "sync"},
         },
+        "feedback-health-daily": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(hour=5, minute=30),  # After forecast accuracy (5:00 AM)
+            "kwargs": {"task_name": "workers.monitoring.check_feedback_health"},
+            "options": {"queue": "sync"},
+        },
         "data-freshness-hourly": {
             "task": "workers.scheduler.dispatch_active_tenants",
             "schedule": crontab(minute=30),  # Offset from alert check

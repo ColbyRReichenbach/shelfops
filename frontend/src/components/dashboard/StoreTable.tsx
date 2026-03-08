@@ -21,8 +21,8 @@ export default function StoreTable({ stores }: StoreTableProps) {
                             <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Store Name</th>
                             <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Location</th>
                             <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Status</th>
-                            <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Health Score</th>
-                            <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Last Sync</th>
+                            <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Timezone</th>
+                            <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs">Last Updated</th>
                             <th className="px-6 py-4 font-semibold uppercase tracking-wider text-xs text-right">Actions</th>
                         </tr>
                     </thead>
@@ -30,15 +30,6 @@ export default function StoreTable({ stores }: StoreTableProps) {
                         {stores.map((store) => {
                             const status = statusConfig[store.status] ?? { icon: AlertTriangle, color: 'text-gray-700', bg: 'bg-gray-100', label: store.status }
                             const StatusIcon = status.icon
-
-                            // Health Score Color Logic
-                            const healthColor = (store.health_score ?? 0) >= 90 ? 'text-green-600'
-                                : (store.health_score ?? 0) >= 70 ? 'text-yellow-600'
-                                    : 'text-red-600'
-
-                            const healthBg = (store.health_score ?? 0) >= 90 ? 'bg-green-600'
-                                : (store.health_score ?? 0) >= 70 ? 'bg-yellow-600'
-                                    : 'bg-red-600'
 
                             return (
                                 <tr key={store.store_id} className="group hover:bg-shelf-primary/5 transition-colors duration-200">
@@ -60,18 +51,10 @@ export default function StoreTable({ stores }: StoreTableProps) {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1 h-1.5 w-16 bg-shelf-foreground/10 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full ${healthBg}`}
-                                                    style={{ width: `${store.health_score}%` }}
-                                                />
-                                            </div>
-                                            <span className={`text-xs font-bold ${healthColor}`}>{store.health_score}%</span>
-                                        </div>
+                                        <span className="text-shelf-foreground/70">{store.timezone || '—'}</span>
                                     </td>
                                     <td className="px-6 py-4 text-shelf-foreground/60 font-mono text-xs">
-                                        {store.last_sync ?? (store.updated_at ? new Date(store.updated_at).toLocaleDateString() : 'N/A')}
+                                        {store.updated_at ? new Date(store.updated_at).toLocaleDateString() : 'N/A'}
                                     </td>
                                     <td className="px-6 py-4 text-right">
                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200 transform translate-x-2 group-hover:translate-x-0">
