@@ -46,6 +46,21 @@ PYTHONPATH=. python scripts/seed_commercial_data.py
 cd ..
 ```
 
+Pin the live demo to deterministic runtime state:
+```bash
+PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
+```
+
+Optional terminal proof before screen share:
+```bash
+PYTHONPATH=backend python3 backend/scripts/run_demo_terminal_showcase.py
+```
+
+Why this exists:
+- The older replay plan is still useful as appendix evidence.
+- The live demo should not depend on whatever state happened to already be in the DB.
+- `prepare_demo_runtime.py` resets the active demo records so PO, MLOps, and integration proof are always ready.
+
 ## 5. Start Frontend
 ```bash
 cd frontend
@@ -70,6 +85,11 @@ Get one suggested PO:
 curl -s http://localhost:8000/api/v1/purchase-orders/suggested
 ```
 
+If you want deterministic IDs for the live walkthrough, use:
+```bash
+cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json
+```
+
 Approve:
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/approve" \
@@ -90,6 +110,11 @@ curl -s "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/decisions"
 ```
 
 ### Segment C: MLOps Control Loop via API (3 min)
+Integration sync health:
+```bash
+curl -s http://localhost:8000/api/v1/integrations/sync-health
+```
+
 Model health:
 ```bash
 curl -s http://localhost:8000/api/v1/ml/models/health
@@ -173,6 +198,7 @@ PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py \
 - `backend/models/registry.json`
 - `backend/models/champion.json`
 - `docs/demo/CLAIMS_LEDGER.md`
+- `docs/productization_artifacts/demo_runtime/demo_runtime_summary.json`
 
 ## 9. Demo Close Statement (Use Verbatim)
 "Current live demo is optimized for mid-market operations. Enterprise adapters and governance are implemented, and currently being hardened with full parser test coverage and scheduled orchestration."

@@ -29,6 +29,8 @@ Use these one-liners so non-technical viewers stay engaged:
 - Slides (2-3 min): Problem, positioning, architecture, "live now vs hardening".
 - Live frontend (6-7 min): Product workflow for operators.
 - Live API/log terminal (4-5 min): HITL evidence + MLOps controls + experiment governance.
+- Runtime prep command: `PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py`
+- Terminal proof command: `PYTHONPATH=backend python3 backend/scripts/run_demo_terminal_showcase.py`
 - Technical appendix (optional 5 min): DS hypothesis workflow and iteration evidence.
 - Codebase deep-dive (Q&A only): Never start in code for external audiences.
 

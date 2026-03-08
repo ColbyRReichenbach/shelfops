@@ -5,6 +5,8 @@ This folder contains the external-ready demo and positioning assets described in
 ## Files
 - `AUDIENCE_PLAYBOOK.md`: How to tailor the same truth to hiring managers, technical interviewers, and SMB pilot conversations.
 - `DEMO_RUNBOOK.md`: End-to-end demo execution guide (setup, commands, API flow, proof artifacts).
+- `backend/scripts/prepare_demo_runtime.py`: Resets the live demo to a deterministic state.
+- `backend/scripts/run_demo_terminal_showcase.py`: Read-only terminal proof for the local demo runtime.
 - `VALIDATION_GATES.md`: Required test and runtime acceptance checks before external sharing.
 - `CLAIMS_LEDGER.md`: Claim-to-evidence map (code path, command, artifact).
 - `SLIDE_DECK_OUTLINE.md`: 12-15 slide narrative for hiring managers and operators.
