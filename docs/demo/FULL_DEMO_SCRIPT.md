@@ -1,287 +1,337 @@
-# ShelfOps Full Demo Script (Comprehensive, Audited, No-Hallucination)
+# ShelfOps Full Demo Script
 
-## 1. Demo Objective
-Deliver a hiring-first, SMB-product-first story that still proves enterprise-relevant architecture.
+## 1. Demo Strategy
+Do not use one blended script for every audience.
 
-What this demo must prove:
-1. You understand real retail pain from store-floor operations through corporate planning.
-2. ShelfOps is practical for SMB teams today (not just research metrics).
-3. The system is auditable: every operational decision can be traced and reused in model iteration.
-4. You can operate like a DS/ML engineer inside a production-style workflow.
+Use two deliberate walkthroughs:
+- Business walkthrough: for recruiters, general hiring managers, SMB owners, pilot conversations.
+- Technical walkthrough: for engineering managers, ML/MLOps interviewers, data leaders, technical founders.
 
-## 2. Core Positioning (Use This Verbatim)
-"ShelfOps gives smaller retailers the operating discipline large retailers get from expensive systems: better inventory visibility, guided purchase decisions, and an auditable model lifecycle. It is mid-market ready now, with enterprise adapters and governance implemented and actively hardened."
+The business walkthrough should hook fast, stay product-first, and prove you understand retail.
+The technical walkthrough should assume interest already exists and then go deep on architecture, ML, MLOps, and tradeoffs.
 
-Secondary line:
+## 2. Positioning Anchor
+Use this early:
 
-"The way I describe it is: product for SMB, project for enterprise."
+> ShelfOps is an inventory intelligence platform for smaller retailers that still operate manually or with fragmented tooling. It helps them move from gut-feel replenishment to auditable, data-backed decisions.
 
-## 3. Audience Translation (What To Say in Plain Language)
-Use these one-liners so non-technical viewers stay engaged:
-- Forecasting: "We estimate what each store-product pair will likely sell next, so buying is proactive."
-- Alerts: "We flag problems before they become missed sales or dead stock."
-- HITL approvals: "Managers stay in control. The system suggests; humans decide."
-- MLOps: "Models are monitored like employees: tracked, reviewed, and retrained when performance slips."
-- Drift detection: "If reality changes and forecasts degrade, we detect it and trigger retraining review."
-- Enterprise architecture: "The backend is built with larger-scale patterns so the customer workflow can stay simple."
+Then add:
 
-## 4. Demo Asset Split (What To Show vs Where)
-- Slides (2-3 min): Problem, positioning, architecture, "live now vs hardening".
-- Live frontend (6-7 min): Product workflow for operators.
-- Live API/log terminal (4-5 min): HITL evidence + MLOps controls + experiment governance.
-- Runtime prep command: `PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py`
-- Terminal proof command: `PYTHONPATH=backend python3 backend/scripts/run_demo_terminal_showcase.py`
-- Technical appendix (optional 5 min): DS hypothesis workflow and iteration evidence.
-- Codebase deep-dive (Q&A only): Never start in code for external audiences.
+> The short version is: product for SMB, project for enterprise.
 
-## 5. Bring-Up Checklist
+Meaning:
+- Product for SMB: the actual user problem is smaller retail teams that need better inventory visibility, guided replenishment, and less manual spreadsheet work.
+- Project for enterprise: the backend was intentionally built with enterprise patterns to prove production thinking, scalability, governance, and integration depth.
+
+## 3. What You Must Prove
+Every demo version should prove these:
+1. You understand retail operations from real experience, not just from data.
+2. You built a usable workflow, not just a model.
+3. You know where AI helps and where business logic and human review still matter.
+4. You can design production-style backend systems, not only notebooks.
+5. You understand MLOps as a controlled operating loop, not just training.
+
+## 4. Opening Hook
+Use this structure in the first 60-90 seconds:
+
+1. Problem:
+   "A lot of smaller retailers still manage inventory with visual checks, spreadsheets, and reactive ordering."
+2. Personal credibility:
+   "I spent 4+ years in retail, so I built this from real operating pain points I saw repeatedly."
+3. What the product does:
+   "ShelfOps brings together inventory visibility, forecasts, alerts, and purchase-order decisions into one workflow."
+4. Why it matters:
+   "The goal is to reduce stockouts, reduce overstock, and make decisions traceable."
+5. Why the project is interesting technically:
+   "I built the backend with enterprise-style patterns to show how the same system could scale beyond a small pilot."
+
+## 5. Demo Modes
+
+### Mode A: Business Walkthrough
+Use for:
+- recruiters
+- non-technical hiring managers
+- SMB owners
+- pilot discussions
+
+Primary goal:
+- convince them the product solves a real problem and that you are credible to build it
+
+Secondary goal:
+- leave them curious enough to ask for the technical deep dive
+
+Recommended length:
+- 10-15 minutes
+
+### Mode B: Technical Walkthrough
+Use for:
+- ML engineers
+- MLOps interviewers
+- DS hiring managers
+- engineering managers
+- technical founders
+
+Primary goal:
+- prove architectural judgment, ML systems thinking, and pragmatic tradeoff decisions
+
+Recommended length:
+- 15-25 minutes
+
+## 6. Runtime Commands
+Prepare deterministic demo state first:
+
+```bash
+PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
+```
+
+Optional terminal proof before live walkthrough:
+
+```bash
+PYTHONPATH=backend python3 backend/scripts/run_demo_terminal_showcase.py
+```
+
+If needed:
+
 ```bash
 export MLFLOW_HOST_PORT=5001
 docker compose up -d db redis mlflow redpanda api ml-worker sync-worker celery-beat
-docker compose ps
 curl -s http://localhost:8000/health
-curl -s http://localhost:5001/health
 ```
 
-If frontend is not running:
+Frontend:
+
 ```bash
 cd frontend
 npm ci
 npm run dev
 ```
 
-## 6. Primary 15-Minute Script (Say + Show)
+## 7. Business Walkthrough Script
 
-### 0:00-2:00 | Context + Why This Exists (Slides)
+### 0:00-1:30 | Hook + Why You Built It
 Say:
-1. "I built ShelfOps because poor inventory decisions are usually manual, inconsistent, and expensive."
-2. "From 4 years in retail operations, I saw visual checks replace data-driven planning, which causes stockouts, overstock, and ghost inventory."
-3. "ShelfOps is built for SMB operators first, while preserving enterprise-style backend controls."
-4. "That is why I call it a product for SMB and a project for enterprise."
+- "I built ShelfOps because smaller retailers often make inventory decisions manually, and that creates the same problems over and over: stockouts, overstock, and bad purchasing decisions."
+- "I saw that firsthand over 4+ years in retail, so I wanted to build something that combines domain knowledge with automation instead of replacing operators with a black box."
+- "This is meant to feel like intelligent inventory operations software, not just a forecasting model."
 
-Show:
-- Slide: stockout vs overstock problem.
-- Slide: who uses ShelfOps.
-  - Store manager: guided decisions.
-  - Corporate ops: visibility and governance.
-  - DS/ML team: reproducible experimentation + promotion controls.
+What to emphasize:
+- you picked the problem from lived experience
+- you understand store-level and planning-level pain
+- the platform is about decisions, not only predictions
 
-### 2:00-8:30 | Product Workflow (Frontend Live)
+### 1:30-6:30 | Platform Walkthrough
 Open `http://localhost:3000`.
 
-Say and show in order:
-1. Dashboard: "This is the operating snapshot: risk, forecast context, and where action is needed."
-2. Alerts: "This is the daily queue. Teams acknowledge and resolve issues, not just view dashboards."
-3. Inventory: "Inventory posture and reorder context are visible at the SKU/store level."
-4. Forecasts: "Forecasts guide ordering decisions before shelves go empty."
-5. Integrations: "Square is active now; broader integration surface is visible and staged."
-
-Code-backed references:
-- Routes: `frontend/src/App.tsx`
-- Alerts workflow: `frontend/src/pages/AlertsPage.tsx`
-- Integrations page behavior: `frontend/src/pages/IntegrationsPage.tsx`
-
-### 8:30-12:30 | HITL + MLOps Evidence (Terminal/API Live)
-
-#### A) HITL purchase decisions are auditable
-List suggested POs:
-```bash
-curl -s "http://localhost:8000/api/v1/purchase-orders/suggested?limit=2"
-```
-
-Extract IDs:
-```bash
-PO_IDS=$(curl -s "http://localhost:8000/api/v1/purchase-orders/suggested?limit=2" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join([x["po_id"] for x in d[:2]]))')
-PO1=$(echo "$PO_IDS" | awk '{print $1}')
-PO2=$(echo "$PO_IDS" | awk '{print $2}')
-echo "$PO1 $PO2"
-```
-
-Approve with edit:
-```bash
-curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/$PO1/approve" \
-  -H "Content-Type: application/json" \
-  -d '{"quantity": 12, "reason_code":"budget_constraint", "notes":"Demo edited approval"}'
-```
-
-Reject with reason:
-```bash
-curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/$PO2/reject" \
-  -H "Content-Type: application/json" \
-  -d '{"reason_code":"forecast_disagree", "notes":"Demo rejection path"}'
-```
-
-Show decision history:
-```bash
-curl -s "http://localhost:8000/api/v1/purchase-orders/$PO1/decisions"
-curl -s "http://localhost:8000/api/v1/purchase-orders/$PO2/decisions"
-```
-
-Optional DB proof:
-```bash
-docker compose exec -T db psql -U shelfops -d shelfops -c "select po_id,status,quantity,ordered_at from purchase_orders where po_id in ('$PO1','$PO2');"
-docker compose exec -T db psql -U shelfops -d shelfops -c "select po_id,decision_type,original_qty,final_qty,reason_code,decided_at from po_decisions where po_id in ('$PO1','$PO2') order by decided_at desc;"
-```
-
+#### Dashboard
 Say:
-- "This is not black box automation; human decisions are explicit and stored."
-- "Decision reasons are the bridge between operations and future model improvement."
-- "This is where retail domain knowledge matters: buyers override for budget, shelf constraints, vendor timing, and local context that a forecast alone does not know."
+- "This is the operating snapshot. If I were managing inventory, this is where I would start the day."
+- "I care less about pretty charts and more about what requires action now."
 
-Code-backed references:
-- PO endpoints: `backend/api/v1/routers/purchase_orders.py`
-- Decision persistence model: `backend/db/models.py`
+#### Alerts
+Say:
+- "This is where domain knowledge matters. Retail teams do not need more dashboards; they need a triage queue."
+- "The system surfaces issues before they become lost sales or excess stock."
 
-#### B) MLOps controls are runnable and visible
-Trigger alert pipeline:
+#### Inventory
+Say:
+- "This is the operational layer. It shows where the inventory posture actually sits at the store and SKU level."
+- "For SMBs, this replaces fragmented spreadsheets and reactive checks."
+
+#### Forecasts
+Say:
+- "The forecast is useful only because it feeds decisions. A forecast by itself does not improve the business."
+- "The point is to anticipate demand early enough to influence purchasing."
+
+#### Integrations
+Say:
+- "This is important because smaller retailers rarely have perfect systems. They usually have partial systems and disconnected data."
+- "I built the platform so onboarding can start simple, but the backend still supports broader enterprise-style integrations."
+
+### 6:30-9:00 | Human-in-the-Loop Purchase Decisions
+Say:
+- "One of the most important design choices here is that humans stay in control."
+- "The system suggests orders, but a planner can approve, reject, or edit them with a reason."
+- "That matters because retail decisions often depend on vendor timing, shelf capacity, budget, promotions, and local context that raw demand prediction does not fully capture."
+
+Show:
+
 ```bash
-docker compose exec -T ml-worker celery -A workers.celery_app call workers.sync.run_alert_check --kwargs '{"customer_id":"00000000-0000-0000-0000-000000000001"}'
+curl -s http://localhost:8000/api/v1/purchase-orders/suggested | jq
 ```
 
-Trigger drift check:
+Then show one approve/edit path and one reject path using the deterministic IDs from:
+
 ```bash
-docker compose exec -T ml-worker celery -A workers.celery_app call workers.monitoring.detect_model_drift --kwargs '{"customer_id":"00000000-0000-0000-0000-000000000001"}'
+cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json | jq
 ```
 
-Show logs:
+Suggested talk track while doing it:
+- "This is the bridge between AI and operations."
+- "I intentionally log reason codes because that creates a feedback loop for later model and policy improvement."
+
+### 9:00-11:00 | Why This Matters to SMBs
+Say:
+- "If I were pitching this to a pilot customer, the value proposition is straightforward: less manual inventory work, better buying decisions, more visibility, and retained human control."
+- "This is not positioned as replacing an ERP. It is positioned as giving smaller teams an intelligence layer they typically do not have."
+
+### 11:00-12:00 | Close
+Say:
+- "So the business story is simple: this turns inventory from reactive manual work into a more consistent, data-backed workflow."
+- "The deeper technical story is where the platform becomes more interesting, because I built the backend and MLOps structure to operate like a much larger system."
+
+Transition line:
+- "If useful, I can now walk through how it was actually built and why I made those technical choices."
+
+## 8. Technical Walkthrough Script
+
+### 0:00-1:00 | Technical Framing
+Say:
+- "From a technical perspective, I did not want this to be just a forecasting demo."
+- "I wanted to show an end-to-end system: ingestion, tenant isolation, operational workflows, model lifecycle, experiment governance, and auditability."
+
+### 1:00-4:00 | Architecture Overview
+Talk through these areas:
+- frontend for operator workflows
+- FastAPI backend for product and control-plane APIs
+- Postgres-backed multi-tenant data model
+- Celery workers for background orchestration
+- Redis for queueing/caching support
+- ML worker and model lifecycle layer
+- Redpanda/Kafka path to demonstrate event-driven integration capability
+
+What to say:
+- "The product surface looks simple, but the backend is intentionally layered."
+- "I separated interactive product workflows from asynchronous operational tasks because that is how these systems stay reliable."
+- "I wanted to show I understand the difference between demo UI and production-oriented backend design."
+
+### 4:00-7:00 | Multi-Tenant and Security Thinking
+Talk through:
+- tenant-scoped database access
+- org-level separation
+- why multi-tenant context matters early
+
+What to say:
+- "Even though this is a portfolio project, I designed around tenant isolation because inventory data is inherently organization-specific."
+- "That forced cleaner API patterns and makes the system more realistic than a single-tenant demo."
+- "It also shows that I was thinking beyond 'just get the feature working'."
+
+### 7:00-10:00 | Data Ingestion and Enterprise Logic
+Talk through:
+- Square-first practical path
+- staged EDI/SFTP/Kafka integration breadth
+- why Kafka was included
+
+What to say:
+- "For SMBs, onboarding may start from exports or simpler POS data."
+- "But I also wanted to prove I could design for enterprise-style ingestion paths."
+- "Kafka is especially useful here because it demonstrates event-driven thinking, decoupled ingest, and near-real-time integration patterns."
+- "That is one reason this project is relevant for ML Ops, data engineering, and analytics engineering conversations."
+
+Good live proof:
+
 ```bash
-docker compose logs --no-color --tail=80 sync-worker
+curl -s http://localhost:8000/api/v1/integrations/sync-health | jq
+```
+
+### 10:00-13:00 | Forecasting, Business Logic, and Why AI Is Only Part of the System
+Talk through:
+- forecasts are generated, but business rules shape actionability
+- reorder thresholds, safety stock, lead time, approval logic
+- human override is deliberate
+
+What to say:
+- "I do use ML, but I do not treat ML as the whole solution."
+- "Retail inventory decisions live at the intersection of predictions and operational constraints."
+- "That is why the platform includes thresholds, reorder logic, approval workflows, and reason-coded overrides."
+- "A useful inventory system has to respect business logic, not just maximize model elegance."
+
+### 13:00-17:00 | MLOps Operating Loop
+Talk through:
+- champion/challenger model states
+- model health endpoint
+- drift detection
+- retraining logs
+- experiment approval and completion flow
+
+Live proof:
+
+```bash
+curl -s http://localhost:8000/api/v1/ml/models/health | jq
+curl -s 'http://localhost:8000/ml-alerts?limit=5' | jq
+curl -s 'http://localhost:8000/experiments?limit=10' | jq
+```
+
+If showing workers:
+
+```bash
 docker compose logs --no-color --tail=80 ml-worker
+docker compose logs --no-color --tail=80 sync-worker
 ```
 
-Show model health:
-```bash
-curl -s http://localhost:8000/api/v1/ml/models/health
-```
+What to say:
+- "This is what I mean by MLOps in practice: monitored models, retraining triggers, audit logs, and governed promotion decisions."
+- "I wanted to move beyond 'I trained a model' into 'I built a controllable ML system.'"
+- "That is also why experiments are first-class objects here instead of informal notebook changes."
 
-Code-backed references:
-- Schedules and queues: `backend/workers/celery_app.py`
-- Drift logic and retrain trigger path: `backend/workers/monitoring.py`
-- Health endpoint: `backend/api/v1/routers/models.py`
-
-### 12:30-14:00 | DS Experiment Governance (API Live)
-Propose:
-```bash
-EXP_ID=$(curl -s -X POST http://localhost:8000/experiments \
-  -H "Content-Type: application/json" \
-  -d '{"experiment_name":"Department segmentation trial","hypothesis":"Category segmentation improves volatile demand fit","experiment_type":"segmentation","model_name":"demand_forecast","proposed_by":"demo@shelfops.com"}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["experiment_id"])')
-echo "$EXP_ID"
-```
-
-Approve:
-```bash
-curl -s -X PATCH "http://localhost:8000/experiments/$EXP_ID/approve" \
-  -H "Content-Type: application/json" \
-  -d '{"approved_by":"manager@shelfops.com","rationale":"Demo approval"}'
-```
-
-Complete:
-```bash
-curl -s -X POST "http://localhost:8000/experiments/$EXP_ID/complete" \
-  -H "Content-Type: application/json" \
-  -d '{"decision":"reject","decision_rationale":"No lift in this demo run","results":{"baseline_mae":21.59,"experimental_mae":21.80,"improvement_pct":-0.97},"experimental_version":"v_demo_exp_01"}'
-```
-
-Show artifact:
-```bash
-curl -s "http://localhost:8000/experiments/$EXP_ID"
-curl -s "http://localhost:8000/ml-alerts?alert_type=experiment_complete&limit=5"
-```
-
+### 17:00-20:00 | Model Choice and Tradeoffs
 Say:
-- "Experiments are hypotheses with approvals and outcomes, not ad-hoc notebook changes."
-- "I wanted the AI layer to be explainable and governable, not just impressive in isolation."
+- "The current default path is LightGBM-first because it is a practical choice for tabular retail demand data."
+- "I care more about reliability, feature support, and operational simplicity than chasing a flashy model that is harder to run."
+- "If I kept iterating, model improvement would come from better features, better per-tenant signals, and cleaner evaluation loops, not only architecture changes."
 
-Code-backed references:
-- Experiment endpoints: `backend/api/v1/routers/experiments.py`
-- ML alerts actions: `backend/api/v1/routers/ml_alerts.py`
+If asked why not something more complex:
+- "Because complexity has to earn its keep. In this domain, deployability and controllability matter."
 
-### 14:00-15:00 | Close + Limitation Framing
+### 20:00-22:00 | Why This Is Strong Hiring Signal
 Say:
-1. "ShelfOps today is a credible mid-market operating system with auditable AI workflows."
-2. "Enterprise adapters and controls are implemented; hardening remains an active gate, not a claim."
-3. "Current default training mode is LightGBM-first; legacy XGBoost/LSTM paths remain only for backward compatibility and older artifacts."
-4. "Model quality will improve as tenant-specific customer data replaces synthetic/seed-only signals."
-5. "The backend, security, and orchestration story is just as important as the model story, because that is what makes an operations product trustworthy."
+- "The part I would want a team to notice is not just the model. It is that I can connect business context, backend systems, data pipelines, and ML controls into one coherent product."
+- "That makes this relevant across applied ML, MLOps, analytics engineering, and data product work."
 
-## 7. Optional Technical Appendix (5 Minutes): DS Hypothesis Loop
-Use this when interviewers want to see your DS/ML workflow directly.
+## 9. Topics to Emphasize by Audience
 
-### Hypothesis Example
-"Adding segment-aware features for volatile categories can reduce MAE in high-variance demand."
+### Recruiter
+- real problem selection
+- end-to-end ownership
+- product plus technical depth
+- clear communication
 
-### What To Show
-1. Propose experiment through API (already shown).
-2. Run reproducible training iteration with notes.
-3. Compare to baseline in logs.
-4. Decide adopt/reject and document.
+### SMB owner
+- less manual inventory work
+- guided ordering
+- visibility without losing human control
+- can start with limited data maturity
 
-### Commands
-Run one reproducible training iteration:
-```bash
-PYTHONPATH=backend python3 backend/scripts/run_training.py \
-  --data-dir data/seed \
-  --dataset demo_seed \
-  --version v_demo_feature_01 \
-  --holdout-days 14 \
-  --write-partition-manifest docs/productization_artifacts/replay_partition_manifest.json
-```
+### Hiring manager, applied ML / DS
+- problem framing
+- feature and decision logic
+- model choice tradeoffs
+- experiments tied to business workflows
 
-Run model strategy comparison cycle:
-```bash
-PYTHONPATH=backend python3 backend/scripts/run_model_strategy_cycle.py \
-  --data-dir data/seed \
-  --max-rows 25000 \
-  --output-json docs/productization_artifacts/model_strategy_cycle.json \
-  --output-md docs/productization_artifacts/model_strategy_cycle.md
-```
+### Hiring manager, MLOps / ML platform
+- workers and queues
+- observability and retraining
+- governed model lifecycle
+- tenant-aware design
 
-Show evidence:
-```bash
-tail -n 20 backend/reports/iteration_runs.jsonl
-cat backend/models/registry.json
-cat backend/models/champion.json
-cat docs/productization_artifacts/model_strategy_cycle.md
-ls -1 backend/reports/iteration_notes | tail -n 10
-```
+### Team lead / engineering manager
+- architecture choices
+- boundaries between sync and async work
+- auditability and maintainability
+- integration breadth and production thinking
 
-## 8. What Is Automated vs Manual (Simple Explanation)
-- Automated: scheduled sync, alert checks, drift checks, backtests, retrain jobs (via Celery beat and workers).
-- Manual: business approvals, model promotion decisions, experiment sign-off.
-- Hybrid design principle: "Automate detection and recommendation; keep high-impact decisions human-controlled."
+## 10. Questions You Should Be Ready For
+- Why did you choose this problem?
+- Why is human review still in the loop?
+- Why LightGBM?
+- How would you improve model quality next?
+- How would onboarding work for a real customer?
+- Why build Kafka support for an SMB-facing product?
+- What would you change before productionizing this further?
 
-## 8.1 Backend Topics Worth Talking About in Q&A
-- Multi-tenant isolation and why tenant-scoped DB sessions matter
-- Why workers are split by queue instead of one generic async process
-- Why enterprise adapters exist even though the target product is SMB-first
-- Why auditability and validation matter more than flashy model complexity
-- Why seeded/demo data is still useful for proving workflow correctness
-
-## 9. Trigger Map (Source of Truth)
-Source: `backend/workers/celery_app.py`
-
-- Every 15 min: `workers.sync.sync_square_inventory` (queue `sync`)
-- Every 30 min: `workers.sync.sync_square_transactions` (queue `sync`)
-- Hourly: `workers.sync.run_alert_check` (queue `sync`)
-- Daily 03:00 UTC: `workers.monitoring.detect_model_drift` (queue `ml`)
-- Daily 06:00 UTC: `workers.monitoring.run_daily_backtest` (queue `ml`)
-- Weekly Sunday 02:00 UTC: `workers.retrain.retrain_forecast_model` (queue `ml`)
-
-## 10. Limitation Language (Say This Explicitly)
-- "This demo uses seeded data and simulated integrations for reproducibility."
-- "The metrics shown are baseline-quality for this dataset, not a universal production guarantee."
-- "Planner feedback is integrated into feature generation for retraining/inference; promotion still remains human-governed through explicit gates."
-- "Enterprise claims are bounded to implemented adapters and governance paths; we do not claim full enterprise SLA validation yet."
-
-## 11. How To Split Slide/Video/Live Assets
-- Live demo session: 15 minutes using Sections 6 and 7.
-- Recorded video: use `docs/demo/VIDEO_SCRIPT_10MIN.md`.
-- Deck: use `docs/demo/SLIDE_DECK_OUTLINE.md`.
-- Evidence appendix: runbook + claims ledger + logs.
-
-## 12. Presenter Rules
-- Lead with decisions and outcomes, then show technical evidence.
-- Never overclaim model performance or automation maturity.
-- State limits once in the live demo and show details in docs.
-- Use logs and database checks only to prove claims, not as primary storytelling.
+## 11. Best-Practice Notes
+- Start broad, then go deep.
+- Do not start with code unless explicitly asked.
+- Do not lead with model metrics.
+- Lead with user pain, workflow, and why the system exists.
+- When technical interviewers lean in, then open up the architecture and MLOps story.
+- Always keep the line between live capabilities and future hardening clear.

@@ -27,12 +27,29 @@ Explain it in plain terms:
 - SMB product: inventory teams still doing manual replenishment, spreadsheet review, and reactive ordering
 - Enterprise-grade project: multi-tenant security, queue-separated workers, auditable model lifecycle, and integration breadth that prove production thinking
 
-## Demo Narrative (10-15 min)
+## Recommended Demo Structure
 
-1. Problem and product intent (`implemented`).
-2. Contract-driven onboarding and governance (`implemented`).
-3. Forecast lifecycle and promotion controls (`implemented`).
-4. Enterprise positioning boundary (`pilot_validated` + `blocked` for GA).
+Do not use the same track for every audience.
+
+### Business Walkthrough
+Use for recruiters, SMB owners, and broad hiring-manager screens.
+
+Flow:
+1. Problem and why you built it from retail experience.
+2. Platform walkthrough: dashboard, alerts, inventory, forecasts, integrations.
+3. HITL purchase-order decisions as proof this is workflow software, not just analytics.
+4. SMB value proposition and close.
+
+### Technical Walkthrough
+Use after interest is established or when speaking with technical interviewers.
+
+Flow:
+1. Architecture and stack.
+2. Multi-tenant security and backend design.
+3. Integration breadth including Kafka/event-driven capability.
+4. Forecasting + business-rule layer.
+5. MLOps loop: health, drift, retraining, experiments, promotion controls.
+6. Model-choice tradeoffs and next improvements.
 
 ## What To Emphasize By Audience
 
@@ -40,22 +57,26 @@ Explain it in plain terms:
 - End-to-end ownership
 - practical business problem
 - technical depth without overclaiming
+- ability to translate technical work into business value
 
 ### Hiring manager: MLOps / ML engineer
 - retrain/forecast/monitor loop
 - reliability and validation gates
 - separation of queues, triggers, and promotion controls
+- event-driven integration capability including Kafka path
 
 ### Hiring manager: DS / applied ML
 - why the model exists in a retail workflow
 - how decisions feed back into features
 - why LightGBM is the current operating choice
+- business logic and human review are part of the system design, not exceptions
 
 ### SMB owner / pilot discussion
 - fewer manual decisions
 - visibility + guided ordering
 - humans stay in control
 - onboarding can start from exports and staged integrations
+- enterprise logic exists behind the scenes without forcing enterprise complexity on the buyer
 
 ## Required Boundary Statement
 

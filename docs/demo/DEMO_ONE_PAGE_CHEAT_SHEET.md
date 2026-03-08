@@ -1,19 +1,25 @@
 # ShelfOps Demo One-Page Cheat Sheet (Local Use)
 
-## Goal (15 min)
-Show product value first, then prove controls:
-1. SMB-ready inventory decision workflow.
-2. Human-in-the-loop approvals with audit trail.
-3. MLOps monitoring + experiment governance.
-4. Reproducible model iteration evidence.
-5. Enterprise-style backend discipline behind an SMB-facing product.
+## Goal
+Use two modes, not one blended pitch:
+1. Business walkthrough: prove product value, retail credibility, and SMB fit.
+2. Technical walkthrough: prove backend depth, MLOps design, and production thinking.
 
-## Timing
-1. 0:00-2:00 Slides: problem + positioning.
-2. 2:00-8:30 Frontend: dashboard -> alerts -> inventory -> forecasts -> integrations.
-3. 8:30-12:30 Terminal/API: PO decisions + logs + model health.
-4. 12:30-14:00 Experiment flow: propose -> approve -> complete.
-5. 14:00-15:00 Close: today vs roadmap + limits.
+## Business Walkthrough Timing
+1. 0:00-1:30 Hook: retail pain + why you built it.
+2. 1:30-6:30 Frontend: dashboard -> alerts -> inventory -> forecasts -> integrations.
+3. 6:30-9:00 HITL PO decisions.
+4. 9:00-11:00 SMB value and pilot framing.
+5. 11:00-12:00 Close and transition.
+
+## Technical Walkthrough Timing
+1. 0:00-1:00 Technical framing.
+2. 1:00-4:00 Architecture and stack.
+3. 4:00-7:00 Multi-tenant and backend design.
+4. 7:00-10:00 Integrations including Kafka/event-stream path.
+5. 10:00-13:00 Forecasting plus business logic layer.
+6. 13:00-17:00 MLOps health, drift, retraining, experiments.
+7. 17:00-20:00 Model choice and tradeoffs.
 
 ## Core Opening Line
 "ShelfOps gives smaller retailers the operating discipline large retailers get from expensive systems: better inventory visibility, guided purchase decisions, and an auditable model lifecycle."
@@ -27,6 +33,7 @@ Show product value first, then prove controls:
 3. Human review is deliberate, not a missing feature.
 4. LightGBM is the current default because it is the most practical fit for this data and runtime.
 5. Enterprise adapters exist to prove scale and technical depth, not to overclaim GA enterprise readiness.
+6. Kafka matters as proof of event-driven/backend engineering ability, not because every SMB needs Kafka on day one.
 
 ## Bring-Up
 ```bash
@@ -34,6 +41,7 @@ export MLFLOW_HOST_PORT=5001
 docker compose up -d db redis mlflow redpanda api ml-worker sync-worker celery-beat
 curl -s http://localhost:8000/health
 curl -s http://localhost:5001/health
+PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
 ```
 
 ## Frontend Path (http://localhost:3000)
@@ -61,13 +69,12 @@ curl -s "http://localhost:8000/api/v1/purchase-orders/$PO1/decisions"
 curl -s "http://localhost:8000/api/v1/purchase-orders/$PO2/decisions"
 ```
 
-## MLOps Proof (trigger + logs + health)
+## Technical Proof (MLOps + integrations)
 ```bash
-docker compose exec -T ml-worker celery -A workers.celery_app call workers.sync.run_alert_check --kwargs '{"customer_id":"00000000-0000-0000-0000-000000000001"}'
-docker compose exec -T ml-worker celery -A workers.celery_app call workers.monitoring.detect_model_drift --kwargs '{"customer_id":"00000000-0000-0000-0000-000000000001"}'
-docker compose logs --no-color --tail=60 sync-worker
-docker compose logs --no-color --tail=60 ml-worker
+curl -s http://localhost:8000/api/v1/integrations/sync-health | jq
 curl -s http://localhost:8000/api/v1/ml/models/health
+curl -s 'http://localhost:8000/ml-alerts?limit=5' | jq
+curl -s 'http://localhost:8000/experiments?limit=10' | jq
 ```
 
 ## Experiment Governance Proof
@@ -89,13 +96,8 @@ curl -s "http://localhost:8000/experiments/$EXP_ID"
 curl -s "http://localhost:8000/ml-alerts?alert_type=experiment_complete&limit=5"
 ```
 
-## DS/ML Appendix (Optional, 5 min)
-```bash
-tail -n 20 backend/reports/iteration_runs.jsonl
-cat backend/models/registry.json
-cat backend/models/champion.json
-ls -1 backend/reports/iteration_notes | tail -n 10
-```
+## Best Transition Line
+"The business story is the workflow. The technical story is how I built the backend, MLOps loop, and integrations so that workflow can actually be trusted."
 
 ## Limitation Line (Say Once)
 "Metrics shown here come from seeded/simulated data for reproducibility. Customer onboarding adds tenant-specific data contracts, shadow evaluation, and gated promotion before production ownership transfer."
