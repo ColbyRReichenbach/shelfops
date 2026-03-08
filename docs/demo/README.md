@@ -4,7 +4,10 @@ This folder contains the external-ready demo and positioning assets described in
 
 ## Files
 - `AUDIENCE_PLAYBOOK.md`: How to tailor the same truth to hiring managers, technical interviewers, and SMB pilot conversations.
+- `BUSINESS_WALKTHROUGH.md`: Primary script for recruiters, SMB owners, and business-first conversations.
+- `TECHNICAL_WALKTHROUGH.md`: Primary script for technical interviewers and architecture deep dives.
 - `DEMO_RUNBOOK.md`: End-to-end demo execution guide (setup, commands, API flow, proof artifacts).
+- `FULL_DEMO_SCRIPT.md`: Master reference tying both walkthroughs together.
 - `backend/scripts/prepare_demo_runtime.py`: Resets the live demo to a deterministic state.
 - `backend/scripts/run_demo_terminal_showcase.py`: Read-only terminal proof for the local demo runtime.
 - `VALIDATION_GATES.md`: Required test and runtime acceptance checks before external sharing.
@@ -19,7 +22,8 @@ This folder contains the external-ready demo and positioning assets described in
 
 ## Intended Use
 1. Read `AUDIENCE_PLAYBOOK.md` and choose the audience framing before touching slides.
-2. Run `VALIDATION_GATES.md`.
-3. Execute `DEMO_RUNBOOK.md` once end-to-end.
-4. Record the 10-minute video using `VIDEO_SCRIPT_10MIN.md`.
-5. Use one-pagers + outreach templates for applications and warm intros.
+2. Choose `BUSINESS_WALKTHROUGH.md` or `TECHNICAL_WALKTHROUGH.md`.
+3. Run `VALIDATION_GATES.md`.
+4. Execute `DEMO_RUNBOOK.md` once end-to-end.
+5. Record the 10-minute video using `VIDEO_SCRIPT_10MIN.md`.
+6. Use one-pagers + outreach templates for applications and warm intros.

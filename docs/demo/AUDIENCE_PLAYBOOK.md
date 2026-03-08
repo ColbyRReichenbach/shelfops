@@ -3,6 +3,10 @@
 ## Purpose
 Use this playbook to adapt the same ShelfOps demo for different audiences without changing the core truth of the product.
 
+Primary scripts:
+- `docs/demo/BUSINESS_WALKTHROUGH.md`
+- `docs/demo/TECHNICAL_WALKTHROUGH.md`
+
 Core framing:
 - **Product for SMB:** built for smaller retailers still making inventory decisions manually or in spreadsheets.
 - **Project for enterprise:** implemented with multi-tenant security, worker orchestration, auditable MLOps, and enterprise-style adapters to show scale and production thinking.
@@ -44,6 +48,9 @@ Lead with:
 - model registry and promotion gates
 - reliability, validation, and observability discipline
 
+Recommended script:
+- `TECHNICAL_WALKTHROUGH.md`
+
 What they need to believe:
 - you can reason about production ML systems, not just notebooks
 - you understand deployment boundaries, failure modes, and repeatability
@@ -54,6 +61,9 @@ Lead with:
 - feature engineering and forecast-to-decision loop
 - model choice reasoning
 - experiment governance and measurable iteration
+
+Recommended script:
+- start with `BUSINESS_WALKTHROUGH.md`, then transition into `TECHNICAL_WALKTHROUGH.md`
 
 What they need to believe:
 - you can connect model quality to business outcomes
@@ -66,6 +76,9 @@ Lead with:
 - canonicalization
 - observability and reproducible artifacts
 
+Recommended script:
+- `TECHNICAL_WALKTHROUGH.md`
+
 What they need to believe:
 - you can build trustworthy pipelines and expose usable operational data
 
@@ -75,6 +88,9 @@ Lead with:
 - better reorder timing
 - visibility across stores/products
 - human override still available
+
+Recommended script:
+- `BUSINESS_WALKTHROUGH.md`
 
 What they need to believe:
 - this reduces chaos without replacing their judgment
