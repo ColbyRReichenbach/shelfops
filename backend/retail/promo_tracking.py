@@ -27,6 +27,7 @@ async def measure_promotion_effectiveness(
     db: AsyncSession,
     customer_id: uuid.UUID,
     lookback_days: int = 14,
+    as_of_date: date | None = None,
 ) -> dict:
     """
     Evaluate recently completed promotions.
@@ -40,7 +41,7 @@ async def measure_promotion_effectiveness(
     3. Actual lift = promo_avg / baseline_avg
     4. Compare vs promotion.expected_lift
     """
-    today = date.today()
+    today = as_of_date or date.today()
     # Promotions that ended 7-14 days ago (settled enough to measure)
     window_end = today - timedelta(days=7)
     window_start = today - timedelta(days=lookback_days)

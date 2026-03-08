@@ -617,7 +617,9 @@ def _load_receiving_discrepancy_features(customer_id: str, lookback_days: int = 
                     )
                 except Exception:
                     pass
-                return await get_receiving_discrepancy_features(db, customer_id=customer_id, lookback_days=lookback_days)
+                return await get_receiving_discrepancy_features(
+                    db, customer_id=customer_id, lookback_days=lookback_days
+                )
         finally:
             await engine.dispose()
 

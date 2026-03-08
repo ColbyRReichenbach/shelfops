@@ -306,7 +306,9 @@ def generate_forecasts(
                     preds = predict_demand(feature_batch, models=models, confidence_level=0.90)
                     challenger_map: dict[tuple[str, str], float] = {}
                     if challenger_models is not None:
-                        challenger_preds = predict_demand(feature_batch, models=challenger_models, confidence_level=0.90)
+                        challenger_preds = predict_demand(
+                            feature_batch, models=challenger_models, confidence_level=0.90
+                        )
                         challenger_map = {
                             (str(row.store_id), str(row.product_id)): float(max(row.forecasted_demand, 0.0))
                             for row in challenger_preds.itertuples(index=False)

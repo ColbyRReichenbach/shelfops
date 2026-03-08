@@ -7,7 +7,13 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 
 export interface WsMessage {
-    type: 'alert' | 'inventory_update' | 'forecast_ready' | 'heartbeat'
+    type:
+        | 'alert'
+        | 'inventory_update'
+        | 'forecast_ready'
+        | 'heartbeat'
+        | 'feedback_loop'
+        | 'po_decision'
     payload: unknown
 }
 

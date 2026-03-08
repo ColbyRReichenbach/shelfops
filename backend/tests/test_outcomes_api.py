@@ -75,7 +75,8 @@ async def client_tenant(test_db, mock_user, seeded_db):
     app.dependency_overrides[get_current_user] = override_get_current_user
     app.dependency_overrides[get_tenant_db] = override_get_tenant_db
 
-    from httpx import ASGITransport, AsyncClient as _AC
+    from httpx import ASGITransport
+    from httpx import AsyncClient as _AC
 
     async with _AC(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
@@ -89,9 +90,10 @@ async def client_tenant(test_db, mock_user, seeded_db):
 @pytest.mark.asyncio
 async def test_alert_effectiveness_service_response_keys():
     """calculate_alert_effectiveness returns all expected keys (empty DB)."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     import ml.alert_outcomes as ao_module
     from db.session import Base
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -126,9 +128,10 @@ async def test_alert_effectiveness_service_response_keys():
 @pytest.mark.asyncio
 async def test_alert_effectiveness_service_custom_lookback():
     """period_days reflects the lookback_days argument."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     import ml.alert_outcomes as ao_module
     from db.session import Base
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -136,9 +139,7 @@ async def test_alert_effectiveness_service_custom_lookback():
 
     customer_id = uuid.UUID(CUSTOMER_ID)
     async with AsyncSession(engine) as session:
-        result = await ao_module.calculate_alert_effectiveness(
-            db=session, customer_id=customer_id, lookback_days=7
-        )
+        result = await ao_module.calculate_alert_effectiveness(db=session, customer_id=customer_id, lookback_days=7)
 
     await engine.dispose()
     assert result["period_days"] == 7
@@ -147,9 +148,10 @@ async def test_alert_effectiveness_service_custom_lookback():
 @pytest.mark.asyncio
 async def test_anomaly_effectiveness_service_response_keys():
     """calculate_anomaly_effectiveness returns a dict (empty DB)."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     import ml.alert_outcomes as ao_module
     from db.session import Base
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -157,9 +159,7 @@ async def test_anomaly_effectiveness_service_response_keys():
 
     customer_id = uuid.UUID(CUSTOMER_ID)
     async with AsyncSession(engine) as session:
-        result = await ao_module.calculate_anomaly_effectiveness(
-            db=session, customer_id=customer_id, lookback_days=30
-        )
+        result = await ao_module.calculate_anomaly_effectiveness(db=session, customer_id=customer_id, lookback_days=30)
 
     await engine.dispose()
     assert isinstance(result, dict)
@@ -169,9 +169,10 @@ async def test_anomaly_effectiveness_service_response_keys():
 @pytest.mark.asyncio
 async def test_roi_service_response_keys():
     """calculate_alert_roi returns all expected ROI keys (empty DB)."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     import ml.alert_outcomes as ao_module
     from db.session import Base
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -179,9 +180,7 @@ async def test_roi_service_response_keys():
 
     customer_id = uuid.UUID(CUSTOMER_ID)
     async with AsyncSession(engine) as session:
-        result = await ao_module.calculate_alert_roi(
-            db=session, customer_id=customer_id, lookback_days=90
-        )
+        result = await ao_module.calculate_alert_roi(db=session, customer_id=customer_id, lookback_days=90)
 
     await engine.dispose()
 
@@ -195,9 +194,10 @@ async def test_roi_service_response_keys():
 @pytest.mark.asyncio
 async def test_roi_service_zero_for_empty_db():
     """With no anomaly data, ROI values are all zero."""
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
     import ml.alert_outcomes as ao_module
     from db.session import Base
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
@@ -205,9 +205,7 @@ async def test_roi_service_zero_for_empty_db():
 
     customer_id = uuid.UUID(CUSTOMER_ID)
     async with AsyncSession(engine) as session:
-        result = await ao_module.calculate_alert_roi(
-            db=session, customer_id=customer_id, lookback_days=90
-        )
+        result = await ao_module.calculate_alert_roi(db=session, customer_id=customer_id, lookback_days=90)
 
     await engine.dispose()
 
@@ -305,9 +303,7 @@ async def test_record_alert_outcome_valid_literals_no_422(client_tenant):
             f"/outcomes/alert/{fake_id}",
             json={"outcome": outcome},
         )
-        assert response.status_code != 422, (
-            f"outcome={outcome!r} was incorrectly rejected with 422"
-        )
+        assert response.status_code != 422, f"outcome={outcome!r} was incorrectly rejected with 422"
 
 
 @pytest.mark.asyncio
@@ -331,9 +327,7 @@ async def test_record_anomaly_outcome_valid_literals_no_422(client_tenant):
             f"/outcomes/anomaly/{fake_id}",
             json={"outcome": outcome},
         )
-        assert response.status_code != 422, (
-            f"outcome={outcome!r} was incorrectly rejected with 422"
-        )
+        assert response.status_code != 422, f"outcome={outcome!r} was incorrectly rejected with 422"
 
 
 @pytest.mark.asyncio

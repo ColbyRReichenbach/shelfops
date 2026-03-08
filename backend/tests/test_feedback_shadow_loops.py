@@ -578,9 +578,7 @@ def test_receiving_discrepancy_features_computed(tmp_path):
 
             # Now query the features
             async with session_factory() as db:
-                result = await get_receiving_discrepancy_features(
-                    db, customer_id=customer_id, lookback_days=90
-                )
+                result = await get_receiving_discrepancy_features(db, customer_id=customer_id, lookback_days=90)
 
                 assert len(result) == 1
                 row = result.iloc[0]

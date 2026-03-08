@@ -216,7 +216,7 @@ class TestValidation:
         assert len(result) == 5
 
     def test_negative_quantity_fails(self):
-        import pandera
+        from pandera.errors import SchemaErrors
 
         from ml.validate import validate_training_data
 
@@ -228,11 +228,11 @@ class TestValidation:
                 "quantity": [10.0, -5.0, 12.0],
             }
         )
-        with pytest.raises(pandera.errors.SchemaErrors):
+        with pytest.raises(SchemaErrors):
             validate_training_data(df)
 
     def test_missing_required_column_fails(self):
-        import pandera
+        from pandera.errors import SchemaErrors
 
         from ml.validate import validate_training_data
 
@@ -243,7 +243,7 @@ class TestValidation:
                 # missing product_id and quantity
             }
         )
-        with pytest.raises(pandera.errors.SchemaErrors):
+        with pytest.raises(SchemaErrors):
             validate_training_data(df)
 
     def test_prediction_input_validation(self):

@@ -651,14 +651,18 @@ def compute_forecast_accuracy(
                     inserted += 1
 
                 shadow_rows = (
-                    await db.execute(
-                        select(ShadowPrediction).where(
-                            ShadowPrediction.customer_id == customer_uuid,
-                            ShadowPrediction.forecast_date >= start_date,
-                            ShadowPrediction.forecast_date <= end_date,
+                    (
+                        await db.execute(
+                            select(ShadowPrediction).where(
+                                ShadowPrediction.customer_id == customer_uuid,
+                                ShadowPrediction.forecast_date >= start_date,
+                                ShadowPrediction.forecast_date <= end_date,
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 shadow_updated = 0
                 for shadow in shadow_rows:
                     key = (str(shadow.store_id), str(shadow.product_id), str(shadow.forecast_date))

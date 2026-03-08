@@ -174,7 +174,7 @@ class TestPromotionWindowFiltering:
 
         await _seed_base(test_db)
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["promotions_evaluated"] == 0
         assert summary["total_candidates"] == 0
@@ -195,7 +195,7 @@ class TestPromotionWindowFiltering:
         test_db.add(promo)
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 0
 
@@ -215,7 +215,7 @@ class TestPromotionWindowFiltering:
         test_db.add(promo)
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 0
 
@@ -237,7 +237,7 @@ class TestPromotionWindowFiltering:
 
         # Will be a candidate but skipped because it has no Transaction data
         # (baseline_avg = 0 → skipped before the schema-breaking DB insert)
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 1
         assert summary["promotions_evaluated"] == 0  # No baseline sales data
@@ -265,7 +265,7 @@ class TestPromotionSkipConditions:
         test_db.add(promo)
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 1
         assert summary["promotions_evaluated"] == 0
@@ -291,7 +291,7 @@ class TestPromotionSkipConditions:
         test_db.add(promo)
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 1
         assert summary["promotions_evaluated"] == 0
@@ -325,7 +325,7 @@ class TestPromotionSkipConditions:
         test_db.add(existing_result)
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["total_candidates"] == 1
         assert summary["promotions_evaluated"] == 0
@@ -401,7 +401,7 @@ class TestFullEndToEndPath:
 
         await test_db.flush()
 
-        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14)
+        summary = await measure_promotion_effectiveness(test_db, CUSTOMER_ID, lookback_days=14, as_of_date=TODAY)
 
         assert summary["promotions_evaluated"] == 1
 

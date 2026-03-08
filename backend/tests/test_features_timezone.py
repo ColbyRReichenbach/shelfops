@@ -2,8 +2,8 @@
 Tests for timezone-aware feature engineering in ml/features.py.
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 
 from ml.features import create_features
@@ -11,23 +11,27 @@ from ml.features import create_features
 
 def _minimal_df(date_str: str) -> pd.DataFrame:
     """Return a minimal single-row transactions DataFrame."""
-    return pd.DataFrame({
-        "date": [date_str],
-        "store_id": ["s1"],
-        "product_id": ["p1"],
-        "quantity": [10.0],
-    })
+    return pd.DataFrame(
+        {
+            "date": [date_str],
+            "store_id": ["s1"],
+            "product_id": ["p1"],
+            "quantity": [10.0],
+        }
+    )
 
 
 def test_timezone_affects_day_of_week():
     """A UTC midnight timestamp is the previous day in US timezones."""
     # 2024-01-01 00:30 UTC = 2023-12-31 in America/Denver (UTC-7)
-    df = pd.DataFrame({
-        "date": ["2024-01-01"],
-        "store_id": ["s1"],
-        "product_id": ["p1"],
-        "quantity": [10.0],
-    })
+    df = pd.DataFrame(
+        {
+            "date": ["2024-01-01"],
+            "store_id": ["s1"],
+            "product_id": ["p1"],
+            "quantity": [10.0],
+        }
+    )
     utc_features = create_features(df.copy(), timezone="UTC")
     denver_features = create_features(df.copy(), timezone="America/Denver")
     # day_of_week should be valid integers 0-6 in both cases
@@ -81,12 +85,14 @@ def test_timestamp_with_hour_component_shifts_day():
     # 2024-01-02 02:00 UTC = 2024-01-01 19:00 MST (same date, no shift)
     # 2024-01-02 00:30 UTC = 2024-01-01 17:30 MST (previous day)
     # We use a DataFrame with explicit UTC timestamps to demonstrate the shift.
-    df_utc = pd.DataFrame({
-        "date": [pd.Timestamp("2024-01-02 00:30:00", tz="UTC")],
-        "store_id": ["s1"],
-        "product_id": ["p1"],
-        "quantity": [10.0],
-    })
+    df_utc = pd.DataFrame(
+        {
+            "date": [pd.Timestamp("2024-01-02 00:30:00", tz="UTC")],
+            "store_id": ["s1"],
+            "product_id": ["p1"],
+            "quantity": [10.0],
+        }
+    )
     utc_features = create_features(df_utc.copy(), timezone="UTC")
     denver_features = create_features(df_utc.copy(), timezone="America/Denver")
 

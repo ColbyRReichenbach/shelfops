@@ -74,6 +74,7 @@ function SHAPTooltip({
 }) {
     if (!active || !payload?.length) return null
     const item = payload[0]
+    if (!item) return null
     const val = item.payload.shap_value
     return (
         <div

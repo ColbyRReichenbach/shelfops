@@ -43,6 +43,7 @@ def load_models(version: str) -> dict[str, Any]:
 
     if os.path.exists(lgb_txt_path):
         import lightgbm as lgb
+
         primary_model = lgb.Booster(model_file=lgb_txt_path)
     elif os.path.exists(lgb_joblib_path):
         primary_model = joblib.load(lgb_joblib_path)

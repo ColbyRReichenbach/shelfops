@@ -100,9 +100,9 @@ def train_lightgbm(
         "reg_lambda",
         "min_child_weight",
         "colsample_bytree",  # LightGBM uses feature_fraction
-        "subsample",         # LightGBM uses bagging_fraction
-        "max_depth",         # LightGBM uses num_leaves instead
-        "n_estimators",      # Handled via num_boost_round
+        "subsample",  # LightGBM uses bagging_fraction
+        "max_depth",  # LightGBM uses num_leaves instead
+        "n_estimators",  # Handled via num_boost_round
     }
     if params:
         for k, v in params.items():

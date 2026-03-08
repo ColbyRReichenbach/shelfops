@@ -100,18 +100,17 @@ def test_record_retraining_event_called_with_failed_status_on_error():
     with patch("workers.retrain.redis") as mock_redis:
         mock_redis.from_url.return_value = mock_r
 
-        with patch("workers.retrain._load_db_data") as mock_load, patch(
-            "workers.retrain._record_retraining_event"
-        ) as mock_record, patch("workers.retrain._mark_model_version_failed"):
-
+        with (
+            patch("workers.retrain._load_db_data") as mock_load,
+            patch("workers.retrain._record_retraining_event") as mock_record,
+            patch("workers.retrain._mark_model_version_failed"),
+        ):
             mock_load.side_effect = ValueError("insufficient data")
 
             from workers.retrain import retrain_forecast_model
 
             with pytest.raises(ValueError):
-                retrain_forecast_model.run(
-                    customer_id="00000000-0000-0000-0000-000000000099"
-                )
+                retrain_forecast_model.run(customer_id="00000000-0000-0000-0000-000000000099")
 
         # Verify _record_retraining_event was called with status='failed'
         mock_record.assert_called_once()

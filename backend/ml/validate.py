@@ -15,9 +15,9 @@ Usage:
 from typing import Literal
 
 import pandas as pd
-import pandera as pa
+import pandera.pandas as pa
 import structlog
-from pandera import Check, Column, DataFrameSchema
+from pandera import Check
 
 from ml.features import COLD_START_FEATURE_COLS, PRODUCTION_FEATURE_COLS, FeatureTier
 
@@ -28,12 +28,12 @@ logger = structlog.get_logger()
 # 1. Training Data Schema (raw transactions before feature engineering)
 # ──────────────────────────────────────────────────────────────────────
 
-TrainingDataSchema = DataFrameSchema(
+TrainingDataSchema = pa.DataFrameSchema(
     columns={
-        "date": Column(pa.DateTime, nullable=False, coerce=True),
-        "store_id": Column(str, nullable=False, coerce=True),
-        "product_id": Column(str, nullable=False, coerce=True),
-        "quantity": Column(
+        "date": pa.Column(pa.DateTime, nullable=False, coerce=True),
+        "store_id": pa.Column(str, nullable=False, coerce=True),
+        "product_id": pa.Column(str, nullable=False, coerce=True),
+        "quantity": pa.Column(
             float,
             checks=[
                 Check.ge(0, error="quantity must be non-negative"),
@@ -54,14 +54,14 @@ TrainingDataSchema = DataFrameSchema(
 # ──────────────────────────────────────────────────────────────────────
 
 
-def _build_features_schema(tier: FeatureTier) -> DataFrameSchema:
+def _build_features_schema(tier: FeatureTier) -> pa.DataFrameSchema:
     """Build a Pandera schema for the specified feature tier."""
     feature_cols = COLD_START_FEATURE_COLS if tier == "cold_start" else PRODUCTION_FEATURE_COLS
 
     columns = {}
     for col in feature_cols:
         # All features should be numeric after create_features()
-        columns[col] = Column(
+        columns[col] = pa.Column(
             float,
             nullable=True,  # Some may be NaN before fillna
             coerce=True,
@@ -69,9 +69,9 @@ def _build_features_schema(tier: FeatureTier) -> DataFrameSchema:
         )
 
     # Target column must exist
-    columns["quantity"] = Column(float, nullable=False, coerce=True)
+    columns["quantity"] = pa.Column(float, nullable=False, coerce=True)
 
-    return DataFrameSchema(
+    return pa.DataFrameSchema(
         columns=columns,
         strict=False,
         coerce=True,
@@ -88,11 +88,11 @@ ProductionFeaturesSchema = _build_features_schema("production")
 # 3. Prediction Input Schema
 # ──────────────────────────────────────────────────────────────────────
 
-PredictionInputSchema = DataFrameSchema(
+PredictionInputSchema = pa.DataFrameSchema(
     columns={
-        "store_id": Column(str, nullable=False, coerce=True),
-        "product_id": Column(str, nullable=False, coerce=True),
-        "date": Column(pa.DateTime, nullable=False, coerce=True),
+        "store_id": pa.Column(str, nullable=False, coerce=True),
+        "product_id": pa.Column(str, nullable=False, coerce=True),
+        "date": pa.Column(pa.DateTime, nullable=False, coerce=True),
     },
     strict=False,
     coerce=True,

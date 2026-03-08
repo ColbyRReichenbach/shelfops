@@ -7,6 +7,7 @@ Covers:
 - 404 for unknown forecast_id
 - Tenant isolation: forecast from another tenant returns 404
 """
+
 import uuid
 from datetime import date, timedelta
 

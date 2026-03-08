@@ -27,10 +27,7 @@ def test_mase_threshold_concept():
     )
 
     computed_wape = wape(actual, predicted)
-    assert computed_wape < 0.5, (
-        f"Model quality gate failed: WAPE={computed_wape:.3f} >= 0.50. "
-        f"Check recent ML changes."
-    )
+    assert computed_wape < 0.5, f"Model quality gate failed: WAPE={computed_wape:.3f} >= 0.50. Check recent ML changes."
 
 
 def test_naive_forecast_baseline():
@@ -47,8 +44,7 @@ def test_naive_forecast_baseline():
     naive_mase = mase(actual_eval, naive, seasonality=1)
     # Naive should have MASE close to 1.0 (within 15%)
     assert 0.85 <= naive_mase <= 1.15, (
-        f"Naive MASE={naive_mase:.3f} out of expected range [0.85, 1.15]. "
-        f"Check mase() implementation in ml/metrics.py."
+        f"Naive MASE={naive_mase:.3f} out of expected range [0.85, 1.15]. Check mase() implementation in ml/metrics.py."
     )
 
 
@@ -79,10 +75,7 @@ def test_mase_on_seasonal_demand_pattern():
     predicted = np.maximum(0, 15 + 5 * np.sin(2 * np.pi * t / 7) + 0.05 * t + np.random.normal(0, 0.5, n))
 
     result = mase(actual, predicted, seasonality=7)
-    assert result < 1.0, (
-        f"Model should beat lag-7 naive on seasonal data, MASE={result:.3f}. "
-        f"Check recent ML changes."
-    )
+    assert result < 1.0, f"Model should beat lag-7 naive on seasonal data, MASE={result:.3f}. Check recent ML changes."
 
 
 def test_model_quality_thresholds_are_documented():
