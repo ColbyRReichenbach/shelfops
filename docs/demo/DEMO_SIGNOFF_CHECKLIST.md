@@ -24,7 +24,7 @@ npm run dev
 Pin deterministic demo state:
 
 ```bash
-cd /Users/colbyreichenbach/Downloads/shelfops_project
+cd /path/to/shelfops_project
 PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
 ```
 
@@ -39,11 +39,11 @@ Pass criteria:
 Replace as much seeded MLOps evidence as possible with a real Favorita baseline/challenger story.
 
 ### Files
-- [backend/scripts/run_training.py](/Users/colbyreichenbach/Downloads/shelfops_project/backend/scripts/run_training.py)
-- [backend/api/v1/routers/experiments.py](/Users/colbyreichenbach/Downloads/shelfops_project/backend/api/v1/routers/experiments.py)
-- [backend/models/registry.json](/Users/colbyreichenbach/Downloads/shelfops_project/backend/models/registry.json)
-- [backend/models/champion.json](/Users/colbyreichenbach/Downloads/shelfops_project/backend/models/champion.json)
-- [docs/demo/CLAIMS_LEDGER.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/CLAIMS_LEDGER.md)
+- [backend/scripts/run_training.py](../../backend/scripts/run_training.py)
+- [backend/api/v1/routers/experiments.py](../../backend/api/v1/routers/experiments.py)
+- [backend/models/registry.json](../../backend/models/registry.json)
+- [backend/models/champion.json](../../backend/models/champion.json)
+- [docs/demo/CLAIMS_LEDGER.md](./CLAIMS_LEDGER.md)
 
 ### Commands
 Log the hypothesis:
@@ -119,11 +119,11 @@ curl -s 'http://localhost:8000/experiments?limit=10' | jq
 Make sure the live MLOps page and API proof match the real challenger story.
 
 ### Files
-- [frontend/src/pages/MLOpsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/MLOpsPage.tsx)
-- [frontend/src/components/mlops/ModelArena.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/components/mlops/ModelArena.tsx)
-- [frontend/src/components/mlops/ExperimentWorkbench.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/components/mlops/ExperimentWorkbench.tsx)
-- [backend/api/v1/routers/ml_ops.py](/Users/colbyreichenbach/Downloads/shelfops_project/backend/api/v1/routers/ml_ops.py)
-- [backend/api/v1/routers/models.py](/Users/colbyreichenbach/Downloads/shelfops_project/backend/api/v1/routers/models.py)
+- [frontend/src/pages/MLOpsPage.tsx](../../frontend/src/pages/MLOpsPage.tsx)
+- [frontend/src/components/mlops/ModelArena.tsx](../../frontend/src/components/mlops/ModelArena.tsx)
+- [frontend/src/components/mlops/ExperimentWorkbench.tsx](../../frontend/src/components/mlops/ExperimentWorkbench.tsx)
+- [backend/api/v1/routers/ml_ops.py](../../backend/api/v1/routers/ml_ops.py)
+- [backend/api/v1/routers/models.py](../../backend/api/v1/routers/models.py)
 
 ### Commands
 ```bash
@@ -144,13 +144,13 @@ curl -s 'http://localhost:8000/experiments?limit=10' | jq
 Confirm the live UI is presentable and no demo-breaking rough edges remain.
 
 ### Files / pages to inspect
-- [frontend/src/pages/DashboardPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/DashboardPage.tsx)
-- [frontend/src/pages/AlertsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/AlertsPage.tsx)
-- [frontend/src/pages/InventoryPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/InventoryPage.tsx)
-- [frontend/src/pages/ForecastsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/ForecastsPage.tsx)
-- [frontend/src/pages/IntegrationsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/IntegrationsPage.tsx)
-- [frontend/src/pages/OperationsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/OperationsPage.tsx)
-- [frontend/src/pages/MLOpsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/MLOpsPage.tsx)
+- [frontend/src/pages/DashboardPage.tsx](../../frontend/src/pages/DashboardPage.tsx)
+- [frontend/src/pages/AlertsPage.tsx](../../frontend/src/pages/AlertsPage.tsx)
+- [frontend/src/pages/InventoryPage.tsx](../../frontend/src/pages/InventoryPage.tsx)
+- [frontend/src/pages/ForecastsPage.tsx](../../frontend/src/pages/ForecastsPage.tsx)
+- [frontend/src/pages/IntegrationsPage.tsx](../../frontend/src/pages/IntegrationsPage.tsx)
+- [frontend/src/pages/OperationsPage.tsx](../../frontend/src/pages/OperationsPage.tsx)
+- [frontend/src/pages/MLOpsPage.tsx](../../frontend/src/pages/MLOpsPage.tsx)
 
 ### Manual checks
 - Dashboard: no obviously empty cards or fake-looking copy.
@@ -175,11 +175,11 @@ Fix only issues that affect the demo.
 ### Files
 - whichever files fail visual review
 - likely candidates:
-  - [frontend/src/pages/AlertsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/AlertsPage.tsx)
-  - [frontend/src/pages/MLOpsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/MLOpsPage.tsx)
-  - [frontend/src/pages/OperationsPage.tsx](/Users/colbyreichenbach/Downloads/shelfops_project/frontend/src/pages/OperationsPage.tsx)
-  - [docs/demo/BUSINESS_WALKTHROUGH.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/BUSINESS_WALKTHROUGH.md)
-  - [docs/demo/TECHNICAL_WALKTHROUGH.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/TECHNICAL_WALKTHROUGH.md)
+  - [frontend/src/pages/AlertsPage.tsx](../../frontend/src/pages/AlertsPage.tsx)
+  - [frontend/src/pages/MLOpsPage.tsx](../../frontend/src/pages/MLOpsPage.tsx)
+  - [frontend/src/pages/OperationsPage.tsx](../../frontend/src/pages/OperationsPage.tsx)
+  - [docs/demo/BUSINESS_WALKTHROUGH.md](./BUSINESS_WALKTHROUGH.md)
+  - [docs/demo/TECHNICAL_WALKTHROUGH.md](./TECHNICAL_WALKTHROUGH.md)
 
 ### Verification commands
 ```bash
@@ -199,11 +199,11 @@ bash scripts/validate_docs.sh
 Prove both live tracks can be delivered cleanly.
 
 ### Files
-- [docs/demo/BUSINESS_WALKTHROUGH.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/BUSINESS_WALKTHROUGH.md)
-- [docs/demo/TECHNICAL_WALKTHROUGH.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/TECHNICAL_WALKTHROUGH.md)
-- [docs/demo/DEMO_RUNBOOK.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/DEMO_RUNBOOK.md)
-- [docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md)
-- [docs/demo/CLAIMS_LEDGER.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/CLAIMS_LEDGER.md)
+- [docs/demo/BUSINESS_WALKTHROUGH.md](./BUSINESS_WALKTHROUGH.md)
+- [docs/demo/TECHNICAL_WALKTHROUGH.md](./TECHNICAL_WALKTHROUGH.md)
+- [docs/demo/DEMO_RUNBOOK.md](./DEMO_RUNBOOK.md)
+- [docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md](./DEMO_ONE_PAGE_CHEAT_SHEET.md)
+- [docs/demo/CLAIMS_LEDGER.md](./CLAIMS_LEDGER.md)
 
 ### Commands
 ```bash
@@ -233,7 +233,7 @@ cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json | jq
 ### Pass criteria
 - Both walkthroughs complete with no broken flow.
 - Terminal/API proof commands work.
-- No claim exceeds [CLAIMS_LEDGER.md](/Users/colbyreichenbach/Downloads/shelfops_project/docs/demo/CLAIMS_LEDGER.md).
+- No claim exceeds [CLAIMS_LEDGER.md](./CLAIMS_LEDGER.md).
 - You have one clear fallback path if a UI screen loads awkwardly:
   - API proof
   - terminal proof

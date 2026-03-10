@@ -26,7 +26,7 @@ def test_register_model_auto_refreshes_performance_log(tmp_path, monkeypatch):
 
     md = (docs_dir / "MODEL_PERFORMANCE_LOG.md").read_text(encoding="utf-8")
     assert "promoted_to_champion" in md
-    assert "| 1 | v1 | demand_forecast | favorita | cold_start | 100 |" in md
+    assert "| 1 | v1 | demand_forecast | favorita | None | cold_start | 100 |" in md
 
     registry = json.loads((models_dir / "registry.json").read_text(encoding="utf-8"))
     assert registry["models"][0]["status"] == "champion"
