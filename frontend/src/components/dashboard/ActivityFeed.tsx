@@ -66,16 +66,10 @@ const STATUS_TEXT: Record<ActivityEvent['status'], string> = {
     pending: 'text-shelf-foreground/30',
 }
 
-interface ActivityFeedProps {
-    useDemoMode?: boolean
-}
-
-export default function ActivityFeed({ useDemoMode = true }: ActivityFeedProps) {
+export default function ActivityFeed() {
     const [isExpanded, setIsExpanded] = useState(true)
 
-    // For the demo we always show the hardcoded Summit events.
-    // In a real implementation this would come from ModelVersion retrain logs.
-    const events: ActivityEvent[] = useDemoMode ? SUMMIT_EVENTS : SUMMIT_EVENTS
+    const events: ActivityEvent[] = SUMMIT_EVENTS
 
     return (
         <div className="card border border-white/40 shadow-sm">

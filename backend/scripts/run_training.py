@@ -4,7 +4,7 @@ Standalone Training Script — Run the ML pipeline from the command line.
 
 Usage:
   python scripts/run_training.py --data-dir data/seed --version v1
-  python scripts/run_training.py --data-dir data/kaggle --dataset favorita --promote
+  python scripts/run_training.py --data-dir data/kaggle/favorita --dataset favorita --promote
   python scripts/run_training.py --help
 
 This is the recommended way to run your first training before
@@ -31,7 +31,7 @@ Examples:
   python scripts/run_training.py --data-dir data/seed --version v1
 
   # Train on Kaggle Favorita data
-  python scripts/run_training.py --data-dir data/kaggle --dataset favorita --promote
+  python scripts/run_training.py --data-dir data/kaggle/favorita --dataset favorita --promote
 
   # Auto-detect version and data
   python scripts/run_training.py
@@ -202,7 +202,7 @@ Examples:
     print(f"  ✓ {len(features_df):,} training rows")
 
     # Step 3: Train ensemble
-    print("\nStep 3/4: Training XGBoost + LSTM ensemble...")
+    print("\nStep 3/4: Training LightGBM-first forecast model...")
     ensemble_result = train_ensemble(
         features_df=features_df,
         dataset_name=args.dataset,
@@ -213,10 +213,10 @@ Examples:
     lstm_metrics = ensemble_result.get("lstm", {}).get("metrics", {})
     ensemble_info = ensemble_result.get("ensemble", {})
 
-    print(f"  ✓ XGBoost MAE:  {xgb_metrics.get('mae', 'N/A')}")
-    print(f"  ✓ LSTM MAE:     {lstm_metrics.get('mae', 'N/A')}")
-    print(f"  ✓ Ensemble MAE: {ensemble_info.get('estimated_mae', 'N/A')}")
-    print(f"  ✓ XGBoost MAPE: {xgb_metrics.get('mape', 'N/A')}")
+    print(f"  ✓ LightGBM MAE:  {xgb_metrics.get('mae', 'N/A')}")
+    print(f"  ✓ Legacy path:   {lstm_metrics.get('model_type', 'disabled')}")
+    print(f"  ✓ Forecast MAE:  {ensemble_info.get('estimated_mae', 'N/A')}")
+    print(f"  ✓ Forecast MAPE: {xgb_metrics.get('mape', 'N/A')}")
 
     # Step 4: Save + register
     print("\nStep 4/4: Saving models and registering...")

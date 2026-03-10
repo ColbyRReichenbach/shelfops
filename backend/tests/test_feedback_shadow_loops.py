@@ -167,6 +167,7 @@ def test_generate_forecasts_creates_shadow_rows(tmp_path, monkeypatch):
     assert summary["status"] == "success"
     assert summary["shadow_rows_created"] == 1
     assert summary["challenger_version"] == "v2"
+    assert summary["feature_tier_used"] == "cold_start"
 
     async def _assert_shadow() -> None:
         engine = create_async_engine(db_url, echo=False)
@@ -185,6 +186,103 @@ def test_generate_forecasts_creates_shadow_rows(tmp_path, monkeypatch):
             await engine.dispose()
 
     asyncio.run(_assert_shadow())
+
+
+def test_generate_forecasts_uses_model_feature_tier_when_runtime_context_exists(tmp_path, monkeypatch):
+    from db.models import InventoryLevel, ModelVersion
+    from workers.forecast import generate_forecasts
+
+    db_path = tmp_path / "shadow_production.db"
+    db_url = f"sqlite+aiosqlite:///{db_path}"
+    ids = _seed_core_entities(db_url)
+    customer_id = ids["customer_id"]
+    store_id = ids["store_id"]
+    product_id = ids["product_id"]
+
+    async def _seed_models_and_inventory() -> None:
+        engine = create_async_engine(db_url, echo=False)
+        try:
+            session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+            async with session_factory() as db:
+                db.add(
+                    ModelVersion(
+                        customer_id=customer_id,
+                        model_name="demand_forecast",
+                        version="v1",
+                        status="champion",
+                        routing_weight=1.0,
+                        promoted_at=datetime.utcnow(),
+                        metrics={"mae": 10.0, "mape": 0.2, "coverage": 0.9},
+                        smoke_test_passed=True,
+                    )
+                )
+                db.add(
+                    InventoryLevel(
+                        customer_id=customer_id,
+                        store_id=store_id,
+                        product_id=product_id,
+                        timestamp=datetime.utcnow(),
+                        quantity_on_hand=24,
+                        quantity_on_order=6,
+                        quantity_available=20,
+                    )
+                )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_seed_models_and_inventory())
+
+    monkeypatch.setattr("core.config.get_settings", lambda: _settings_for_db(db_url))
+
+    captured: dict[str, str | None] = {"force_tier": None}
+
+    def _fake_create_features(transactions_df, **kwargs):
+        captured["force_tier"] = kwargs.get("force_tier")
+        return pd.DataFrame(
+            {
+                "date": [pd.Timestamp(date.today() - timedelta(days=1))],
+                "store_id": [str(store_id)],
+                "product_id": [str(product_id)],
+                "quantity": [10.0],
+            }
+        )
+
+    def _fake_load_models(version: str):
+        return {"version": version, "feature_tier": "production"}
+
+    def _fake_predict_demand(features_df: pd.DataFrame, models: dict, confidence_level: float = 0.9):
+        out = features_df[["store_id", "product_id", "date"]].copy()
+        out["forecasted_demand"] = 9.0
+        out["lower_bound"] = 8.0
+        out["upper_bound"] = 10.0
+        out["confidence"] = confidence_level
+        return out
+
+    async def _fake_txns(*_args, **_kwargs):
+        return pd.DataFrame(
+            {
+                "date": [date.today() - timedelta(days=1)],
+                "store_id": [str(store_id)],
+                "product_id": [str(product_id)],
+                "quantity": [10.0],
+            }
+        )
+
+    async def _fake_feedback(*_args, **_kwargs):
+        return pd.DataFrame()
+
+    monkeypatch.setattr("ml.features.create_features", _fake_create_features)
+    monkeypatch.setattr("ml.predict.load_models", _fake_load_models)
+    monkeypatch.setattr("ml.predict.predict_demand", _fake_predict_demand)
+    monkeypatch.setattr("workers.forecast._load_db_transactions", _fake_txns)
+    monkeypatch.setattr("ml.feedback_loop.get_feedback_features", _fake_feedback)
+
+    summary = generate_forecasts.run(customer_id=str(customer_id), horizon_days=1, model_name="demand_forecast")
+    assert summary["status"] == "success"
+    assert summary["feature_tier_used"] == "production"
+    assert summary["feature_tier_fallback_reason"] is None
+    assert captured["force_tier"] == "production"
 
 
 def test_compute_forecast_accuracy_reconciles_shadow_actuals(tmp_path, monkeypatch):

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ml.data_contracts import CANONICAL_REQUIRED_COLS, load_canonical_transactions
+from ml.data_contracts import CANONICAL_REQUIRED_COLS, inspect_dataset_readiness, load_canonical_transactions
 
 
 @dataclass
@@ -31,6 +31,7 @@ class DatasetResult:
     date_max: str = ""
     frequency: str = ""
     country_code: str = ""
+    forecast_grain: str = ""
     missing_required: list[str] | None = None
 
 
@@ -49,6 +50,20 @@ def validate_dataset(dataset_key: str, data_dir: Path) -> DatasetResult:
             data_dir=data_dir,
             status="missing",
             message="Directory not found",
+        )
+
+    readiness = inspect_dataset_readiness(data_dir)
+    if readiness.status in {"blocked", "invalid"}:
+        return DatasetResult(
+            dataset_key=dataset_key,
+            data_dir=data_dir,
+            status=readiness.status,
+            message=readiness.message,
+            rows=readiness.row_count,
+            date_min=readiness.date_min,
+            date_max=readiness.date_max,
+            forecast_grain=readiness.forecast_grain,
+            missing_required=sorted(set(readiness.missing_files + readiness.missing_fields)),
         )
 
     try:
@@ -83,6 +98,7 @@ def validate_dataset(dataset_key: str, data_dir: Path) -> DatasetResult:
         date_max=str(pd.to_datetime(df["date"]).max().date()) if len(df) else "",
         frequency=str(df["frequency"].iloc[0]) if len(df) else "",
         country_code=str(df["country_code"].iloc[0]) if len(df) else "",
+        forecast_grain=readiness.forecast_grain,
     )
 
 
@@ -90,8 +106,8 @@ def render_markdown(results: list[DatasetResult], base_dir: Path | None = None) 
     lines = [
         "# Training Dataset Validation Report",
         "",
-        "| dataset | path | status | rows | stores | products | date_min | date_max | frequency | country | notes |",
-        "|---|---|---|---:|---:|---:|---|---|---|---|---|",
+        "| dataset | path | status | rows | stores | products | date_min | date_max | frequency | country | grain | notes |",
+        "|---|---|---|---:|---:|---:|---|---|---|---|---|---|",
     ]
 
     for r in results:
@@ -106,7 +122,8 @@ def render_markdown(results: list[DatasetResult], base_dir: Path | None = None) 
                 path_display = str(r.data_dir)
         lines.append(
             f"| {r.dataset_key} | `{path_display}` | `{r.status}` | {r.rows} | {r.stores} | {r.products} | "
-            f"{r.date_min or '-'} | {r.date_max or '-'} | {r.frequency or '-'} | {r.country_code or '-'} | {notes} |"
+            f"{r.date_min or '-'} | {r.date_max or '-'} | {r.frequency or '-'} | {r.country_code or '-'} | "
+            f"{r.forecast_grain or '-'} | {notes} |"
         )
 
     lines.extend(
@@ -116,7 +133,8 @@ def render_markdown(results: list[DatasetResult], base_dir: Path | None = None) 
             "",
             "- `ready`: canonical contract loads and required fields are present.",
             "- `missing`: dataset directory is not present locally.",
-            "- `error`: loader failed (usually missing expected source files).",
+            "- `error`: loader failed after readiness checks.",
+            "- `blocked`: dataset looks like Favorita but is missing required source files or fields.",
             "- Public datasets are training/evaluation domains only and do not populate live tenant catalogs.",
         ]
     )

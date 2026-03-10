@@ -39,6 +39,7 @@ from ml.features import (
     detect_feature_tier,
     get_feature_cols,
 )
+from ml.lineage import standard_model_metadata
 from ml.validate import validate_features
 
 logger = structlog.get_logger()
@@ -140,7 +141,7 @@ def train_lightgbm(
 
     # Time-series split: never shuffle
     tscv = TimeSeriesSplit(n_splits=n_splits)
-    maes, mapes, wapes, mases = [], [], [], []
+    maes, mapes, wapes, mases, biases = [], [], [], [], []
 
     for train_idx, val_idx in tscv.split(X):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
@@ -171,6 +172,7 @@ def train_lightgbm(
 
         from sklearn.metrics import mean_absolute_error, mean_absolute_percentage_error
 
+        from ml.metrics import bias_pct as compute_bias_pct
         from ml.metrics import mase as compute_mase
         from ml.metrics import wape as compute_wape
 
@@ -181,6 +183,7 @@ def train_lightgbm(
             mapes.append(mean_absolute_percentage_error(y_val_arr[nonzero_mask], preds[nonzero_mask]))
         wapes.append(compute_wape(y_val_arr, preds))
         mases.append(compute_mase(y_val_arr, preds, seasonality=7))
+        biases.append(compute_bias_pct(y_val_arr, preds))
 
     # Train final model on all data
     n_rounds = default_params.pop("n_estimators", 500)
@@ -203,6 +206,7 @@ def train_lightgbm(
         "mape": float(np.mean(mapes)) if mapes else 0.0,
         "wape": float(np.mean(wapes)),
         "mase": float(np.mean(mases)),
+        "bias_pct": float(np.mean(biases)) if biases else 0.0,
         "cv_folds": n_splits,
         "model_type": "lightgbm",
         "feature_tier": tier,
@@ -333,6 +337,9 @@ def train_ensemble(
             {
                 "ensemble_mae": ensemble_mae,
                 "ensemble_mape": lgb_metrics.get("mape", 0),
+                "ensemble_wape": lgb_metrics.get("wape", 0),
+                "ensemble_mase": lgb_metrics.get("mase", 0),
+                "ensemble_bias_pct": lgb_metrics.get("bias_pct", 0),
             }
         )
 
@@ -397,6 +404,19 @@ def train_ensemble(
             "feature_tier": tier,
             "feature_cols": feature_cols,
             "model_name": model_name,
+            **standard_model_metadata(
+                model_name=model_name,
+                dataset_id=dataset_name,
+                forecast_grain="store-family-day" if dataset_name == "favorita" else "dataset_specific",
+                feature_tier=tier,
+                change_category="baseline_refresh",
+                segment_strategy="global",
+                rule_overlay_enabled=False,
+                evaluation_window_days=30,
+                architecture="lightgbm",
+                objective="poisson",
+                tuning_profile="baseline",
+            ),
         },
     }
 
@@ -443,12 +463,26 @@ def save_models(
         "model_name": model_name,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset": dataset_name,
+        "dataset_id": dataset_name,
+        "forecast_grain": ensemble_result["ensemble"].get("forecast_grain", "dataset_specific"),
+        "segment_strategy": ensemble_result["ensemble"].get("segment_strategy", "global"),
+        "rule_overlay_enabled": ensemble_result["ensemble"].get("rule_overlay_enabled", False),
+        "evaluation_window_days": ensemble_result["ensemble"].get("evaluation_window_days", 30),
+        "architecture": ensemble_result["ensemble"].get("architecture", "lightgbm"),
+        "objective": ensemble_result["ensemble"].get("objective", "poisson"),
+        "feature_set_id": ensemble_result["ensemble"].get("feature_set_id"),
+        "tuning_profile": ensemble_result["ensemble"].get("tuning_profile", "baseline"),
+        "trigger_source": ensemble_result["ensemble"].get("trigger_source"),
+        "change_category": ensemble_result["ensemble"].get("change_category"),
+        "lineage_label": ensemble_result["ensemble"].get("lineage_label"),
         "weights": ensemble_result["ensemble"]["weights"],
         "lightgbm_metrics": lgb_metrics,
         "lstm_metrics": ensemble_result["lstm"]["metrics"],
         "ensemble_mae": ensemble_result["ensemble"]["estimated_mae"],
         "feature_tier": tier,
         "feature_cols": feature_cols,
+        "raw_holdout_metrics": ensemble_result["ensemble"].get("raw_holdout_metrics"),
+        "rule_overlay_holdout_metrics": ensemble_result["ensemble"].get("rule_overlay_holdout_metrics"),
     }
 
     with open(os.path.join(version_dir, "metadata.json"), "w") as f:
@@ -465,6 +499,21 @@ def save_models(
             metrics={
                 "mae": lgb_metrics.get("mae", 0),
                 "mape": lgb_metrics.get("mape", 0),
+                "wape": lgb_metrics.get("wape", 0),
+                "mase": lgb_metrics.get("mase", 0),
+                "bias_pct": lgb_metrics.get("bias_pct", 0),
+                "dataset_id": dataset_name,
+                "forecast_grain": ensemble_result["ensemble"].get("forecast_grain", "dataset_specific"),
+                "segment_strategy": ensemble_result["ensemble"].get("segment_strategy", "global"),
+                "rule_overlay_enabled": ensemble_result["ensemble"].get("rule_overlay_enabled", False),
+                "evaluation_window_days": ensemble_result["ensemble"].get("evaluation_window_days", 30),
+                "architecture": ensemble_result["ensemble"].get("architecture", "lightgbm"),
+                "objective": ensemble_result["ensemble"].get("objective", "poisson"),
+                "feature_set_id": ensemble_result["ensemble"].get("feature_set_id"),
+                "tuning_profile": ensemble_result["ensemble"].get("tuning_profile", "baseline"),
+                "trigger_source": ensemble_result["ensemble"].get("trigger_source"),
+                "change_category": ensemble_result["ensemble"].get("change_category"),
+                "lineage_label": ensemble_result["ensemble"].get("lineage_label"),
             },
             promote=promote,
             model_name=model_name,

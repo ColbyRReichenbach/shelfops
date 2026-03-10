@@ -1,7 +1,11 @@
 # ShelfOps — Research Spike: Domain Generalization & Vertical Expansion
 
+- Last verified date: March 10, 2026
+- Audience: builders and strategy reviewers
+- Scope: research spike for possible future vertical expansion
 - Author: Strategy thread, February 24, 2026
-- Status: **Open — spike not yet executed**
+- Status: **Open research spike — not an implementation or current product commitment**
+- Source of truth: current product scope remains the active docs and codebase, not this spike
 - Time-box: 1–2 days
 - Prerequisite reading: `docs/BRAINSTORM.md §20`, `backend/ml/features.py`, `backend/inventory/optimizer.py`
 

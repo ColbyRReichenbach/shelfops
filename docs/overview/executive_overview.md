@@ -1,6 +1,6 @@
 # ShelfOps Executive Overview
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: recruiters, hiring managers, business stakeholders
 - Scope: concise product and readiness narrative
 - Source of truth: `docs/product/production_readiness.md`, `docs/product/decision_log.md`
@@ -28,8 +28,18 @@ Enterprise integration paths are in production code and validated in determinist
 - Lower dependency surface for first shipping workflows: `implemented` strategy
 - Enterprise path retained as validation and architecture depth: `pilot_validated` positioning
 
+## Positioning Boundary
+
+- SMB launch-candidate workflows are the near-term shipping path: `implemented`
+- Enterprise integration architecture exists and is continuously validated: `pilot_validated`
+- Broad enterprise onboarding and availability remain restricted: `blocked`
+
+Use this rule externally:
+- lead with SMB launch and pilot workflows
+- present enterprise integration breadth as technical depth and architecture proof
+- do not label enterprise onboarding as production-available
+
 ## What To Read Next
 
 - Technical overview: `docs/overview/technical_overview.md`
 - Production readiness: `docs/product/production_readiness.md`
-- Market positioning: `docs/overview/market_positioning.md`

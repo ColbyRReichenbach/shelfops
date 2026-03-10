@@ -1,6 +1,10 @@
 # ShelfOps — Strategy Brainstorm
 
-- Status: **Living document — do not finalize until sections are explicitly closed**
+- Last verified date: March 10, 2026
+- Audience: builders and planners
+- Scope: open ideas, unresolved questions, and future strategy threads
+- Status: **Active planning document — not a source of truth for current runtime behavior**
+- Source of truth: verify all current-state claims against `docs/README.md`, active docs, and code before reusing them externally
 - Started: February 24, 2026
 - Purpose: Capture all open ideas, questions, and strategy threads before splitting into
   specific specs, runbooks, or improvement plans. Nothing here is a commitment yet.
@@ -58,12 +62,11 @@ Shadow mode and canary routing are operational. The arena is already per-tenant
 - No composite score — gates are sequential pass/fail, not weighted
 - Champion staleness detection not implemented (model degrading on live data post-promotion)
 
-### Multi-Location Store Clustering — Already Built
+### Multi-Location Store Clustering — Open Design Space
 
-`backend/ml/segmentation.py` — K-Means clustering groups stores into 3 tiers
-(high-volume, mid-volume, low-volume) for feature routing. This is the current
-multi-location handling. It groups by **volume** but not by **geographic or
-behavioral similarity**.
+The earlier store-tier segmentation prototype was removed during the March 2026 cleanup
+because it was not part of the active runtime. The open need is still valid: model
+stores by something richer than raw volume.
 
 **Gap**: KNN-based regional similarity is not implemented. See Section 4 (Multi-Location).
 
@@ -80,11 +83,10 @@ are **not implemented**. See Section 2 (Model Lifecycle).
 
 ### Current Model Architecture
 
-- Production: XGBoost (65%) + LSTM (35%) ensemble
-- `ml_improvement_plan.md` already recommends switching to pure LightGBM (Poisson objective)
-  — the LSTM is actively degrading every metric (weight sweep logged in model_strategy_cycle)
+- Production: LightGBM-first forecast path with business-first promotion gates
+- Legacy XGBoost/LSTM comparisons remain only as historical evaluation artifacts
 - Anomaly detection: Isolation Forest (separate model, `anomaly.py`)
-- Category-specific models: Fresh, GM, Hardware (`segmentation.py`)
+- Segmented/category-specific forecasting is a future experiment area, not part of the active runtime
 - `promo_lift` and `lead_time` models referenced in `arena.py` — not yet implemented
 
 ### SMB Onboarding — Partially Built
@@ -341,13 +343,12 @@ they just have no way to tell the model).
 
 ### 4.1 Current State
 
-`segmentation.py` clusters stores by transaction volume into 3 tiers (K-Means).
-This answers "how big is this store?" but not "which other stores are this store most
-like?"
+The earlier `segmentation.py` prototype was removed because it was not part of the live
+Favorita workflow and its fixed tier taxonomy did not match the current dataset strategy.
+The open question remains the same: "which other stores are this store most like?"
 
-Volume tiers are useful for feature routing (high-volume stores get richer models)
-but they don't capture **behavioral similarity** — two stores can have the same volume
-but completely different demand patterns (one near a university, one in a suburb).
+Behavioral similarity is still an unsolved feature opportunity — two stores can have the
+same volume but completely different demand patterns (one near a university, one in a suburb).
 
 ### 4.2 The KNN Regional Similarity Idea
 
@@ -583,7 +584,7 @@ This list adds what is NOT already in that plan.
 | Feedback quality filter (reason codes → training or not) | `feedback_loop.py` | High | 3.3 |
 | PO suggestion override cache (suppress re-issue of rejected suggestion) | `predict.py` / API layer | High | 3.2 |
 | Planned promotions input (buyer forward-looking event entry) | UI, `PlannedPromotions` model, `features.py` | Medium | 3.4 |
-| KNN store similarity index | `segmentation.py`, `features.py` | Medium | 4.2 |
+| KNN store similarity index | new segmentation module, `features.py` | Medium | 4.2 |
 | KNN neighbor signal feature (weighted demand borrowing) | `features.py` | Medium | 4.2 |
 | `detect_model_tier()` — architecture candidate selection | `features.py` | High | 5.2 |
 | `architecture` field on `ModelVersion` | `models.py`, Alembic migration | High | 5.3 |

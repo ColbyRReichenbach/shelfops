@@ -4,8 +4,8 @@
  */
 
 import ExecutiveDashboard from '@/components/dashboard/ExecutiveDashboard'
-import ActivityFeed from '@/components/dashboard/ActivityFeed'
-import ModelTimeline from '@/components/dashboard/ModelTimeline'
+import ProductionActivityFeed from '@/components/dashboard/ProductionActivityFeed'
+import ProductionModelTimeline from '@/components/dashboard/ProductionModelTimeline'
 import SystemEventsPanel from '@/components/dashboard/SystemEventsPanel'
 
 export default function DashboardPage() {
@@ -21,11 +21,11 @@ export default function DashboardPage() {
             <ExecutiveDashboard />
 
             {/* Model accuracy sparkline — visible to both tracks */}
-            <ModelTimeline />
+            <ProductionModelTimeline />
 
             {/* Activity timeline + live events side by side */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <ActivityFeed />
+                <ProductionActivityFeed />
                 <SystemEventsPanel />
             </div>
         </div>

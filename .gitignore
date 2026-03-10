@@ -13,6 +13,13 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.coverage
+.coverage.*
+htmlcov/
 
 # Node/Frontend
 frontend/node_modules/
@@ -74,6 +81,20 @@ docs/productization_artifacts/**
 !docs/productization_artifacts/smb_tenant_b/contract_validation_report.md
 !docs/productization_artifacts/enterprise_like/
 !docs/productization_artifacts/enterprise_like/contract_validation_report.md
+
+# Local demo recordings / editing projects
+demo_recording/
+recordings/
+*.mov
+*.mp4
+*.m4a
+*.wav
+*.webm
+*.screenflow
+*.imovieproject
+
+# Local scratch files
+disk_test.txt
 
 # Test databases
 *.db

@@ -47,7 +47,7 @@ Bring up local stack if needed:
 
 ```bash
 export MLFLOW_HOST_PORT=5001
-docker compose up -d db redis mlflow redpanda api ml-worker sync-worker celery-beat
+docker compose up -d db redis mlflow redpanda api ml-worker
 curl -s http://localhost:8000/health
 ```
 

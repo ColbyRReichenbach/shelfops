@@ -1,7 +1,7 @@
 """
 ML Prediction — LightGBM-first inference with legacy compatibility paths.
 
-Supports both cold_start (27-feature) and production (45-feature)
+Supports both cold_start (30-feature) and production (49-feature)
 models, reading the tier from saved model metadata.
 
 Agent: ml-engineer
@@ -75,56 +75,6 @@ def load_models(version: str) -> dict[str, Any]:
         result["lstm"] = None
 
     return result
-
-
-def load_model_for_category(product_category: str) -> dict[str, Any]:
-    """
-    Route to category-specific model if available, else global fallback.
-
-    Checks for category-tier champion models first (e.g., v1_fresh),
-    then falls back to the global champion.
-
-    Args:
-        product_category: Product department (e.g., "Produce", "Grocery")
-
-    Returns:
-        Loaded model dict from load_models()
-    """
-    from ml.segmentation import get_category_tier, get_model_name
-
-    try:
-        tier = get_category_tier(product_category)
-        tier_model_name = get_model_name(tier)
-
-        # Check registry for tier-specific champion
-        registry_path = os.path.join(MODEL_DIR, "registry.json")
-
-        if os.path.exists(registry_path):
-            with open(registry_path) as f:
-                registry = json.load(f)
-
-            # Find champion for this tier
-            for entry in reversed(registry.get("models", [])):
-                if entry.get("model_name") == tier_model_name and entry.get("status") == "champion":
-                    logger.info(
-                        "predict.using_category_model",
-                        category=product_category,
-                        tier=tier,
-                        version=entry["version"],
-                    )
-                    return load_models(entry["version"])
-
-        logger.info(
-            "predict.no_category_model",
-            category=product_category,
-            tier=tier,
-            fallback="global_champion",
-        )
-    except ValueError:
-        logger.warning("predict.unknown_category", category=product_category)
-
-    # Fallback to global champion
-    return _load_global_champion()
 
 
 def _load_global_champion() -> dict[str, Any]:

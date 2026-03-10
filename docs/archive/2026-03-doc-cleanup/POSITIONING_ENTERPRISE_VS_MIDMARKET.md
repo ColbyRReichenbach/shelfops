@@ -15,7 +15,7 @@ Lead with mid-market workflows that are fully demoable today. Present enterprise
 - Enterprise parser/runtime quality gates are being tightened before claiming full SLA readiness.
 
 ## Talk Track (Use Verbatim)
-"Current live demo is optimized for mid-market operations; enterprise adapters and governance are implemented and now being hardened with full parser test coverage and scheduled orchestration."
+"Today, the live workflow is real and demoable: alerts, forecasts, purchase decisions, and governed model operations. Pilot next is operator visibility, integration resilience, and release confidence for a first SMB rollout. Enterprise adapters and governance patterns are implemented to prove technical depth, but I do not claim they are fully enterprise-ready today."
 
 ## What Not To Claim Until Gates Pass
 - "All tests pass" across all suites.

@@ -59,8 +59,9 @@
 - Explicit limitation: seeded/simulated data, tenant onboarding next
 
 ## 13. Today vs Roadmap
-- Today: mid-market operational demo ready
-- In hardening: enterprise parser/runtime gates and broader SLA-level validation
+- Today: truthful live demo ready for hiring-manager walkthroughs
+- Pilot next: operator visibility, integration resilience, and release confidence for a Square/CSV-first SMB rollout
+- Later: broader enterprise hardening and richer model sophistication
 
 ## 14. Demo Flow Map
 - 15-minute sequence: slides -> frontend -> API/log proof -> close

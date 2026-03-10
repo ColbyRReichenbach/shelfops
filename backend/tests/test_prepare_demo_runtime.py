@@ -5,7 +5,17 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
-from db.models import Integration, IntegrationSyncLog, MLAlert, ModelVersion, PurchaseOrder
+from db.models import (
+    Alert,
+    Anomaly,
+    ForecastAccuracy,
+    Integration,
+    IntegrationSyncLog,
+    MLAlert,
+    ModelVersion,
+    OpportunityCostLog,
+    PurchaseOrder,
+)
 from scripts.prepare_demo_runtime import (
     CHALLENGER_VERSION,
     CHAMPION_VERSION,
@@ -23,6 +33,8 @@ async def test_build_demo_runtime_seeds_deterministic_live_demo_state(test_db):
     assert payload["purchase_orders"]["suggested_count"] == 3
     assert payload["mlops"]["champion_version"] == CHAMPION_VERSION
     assert payload["mlops"]["challenger_version"] == CHALLENGER_VERSION
+    assert payload["mlops"]["effectiveness_window_days"] == 30
+    assert len(payload["alerts"]["anomaly_alert_ids"]) >= 1
 
     po_result = await test_db.execute(
         select(PurchaseOrder).where(
@@ -51,6 +63,28 @@ async def test_build_demo_runtime_seeds_deterministic_live_demo_state(test_db):
     )
     alert_types = {row.alert_type for row in alert_result.scalars().all()}
     assert {"drift_detected", "promotion_pending"} <= alert_types
+
+    operational_alert_result = await test_db.execute(
+        select(Alert).where(Alert.customer_id == DEV_CUSTOMER_ID)
+    )
+    operational_alert_types = {row.alert_type for row in operational_alert_result.scalars().all()}
+    assert "anomaly_detected" in operational_alert_types
+
+    anomaly_result = await test_db.execute(
+        select(Anomaly).where(Anomaly.customer_id == DEV_CUSTOMER_ID)
+    )
+    anomaly_types = {row.anomaly_type for row in anomaly_result.scalars().all()}
+    assert {"inventory_discrepancy", "ml_detected"} <= anomaly_types
+
+    accuracy_result = await test_db.execute(
+        select(ForecastAccuracy).where(ForecastAccuracy.customer_id == DEV_CUSTOMER_ID)
+    )
+    assert len(accuracy_result.scalars().all()) > 0
+
+    opportunity_result = await test_db.execute(
+        select(OpportunityCostLog).where(OpportunityCostLog.customer_id == DEV_CUSTOMER_ID)
+    )
+    assert len(opportunity_result.scalars().all()) > 0
 
     sync_result = await test_db.execute(
         select(IntegrationSyncLog).where(IntegrationSyncLog.customer_id == DEV_CUSTOMER_ID)

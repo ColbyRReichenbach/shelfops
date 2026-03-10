@@ -1,6 +1,6 @@
 # ShelfOps Technical Overview
 
-- Last verified date: March 8, 2026
+- Last verified date: March 9, 2026
 - Audience: engineers, technical hiring managers
 - Scope: architecture, capabilities, and current status
 - Source of truth: backend code paths and product/engineering docs in active surface
@@ -23,7 +23,7 @@
 | Model lifecycle logging (retrain + promotion + effectiveness) | `implemented` | `backend/workers/retrain.py`, model APIs, MLOps tables |
 | File model-log parity with runtime DB state | `implemented` | Runtime retrain sync keeps file artifacts aligned with DB/API lifecycle truth |
 | Contract profile loading and mapping | `implemented` | `backend/ml/contract_profiles.py`, `backend/ml/contract_mapper.py` |
-| Enterprise fixture and pipeline validation | `implemented` | EDI ingest worker complete, Kafka event-stream wired, and the full release matrix is green on `main` as of March 8, 2026 |
+| Enterprise fixture and pipeline validation | `implemented` | EDI ingest worker complete, Kafka event-stream path is wired, and the release matrix was green on `main` as of March 8, 2026 |
 | Cross-tenant telemetry-calibrated enterprise rollout | `blocked` | non-GA policy |
 
 ## Production Boundary

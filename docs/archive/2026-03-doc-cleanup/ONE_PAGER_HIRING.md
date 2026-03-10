@@ -22,7 +22,7 @@ Entry-level to mid-level candidate with production-style ownership across data w
 ## Evidence
 - Code: `backend/api/v1/routers/*.py`, `backend/workers/*.py`, `backend/ml/*.py`
 - Artifacts: `backend/reports/iteration_runs.jsonl`, `backend/models/registry.json`
-- Validation: `docs/demo/VALIDATION_GATES.md`
+- Demo sign-off: `docs/demo/DEMO_SIGNOFF_CHECKLIST.md`
 
 ## Role Fit
 - ML Engineer: lifecycle orchestration, runtime reliability, deployment safety.

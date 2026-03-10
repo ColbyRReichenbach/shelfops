@@ -1,7 +1,11 @@
 # ShelfOps — Observability: AI-Assisted Error Tracking & Log Intelligence
 
+- Last verified date: March 10, 2026
+- Audience: builders and operators
+- Scope: proposed observability architecture, not current shipped behavior
 - Author: Engineering, February 24, 2026
-- Status: **Spec — approved for implementation**
+- Status: **Design spec — approved direction, not current runtime truth**
+- Source of truth: current shipped observability behavior lives in the active product, operations, and engineering docs plus code
 - Priority: P0 — prerequisite before first customer onboarding
 - Prerequisite reading: `backend/api/main.py`, `backend/workers/celery_app.py`, `backend/core/config.py`
 

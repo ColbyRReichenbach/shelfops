@@ -27,9 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from core.config import get_settings
 from db.models import (
+    Alert,
+    Anomaly,
     BacktestResult,
     Customer,
     DemandForecast,
+    ForecastAccuracy,
     Integration,
     IntegrationSyncLog,
     InventoryLevel,
@@ -37,6 +40,7 @@ from db.models import (
     ModelExperiment,
     ModelRetrainingLog,
     ModelVersion,
+    OpportunityCostLog,
     Product,
     PurchaseOrder,
     ReorderPoint,
@@ -386,6 +390,142 @@ async def _seed_forecasts(
                     )
 
 
+async def _seed_effectiveness_records(
+    db: AsyncSession,
+    customer_id: uuid.UUID,
+    stores: list[Store],
+    products: list[Product],
+    now: datetime,
+) -> None:
+    """Seed deterministic historical forecast accuracy and business impact evidence."""
+    cutoff_date = now.date() - timedelta(days=30)
+    await db.execute(
+        delete(ForecastAccuracy).where(
+            ForecastAccuracy.customer_id == customer_id,
+            ForecastAccuracy.model_version.in_([CHAMPION_VERSION, CHALLENGER_VERSION]),
+            ForecastAccuracy.forecast_date >= cutoff_date,
+        )
+    )
+    await db.execute(
+        delete(DemandForecast).where(
+            DemandForecast.customer_id == customer_id,
+            DemandForecast.model_version.in_([CHAMPION_VERSION, CHALLENGER_VERSION]),
+            DemandForecast.forecast_date >= cutoff_date,
+            DemandForecast.forecast_date < now.date(),
+        )
+    )
+    await db.execute(
+        delete(OpportunityCostLog).where(
+            OpportunityCostLog.customer_id == customer_id,
+            OpportunityCostLog.date >= cutoff_date,
+        )
+    )
+
+    base_actuals = {
+        products[0].product_id: 19.0,
+        products[1].product_id: 28.0,
+        products[2].product_id: 22.0,
+        products[3].product_id: 13.0,
+    }
+    champion_error_pattern = [1.7, 1.3, 1.5, 1.1, 1.8, 1.2, 1.6, 1.4, 1.0, 1.5, 1.2, 1.3, 1.1, 1.4]
+    challenger_error_pattern = [1.1, 0.9, 1.0, 0.8, 1.0, 0.8, 1.1, 0.9, 0.7, 1.0, 0.8, 0.9, 0.7, 0.9]
+
+    for store_idx, store in enumerate(stores):
+        for product_idx, product in enumerate(products):
+            base = base_actuals[product.product_id] + store_idx * 2 + product_idx * 0.8
+            unit_cost = float(product.unit_cost or 0.0)
+            unit_price = float(product.unit_price or 0.0)
+            margin = max(unit_price - unit_cost, 0.25)
+            holding_cost = max((product.holding_cost_per_unit_per_day or 0.12), 0.12)
+
+            for day_index in range(14):
+                forecast_date = now.date() - timedelta(days=14 - day_index)
+                actual = round(base + ((day_index % 4) - 1.5) + (0.4 if product.is_perishable else 0.0), 2)
+                champion_forecast = round(actual + champion_error_pattern[day_index], 2)
+                challenger_forecast = round(actual + challenger_error_pattern[day_index], 2)
+
+                for version_name, forecasted in (
+                    (CHAMPION_VERSION, champion_forecast),
+                    (CHALLENGER_VERSION, challenger_forecast),
+                ):
+                    interval_margin = 2.4 if version_name == CHAMPION_VERSION else 2.0
+                    db.add(
+                        DemandForecast(
+                            forecast_id=_stable_uuid(
+                                f"historical-forecast::{version_name}::{store.store_id}::{product.product_id}::{forecast_date.isoformat()}"
+                            ),
+                            customer_id=customer_id,
+                            store_id=store.store_id,
+                            product_id=product.product_id,
+                            forecast_date=forecast_date,
+                            forecasted_demand=forecasted,
+                            lower_bound=round(max(0.0, forecasted - interval_margin), 2),
+                            upper_bound=round(forecasted + interval_margin, 2),
+                            confidence=0.9,
+                            model_version=version_name,
+                        )
+                    )
+                    db.add(
+                        ForecastAccuracy(
+                            id=_stable_uuid(
+                                f"accuracy::{version_name}::{store.store_id}::{product.product_id}::{forecast_date.isoformat()}"
+                            ),
+                            customer_id=customer_id,
+                            store_id=store.store_id,
+                            product_id=product.product_id,
+                            forecast_date=forecast_date,
+                            forecasted_demand=forecasted,
+                            actual_demand=actual,
+                            mae=round(abs(forecasted - actual), 4),
+                            mape=round(abs(forecasted - actual) / max(actual, 1.0), 4),
+                            model_version=version_name,
+                            evaluated_at=now - timedelta(hours=3),
+                        )
+                    )
+
+                actual_stock = max(int(actual + 1), 1)
+                lost_sales_qty = max(int(round(actual - actual_stock)), 0)
+                overstock_qty = max(int(round(challenger_forecast - actual)), 0)
+                if lost_sales_qty > 0:
+                    db.add(
+                        OpportunityCostLog(
+                            log_id=_stable_uuid(
+                                f"opp-stockout::{store.store_id}::{product.product_id}::{forecast_date.isoformat()}"
+                            ),
+                            customer_id=customer_id,
+                            store_id=store.store_id,
+                            product_id=product.product_id,
+                            date=forecast_date,
+                            forecasted_demand=challenger_forecast,
+                            actual_stock=actual_stock,
+                            actual_sales=actual_stock,
+                            lost_sales_qty=lost_sales_qty,
+                            opportunity_cost=round(lost_sales_qty * margin, 2),
+                            holding_cost=0.0,
+                            cost_type="stockout",
+                        )
+                    )
+                if overstock_qty > 0:
+                    db.add(
+                        OpportunityCostLog(
+                            log_id=_stable_uuid(
+                                f"opp-overstock::{store.store_id}::{product.product_id}::{forecast_date.isoformat()}"
+                            ),
+                            customer_id=customer_id,
+                            store_id=store.store_id,
+                            product_id=product.product_id,
+                            date=forecast_date,
+                            forecasted_demand=challenger_forecast,
+                            actual_stock=max(int(challenger_forecast), 1),
+                            actual_sales=int(actual),
+                            lost_sales_qty=0,
+                            opportunity_cost=0.0,
+                            holding_cost=round(overstock_qty * holding_cost, 2),
+                            cost_type="overstock",
+                        )
+                    )
+
+
 async def _seed_model_state(
     db: AsyncSession,
     customer_id: uuid.UUID,
@@ -407,24 +547,100 @@ async def _seed_model_state(
             "status": "champion",
             "routing_weight": 1.0,
             "promoted_at": now - timedelta(days=2),
+            "archived_at": None,
             "metrics": {
                 "mae": 11.4,
                 "mape": 0.162,
+                "wape": 0.119,
+                "mase": 0.94,
+                "bias_pct": 0.031,
                 "coverage": 0.91,
                 "stockout_miss_rate": 0.061,
                 "overstock_rate": 0.188,
+                "overstock_dollars": 312.45,
+                "opportunity_cost_stockout": 214.2,
+                "opportunity_cost_overstock": 312.45,
+                "lost_sales_qty": 43,
+                "dataset_id": "favorita",
+                "forecast_grain": "store_nbr_family_date",
+                "feature_set_id": "favorita_baseline_v1",
+                "architecture": "lightgbm",
+                "objective": "poisson",
+                "segment_strategy": "global",
+                "tuning_profile": "baseline_demo",
+                "trigger_source": "baseline_refresh",
+                "rule_overlay_enabled": False,
+                "evaluation_window_days": 30,
+                "lineage_label": "demand_forecast__lightgbm__poisson__global__favorita_baseline_v1",
+                "promotion_decision": {
+                    "status": "accepted",
+                    "reason": "serving champion",
+                },
+                "lifecycle_events": [
+                    {
+                        "event_type": "registered",
+                        "at": (now - timedelta(days=6)).isoformat(),
+                        "metadata": {"dataset_id": "favorita", "feature_set_id": "favorita_baseline_v1"},
+                    },
+                    {
+                        "event_type": "promoted",
+                        "at": (now - timedelta(days=2)).isoformat(),
+                        "metadata": {"reason": "current champion for demo runtime"},
+                    },
+                ],
             },
         },
         CHALLENGER_VERSION: {
             "status": "challenger",
             "routing_weight": 0.0,
             "promoted_at": None,
+            "archived_at": None,
             "metrics": {
-                "mae": 11.1,
-                "mape": 0.156,
+                "mae": 10.9,
+                "mape": 0.151,
+                "wape": 0.112,
+                "mase": 0.89,
+                "bias_pct": 0.019,
                 "coverage": 0.92,
-                "stockout_miss_rate": 0.057,
-                "overstock_rate": 0.181,
+                "stockout_miss_rate": 0.054,
+                "overstock_rate": 0.163,
+                "overstock_dollars": 271.9,
+                "opportunity_cost_stockout": 201.8,
+                "opportunity_cost_overstock": 271.9,
+                "lost_sales_qty": 39,
+                "dataset_id": "favorita",
+                "forecast_grain": "store_nbr_family_date",
+                "feature_set_id": "favorita_promo_velocity_v1",
+                "architecture": "lightgbm",
+                "objective": "poisson",
+                "segment_strategy": "global",
+                "tuning_profile": "promo_velocity_v1",
+                "trigger_source": "manual_hypothesis",
+                "rule_overlay_enabled": False,
+                "evaluation_window_days": 30,
+                "lineage_label": "demand_forecast__lightgbm__poisson__global__favorita_promo_velocity_v1",
+                "promotion_decision": {
+                    "status": "pending_operator_review",
+                    "reason": "business-safe improvement recorded; awaiting sign-off",
+                    "gate_checks": {
+                        "mase_non_regression": True,
+                        "wape_non_regression": True,
+                        "stockout_guardrail": True,
+                        "overstock_dollars_improved": True,
+                    },
+                },
+                "lifecycle_events": [
+                    {
+                        "event_type": "registered",
+                        "at": (now - timedelta(days=1)).isoformat(),
+                        "metadata": {"dataset_id": "favorita", "feature_set_id": "favorita_promo_velocity_v1"},
+                    },
+                    {
+                        "event_type": "shadow_started",
+                        "at": (now - timedelta(hours=18)).isoformat(),
+                        "metadata": {"baseline_version": CHAMPION_VERSION},
+                    },
+                ],
             },
         },
     }
@@ -452,6 +668,7 @@ async def _seed_model_state(
             version.status = spec["status"]
             version.routing_weight = spec["routing_weight"]
             version.promoted_at = spec["promoted_at"]
+            version.archived_at = spec["archived_at"]
             version.metrics = spec["metrics"]
             version.smoke_test_passed = True
         versions[version_name] = version
@@ -532,7 +749,7 @@ async def _seed_ml_alerts(db: AsyncSession, customer_id: uuid.UUID, now: datetim
             "severity": "critical",
             "title": "Demo drift event requires review",
             "message": "Forecast MAE degraded 17% on the seeded monitoring slice; retrain completed and challenger is ready for review.",
-            "action_url": "/mlops/models",
+            "action_url": "/ml-ops",
             "alert_metadata": {
                 "model_name": MODEL_NAME,
                 "drift_pct": 0.17,
@@ -546,7 +763,7 @@ async def _seed_ml_alerts(db: AsyncSession, customer_id: uuid.UUID, now: datetim
             "severity": "warning",
             "title": "Demo challenger promotion pending",
             "message": "Shadow evaluation shows non-regression with lower stockout miss rate; operator approval is still required.",
-            "action_url": "/mlops/experiments",
+            "action_url": "/ml-ops",
             "alert_metadata": {
                 "champion_version": CHAMPION_VERSION,
                 "challenger_version": CHALLENGER_VERSION,
@@ -584,13 +801,127 @@ async def _seed_ml_alerts(db: AsyncSession, customer_id: uuid.UUID, now: datetim
     return alerts
 
 
+async def _seed_operational_alerts_and_anomalies(
+    db: AsyncSession,
+    customer_id: uuid.UUID,
+    stores: list[Store],
+    products: list[Product],
+    now: datetime,
+) -> tuple[list[Alert], list[Anomaly]]:
+    anomaly_specs = [
+        {
+            "anomaly_id": _stable_uuid("anomaly::inventory-gap"),
+            "alert_id": _stable_uuid("alert::inventory-gap"),
+            "store": stores[0],
+            "product": products[3],
+            "anomaly_type": "inventory_discrepancy",
+            "severity": "high",
+            "description": "Shelf scan suggests fewer romaine units than the system count; likely ghost inventory or shrink.",
+            "message": "Inventory anomaly detected on GreenHarvest Romaine Hearts. Shelf count does not match the current system quantity.",
+            "metadata": {
+                "source": "ml_anomaly_detection",
+                "z_score": 3.4,
+                "ghost_value": 31.2,
+                "recommended_action": "Investigate shelf and backroom count before the next PO is approved.",
+            },
+        },
+        {
+            "anomaly_id": _stable_uuid("anomaly::demand-spike"),
+            "alert_id": _stable_uuid("alert::demand-spike"),
+            "store": stores[1],
+            "product": products[1],
+            "anomaly_type": "ml_detected",
+            "severity": "medium",
+            "description": "Demand velocity is materially above the trailing baseline on sparkling water.",
+            "message": "Demand anomaly detected on NatureBest Sparkling Water. Velocity is above the trailing baseline and may justify a planner review.",
+            "metadata": {
+                "source": "ml_anomaly_detection",
+                "z_score": 2.6,
+                "recommended_action": "Verify the local promo calendar and adjust replenishment if the spike persists.",
+            },
+        },
+    ]
+
+    alerts: list[Alert] = []
+    anomalies: list[Anomaly] = []
+    for idx, spec in enumerate(anomaly_specs, start=1):
+        anomaly = await db.get(Anomaly, spec["anomaly_id"])
+        detected_at = now - timedelta(minutes=idx * 13)
+        anomaly_metadata = dict(spec["metadata"])
+        anomaly_metadata["alert_id"] = str(spec["alert_id"])
+        if anomaly is None:
+            anomaly = Anomaly(
+                anomaly_id=spec["anomaly_id"],
+                customer_id=customer_id,
+                store_id=spec["store"].store_id,
+                product_id=spec["product"].product_id,
+                anomaly_type=spec["anomaly_type"],
+                severity=spec["severity"],
+                description=spec["description"],
+                anomaly_metadata=anomaly_metadata,
+                detected_at=detected_at,
+                status="detected",
+            )
+            db.add(anomaly)
+        else:
+            anomaly.customer_id = customer_id
+            anomaly.store_id = spec["store"].store_id
+            anomaly.product_id = spec["product"].product_id
+            anomaly.anomaly_type = spec["anomaly_type"]
+            anomaly.severity = spec["severity"]
+            anomaly.description = spec["description"]
+            anomaly.anomaly_metadata = anomaly_metadata
+            anomaly.detected_at = detected_at
+            anomaly.status = "detected"
+        anomalies.append(anomaly)
+
+        alert = await db.get(Alert, spec["alert_id"])
+        alert_metadata = dict(spec["metadata"])
+        alert_metadata.update(
+            {
+                "anomaly_id": str(spec["anomaly_id"]),
+                "anomaly_type": spec["anomaly_type"],
+                "display_label": "Anomaly review",
+            }
+        )
+        if alert is None:
+            alert = Alert(
+                alert_id=spec["alert_id"],
+                customer_id=customer_id,
+                store_id=spec["store"].store_id,
+                product_id=spec["product"].product_id,
+                alert_type="anomaly_detected",
+                severity="high" if spec["severity"] == "critical" else spec["severity"],
+                message=spec["message"],
+                alert_metadata=alert_metadata,
+                status="open",
+                created_at=detected_at,
+            )
+            db.add(alert)
+        else:
+            alert.customer_id = customer_id
+            alert.store_id = spec["store"].store_id
+            alert.product_id = spec["product"].product_id
+            alert.alert_type = "anomaly_detected"
+            alert.severity = "high" if spec["severity"] == "critical" else spec["severity"]
+            alert.message = spec["message"]
+            alert.alert_metadata = alert_metadata
+            alert.status = "open"
+            alert.created_at = detected_at
+            alert.acknowledged_at = None
+            alert.resolved_at = None
+        alerts.append(alert)
+
+    return alerts, anomalies
+
+
 async def _seed_experiment(db: AsyncSession, customer_id: uuid.UUID, now: datetime) -> ModelExperiment:
-    experiment_id = _stable_uuid("experiment::department-segmentation")
+    experiment_id = _stable_uuid("experiment::favorita-promo-velocity")
     experiment = await db.get(ModelExperiment, experiment_id)
     payload = {
-        "experiment_name": "Department segmentation trial",
-        "hypothesis": "Category segmentation improves volatile demand fit without increasing overstock.",
-        "experiment_type": "segmentation",
+        "experiment_name": "Favorita promo + velocity feature trial",
+        "hypothesis": "Promo-aware interactions and recent demand velocity features will reduce overstock and stockout opportunity cost without regressing MASE or WAPE.",
+        "experiment_type": "feature_set",
         "model_name": MODEL_NAME,
         "baseline_version": CHAMPION_VERSION,
         "experimental_version": CHALLENGER_VERSION,
@@ -599,12 +930,27 @@ async def _seed_experiment(db: AsyncSession, customer_id: uuid.UUID, now: dateti
         "approved_by": "ops-manager@shelfops.com",
         "results": {
             "baseline_mae": 11.4,
-            "experimental_mae": 11.1,
-            "improvement_pct": 2.63,
-            "stockout_miss_rate_delta": -0.004,
+            "experimental_mae": 10.9,
+            "baseline_wape": 0.119,
+            "experimental_wape": 0.112,
+            "baseline_mase": 0.94,
+            "experimental_mase": 0.89,
+            "overstock_dollars_delta": -40.55,
+            "opportunity_cost_stockout_delta": -12.4,
+            "overall_business_safe": True,
             "decision": "continue_shadow_review",
+            "lineage_metadata": {
+                "dataset_id": "favorita",
+                "forecast_grain": "store_nbr_family_date",
+                "architecture": "lightgbm",
+                "objective": "poisson",
+                "feature_set_id": "favorita_promo_velocity_v1",
+                "segment_strategy": "global",
+                "trigger_source": "manual_hypothesis",
+                "success_criteria": "Reduce overstock and stockout opportunity cost without regressing MASE or WAPE.",
+            },
         },
-        "decision_rationale": "Non-regression is proven, but promotion still requires operator sign-off in the demo governance flow.",
+        "decision_rationale": "The challenger clears the business-safe non-regression gates in shadow, but promotion still requires operator sign-off in the demo governance flow.",
         "created_at": now - timedelta(days=1, hours=2),
         "approved_at": now - timedelta(days=1, hours=1, minutes=15),
         "completed_at": now - timedelta(hours=6),
@@ -868,8 +1214,16 @@ async def build_demo_runtime(
     await _upsert_inventory_positions(db, customer.customer_id, stores, products, supplier, now)
     await _seed_recent_transactions(db, customer.customer_id, stores, products, now)
     await _seed_forecasts(db, customer.customer_id, stores, products, now)
+    await _seed_effectiveness_records(db, customer.customer_id, stores, products, now)
     model_versions = await _seed_model_state(db, customer.customer_id, now)
     alerts = await _seed_ml_alerts(db, customer.customer_id, now)
+    operational_alerts, anomalies = await _seed_operational_alerts_and_anomalies(
+        db,
+        customer.customer_id,
+        stores,
+        products,
+        now,
+    )
     experiment = await _seed_experiment(db, customer.customer_id, now)
     integrations = await _seed_integrations(db, customer.customer_id, now)
     sync_logs = await _seed_sync_logs(db, customer.customer_id, now)
@@ -907,6 +1261,12 @@ async def build_demo_runtime(
             "last_retrain_trigger": "drift",
             "alerts_seeded": [alert.alert_type for alert in alerts],
             "experiment_id": str(experiment.experiment_id),
+            "effectiveness_window_days": 30,
+        },
+        "alerts": {
+            "open_operational_alerts": len(operational_alerts),
+            "anomaly_alert_ids": [str(alert.alert_id) for alert in operational_alerts],
+            "anomaly_ids": [str(anomaly.anomaly_id) for anomaly in anomalies],
         },
         "integrations": {
             "providers": [integration.provider for integration in integrations],
@@ -917,6 +1277,9 @@ async def build_demo_runtime(
             "sync_health": "curl -s http://localhost:8000/api/v1/integrations/sync-health | jq",
             "suggested_pos": "curl -s http://localhost:8000/api/v1/purchase-orders/suggested | jq",
             "model_health": "curl -s http://localhost:8000/api/v1/ml/models/health | jq",
+            "model_effectiveness": "curl -s 'http://localhost:8000/api/v1/ml/effectiveness?window_days=30&model_name=demand_forecast' | jq",
+            "alerts": "curl -s 'http://localhost:8000/api/v1/alerts?alert_type=anomaly_detected&status=open' | jq",
+            "anomalies": "curl -s 'http://localhost:8000/api/v1/ml/anomalies?days=7&limit=5' | jq",
             "ml_alerts": "curl -s 'http://localhost:8000/ml-alerts?limit=5' | jq",
             "approve_po": (
                 f"curl -s -X POST http://localhost:8000/api/v1/purchase-orders/{po_targets['approve_path']}/approve "
@@ -935,9 +1298,9 @@ async def build_demo_runtime(
             "propose_experiment": (
                 "curl -s -X POST http://localhost:8000/experiments "
                 "-H 'Content-Type: application/json' "
-                "-d '{\"experiment_name\":\"Promo uplift feature trial\","
-                "\"hypothesis\":\"Promo-aware features reduce demand bias on promoted SKUs\","
-                "\"experiment_type\":\"feature_engineering\","
+                "-d '{\"experiment_name\":\"Favorita promo velocity trial\","
+                "\"hypothesis\":\"Promo-aware interactions reduce overstock without regressing MASE or WAPE\","
+                "\"experiment_type\":\"feature_set\","
                 "\"model_name\":\"demand_forecast\","
                 "\"proposed_by\":\"demo@shelfops.com\"}'"
             ),

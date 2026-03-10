@@ -1,43 +1,60 @@
-# ShelfOps Demo Runbook (15 Minutes)
+# ShelfOps Demo Runbook
 
 ## 1. Objective
-Deliver a hiring-first, product-level demo that proves:
-- Retail workflow understanding.
-- ML + HITL operating model.
-- Reproducible model iteration and MLOps controls.
-- Clear "today vs roadmap" boundaries without overclaiming.
+This runbook is the environment and runtime companion to the two canonical teleprompter scripts:
+- `docs/demo/BUSINESS_WALKTHROUGH.md`
+- `docs/demo/TECHNICAL_WALKTHROUGH.md`
 
-For a minute-by-minute presenter script with narration + DB/log proof steps, use:
-- `docs/demo/FULL_DEMO_SCRIPT.md`
+Use this file for setup, runtime prep, and proof commands.
+
+Deliver a truthful recorded or live demo that proves:
+- real retail workflow understanding
+- operational product design, not just analytics
+- practical AI integration with human control
+- production-minded backend and MLOps discipline
+- clear `Today / Pilot next / Later` boundaries
+
+Support docs:
+- `docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md`
+- `docs/demo/CLAIMS_LEDGER.md`
+- `docs/demo/DEMO_SIGNOFF_CHECKLIST.md`
 
 ## 2. Preconditions
-- Docker + Docker Compose installed.
-- Python environment available for local commands.
-- Node installed for frontend.
-- `.env` has `DEBUG=true` (dev auth bypass).
+- Docker and Docker Compose installed
+- Python environment available
+- Node installed
+- `.env` configured for local dev
+- `DEBUG=true` in local dev if using auth bypass
 
 ## 3. Bring Up Local Stack
-First run only (ML image is large):
+First run only:
+
 ```bash
 docker compose build ml-worker
 ```
-If `mlflow` cannot bind to `localhost:5000`, stop the conflicting process or remap the port in `docker-compose.yml` before continuing.
-Quick fix without editing files:
+
+If `mlflow` cannot bind to `localhost:5000`, use:
+
 ```bash
 export MLFLOW_HOST_PORT=5001
 ```
 
+Bring up services:
+
 ```bash
-docker compose up -d db redis mlflow redpanda api ml-worker sync-worker celery-beat
+docker compose up -d db redis mlflow redpanda api ml-worker
 ```
 
-Check services:
+Verify:
+
 ```bash
 docker compose ps
-curl http://localhost:8000/health
+curl -s http://localhost:8000/health | jq
 ```
 
-## 4. Initialize Data
+## 4. Initialize Local Data
+Run migrations and local seed flows:
+
 ```bash
 cd backend
 PYTHONPATH=. alembic upgrade head
@@ -46,20 +63,21 @@ PYTHONPATH=. python scripts/seed_commercial_data.py
 cd ..
 ```
 
-Pin the live demo to deterministic runtime state:
+Prepare deterministic demo state:
+
 ```bash
 PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
 ```
 
-Optional terminal proof before screen share:
+Optional terminal appendix proof:
+
 ```bash
 PYTHONPATH=backend python3 backend/scripts/run_demo_terminal_showcase.py
 ```
 
 Why this exists:
-- The older replay plan is still useful as appendix evidence.
-- The live demo should not depend on whatever state happened to already be in the DB.
-- `prepare_demo_runtime.py` resets the active demo records so PO, MLOps, and integration proof are always ready.
+- the demo should not depend on leftover local state
+- the seeded runtime gives you repeatable alerts, PO suggestions, anomaly evidence, and MLOps evidence
 
 ## 5. Start Frontend
 ```bash
@@ -68,140 +86,160 @@ npm ci
 npm run dev
 ```
 
-Frontend URL: `http://localhost:3000`
+Frontend URL:
 
-## 6. Demo Script (Live)
-
-### Segment A: Product UX (5 min)
-1. Dashboard: risk KPI summary and accuracy context.
-2. Alerts page: acknowledge/resolve workflow + live websocket indicator.
-3. Inventory page: status filtering and reorder-point context.
-4. Forecasts page: category trend and product demand movers.
-5. Integrations page: Square-first path and connection status model.
-
-### Segment B: HITL Operations via API (4 min)
-Get one suggested PO:
-```bash
-curl -s http://localhost:8000/api/v1/purchase-orders/suggested
+```text
+http://localhost:3000
 ```
 
-If you want deterministic IDs for the live walkthrough, use:
+## 6. Recommended Recording Strategy
+Use two recordings, not one blended script:
+
+1. `Business walkthrough`
+- target: recruiters, SMB owners, general hiring managers
+- script: `docs/demo/BUSINESS_WALKTHROUGH.md`
+
+2. `Technical walkthrough`
+- target: ML, MLOps, DS, DE, engineering interviewers
+- script: `docs/demo/TECHNICAL_WALKTHROUGH.md`
+
+## 7. Business Walkthrough Runtime Path
+Page order:
+1. Dashboard
+2. Alerts
+3. Inventory
+4. Forecasts
+5. Integrations
+6. HITL purchase-order proof
+
+Key goal:
+- explain the business problem, product workflow, team personas, and SMB value
+
+Command proof block:
+
 ```bash
-cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json
+curl -s http://localhost:8000/api/v1/purchase-orders/suggested | jq
+cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json | jq
+```
+
+## 8. Technical Walkthrough Runtime Path
+Page order:
+1. Dashboard shell
+2. Operations
+3. Forecasts
+4. Alerts
+5. ML Ops
+
+Key goal:
+- explain the stack, system design, model choices, governance workflow, and operational discipline
+
+Core proof block:
+
+```bash
+curl -s http://localhost:8000/api/v1/integrations/sync-health | jq
+curl -s http://localhost:8000/api/v1/ml/models/health | jq
+curl -s 'http://localhost:8000/api/v1/ml/effectiveness?window_days=30&model_name=demand_forecast' | jq
+curl -s 'http://localhost:8000/api/v1/alerts?alert_type=anomaly_detected&status=open' | jq
+curl -s 'http://localhost:8000/api/v1/ml/anomalies?days=7&limit=5' | jq
+curl -s 'http://localhost:8000/experiments?limit=10' | jq
+```
+
+Worker appendix:
+
+```bash
+docker compose logs --no-color --tail=80 ml-worker
+docker compose logs --no-color --tail=80 api
+```
+
+## 9. HITL Purchase-Order Proof
+Get suggested POs:
+
+```bash
+curl -s "http://localhost:8000/api/v1/purchase-orders/suggested?limit=2" | jq
+```
+
+If you need deterministic IDs:
+
+```bash
+cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json | jq
 ```
 
 Approve:
+
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/approve" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
 
-Reject (reason required):
+Reject:
+
 ```bash
 curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/reject" \
   -H "Content-Type: application/json" \
   -d '{"reason_code":"forecast_disagree","notes":"Demo rejection path"}'
 ```
 
-Decision audit trail:
+Decision log:
+
 ```bash
-curl -s "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/decisions"
+curl -s "http://localhost:8000/api/v1/purchase-orders/<PO_ID>/decisions" | jq
 ```
 
-### Segment C: MLOps Control Loop via API (3 min)
-Integration sync health:
-```bash
-curl -s http://localhost:8000/api/v1/integrations/sync-health
-```
+## 10. Experiment Governance Proof
+Create experiment:
 
-Model health:
-```bash
-curl -s http://localhost:8000/api/v1/ml/models/health
-```
-
-Propose experiment:
 ```bash
 curl -s -X POST http://localhost:8000/experiments \
   -H "Content-Type: application/json" \
   -d '{
-    "experiment_name":"Department segmentation trial",
-    "hypothesis":"Category-aware modeling improves error in volatile departments",
-    "experiment_type":"segmentation",
+    "experiment_name":"favorita_lgbm_feature_set_v2_promo_velocity",
+    "hypothesis":"Adding promo interactions and recent demand velocity features will reduce overstock and stockout opportunity cost on Favorita without regressing MASE or WAPE.",
+    "experiment_type":"feature_set",
     "model_name":"demand_forecast",
     "proposed_by":"demo@shelfops.com"
-  }'
+  }' | jq
+```
+
+Approve experiment:
+
+```bash
+curl -s -X PATCH "http://localhost:8000/experiments/<EXPERIMENT_ID>/approve" \
+  -H "Content-Type: application/json" \
+  -d '{"approved_by":"manager@shelfops.com","rationale":"Demo approval"}' | jq
 ```
 
 List experiments:
+
 ```bash
-curl -s http://localhost:8000/experiments
+curl -s http://localhost:8000/experiments?limit=10 | jq
 ```
 
-ML alerts list:
-```bash
-curl -s http://localhost:8000/ml-alerts
-```
+Use this section to explain:
+- typed experiment taxonomy
+- baseline vs challenger comparison
+- auditability of model iteration
 
-### Segment D: Reproducible Iteration Evidence (3 min)
-Registry snapshot:
-```bash
-cat backend/models/registry.json
-```
-
-Champion state:
-```bash
-cat backend/models/champion.json
-```
-
-Iteration logs:
-```bash
-tail -n 10 backend/reports/iteration_runs.jsonl
-```
-
-Sample iteration note:
-```bash
-ls -1 backend/reports/iteration_notes | tail -n 5
-```
-
-### Segment E (Optional Technical Appendix): DS Hypothesis Loop (5 min)
-Use if interviewers ask how you iterate on model quality:
-```bash
-PYTHONPATH=backend python3 backend/scripts/run_training.py \
-  --data-dir data/seed \
-  --dataset demo_seed \
-  --version v_demo_feature_01 \
-  --holdout-days 14 \
-  --write-partition-manifest docs/productization_artifacts/replay_partition_manifest.json
-```
-```bash
-PYTHONPATH=backend python3 backend/scripts/run_model_strategy_cycle.py \
-  --data-dir data/seed \
-  --max-rows 25000 \
-  --output-json docs/productization_artifacts/model_strategy_cycle.json \
-  --output-md docs/productization_artifacts/model_strategy_cycle.md
-```
-
-## 7. Optional: Trigger a New Iteration Run
-```bash
-PYTHONPATH=backend python3 backend/scripts/run_training.py \
-  --data-dir data/seed \
-  --dataset demo_seed \
-  --version v_demo_iter_01
-PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py \
-  --output backend/reports/MODEL_PERFORMANCE_LOG.md
-```
-
-## 8. Evidence Artifacts to Show
-- `docs/productization_artifacts/replay_partition_manifest.json`
-- `backend/reports/iteration_runs.jsonl`
+## 11. Evidence Artifacts To Show
+- `docs/productization_artifacts/demo_runtime/demo_runtime_summary.json`
 - `backend/models/registry.json`
 - `backend/models/champion.json`
+- `backend/reports/iteration_runs.jsonl`
 - `docs/demo/CLAIMS_LEDGER.md`
-- `docs/productization_artifacts/demo_runtime/demo_runtime_summary.json`
 
-## 9. Demo Close Statement (Use Verbatim)
-"Current live demo is optimized for mid-market operations. Enterprise adapters and governance are implemented, and currently being hardened with full parser test coverage and scheduled orchestration."
+## 12. Presentation Boundaries
+Say clearly:
+- the workflow is live and truthful today
+- enterprise patterns are demonstrated, not fully commercialized
+- business metrics in the seeded demo runtime are modeled estimates
+- customer ownership still relies on tenant-specific onboarding, shadow evaluation, and gated promotion
 
-## 10. Limitation Statement (Say Once During Demo)
-"Metrics shown here are from seeded/simulated data for reproducibility. Customer onboarding adds tenant-specific data contracts, shadow evaluation, and gated promotion before production ownership is transferred."
+Do not say:
+- fully autonomous ordering
+- real-time streaming everywhere
+- full enterprise readiness
+
+## 13. Demo Close
+Use this close:
+
+> Today, what is live is a truthful operating workflow: alerts, forecasts, anomaly-backed triage, purchase-order decisions, and a governed model lifecycle. Pilot next means operator visibility, integration resilience, and tighter release discipline for a first Square or CSV-first SMB rollout. Later is broader enterprise hardening and richer model sophistication, but I do not claim those pieces are fully production-ready today.

@@ -24,6 +24,7 @@ import structlog
 from ml.contract_mapper import build_canonical_result
 from ml.contract_profiles import ContractProfile, load_contract_profile
 from ml.data_contracts import load_canonical_transactions
+from ml.lineage import standard_model_metadata
 from workers.celery_app import celery_app
 
 logger = structlog.get_logger()
@@ -673,7 +674,7 @@ def _candidate_metrics_from_holdout(features_df: pd.DataFrame, ensemble_result: 
     if len(eval_part) < 10:
         raise ValueError(f"Insufficient holdout rows for evaluation (rows={len(eval_part)})")
 
-    model = ensemble_result["xgboost"]["model"]
+    model = ensemble_result.get("lightgbm", {}).get("model") or ensemble_result["xgboost"]["model"]
     X_train = train_part[feature_cols].fillna(0)
     y_train = pd.to_numeric(train_part[TARGET_COL], errors="coerce").fillna(0.0)
     X_eval = eval_part[feature_cols].fillna(0)
@@ -687,20 +688,48 @@ def _candidate_metrics_from_holdout(features_df: pd.DataFrame, ensemble_result: 
     lower_bound = np.maximum(eval_preds - interval_width, 0)
     upper_bound = eval_preds + interval_width
 
-    metric_bundle = compute_forecast_metrics(
+    raw_metric_bundle = compute_forecast_metrics(
         y_eval,
         eval_preds,
         unit_cost=eval_part["unit_cost"] if "unit_cost" in eval_part.columns else None,
+        unit_price=eval_part["unit_price"] if "unit_price" in eval_part.columns else None,
+        holding_cost_per_unit_per_day=(
+            eval_part["holding_cost_per_unit_per_day"] if "holding_cost_per_unit_per_day" in eval_part.columns else None
+        ),
+        category=eval_part["category"] if "category" in eval_part.columns else None,
+        category_median_cost=(
+            eval_part["category_median_cost"] if "category_median_cost" in eval_part.columns else None
+        ),
     )
+    raw_metric_bundle["coverage"] = float(coverage_rate(y_eval, lower_bound, upper_bound))
+    raw_metric_bundle["eval_rows"] = int(len(eval_part))
+    raw_metric_bundle["interval_q90_width"] = interval_width
+
+    rule_overlay_metric_bundle = dict(raw_metric_bundle)
+    rule_overlay_metric_bundle["rule_overlay_enabled"] = False
+    ensemble_result.setdefault("ensemble", {})
+    ensemble_result["ensemble"]["raw_holdout_metrics"] = dict(raw_metric_bundle)
+    ensemble_result["ensemble"]["rule_overlay_holdout_metrics"] = dict(rule_overlay_metric_bundle)
 
     return {
-        "mae": float(metric_bundle["mae"]),
-        "mape": float(metric_bundle["mape_nonzero"]),
-        "coverage": float(coverage_rate(y_eval, lower_bound, upper_bound)),
-        "stockout_miss_rate": float(metric_bundle["stockout_miss_rate"]),
-        "overstock_rate": float(metric_bundle["overstock_rate"]),
-        "overstock_dollars": metric_bundle["overstock_dollars"],
-        "overstock_dollars_confidence": metric_bundle["overstock_dollars_confidence"],
+        "mae": float(raw_metric_bundle["mae"]),
+        "mape": float(raw_metric_bundle["mape_nonzero"]),
+        "wape": float(raw_metric_bundle["wape"]),
+        "mase": float(raw_metric_bundle["mase"]),
+        "bias_pct": float(raw_metric_bundle["bias_pct"]),
+        "coverage": float(raw_metric_bundle["coverage"]),
+        "stockout_miss_rate": float(raw_metric_bundle["stockout_miss_rate"]),
+        "overstock_rate": float(raw_metric_bundle["overstock_rate"]),
+        "overstock_dollars": raw_metric_bundle["overstock_dollars"],
+        "overstock_dollars_confidence": raw_metric_bundle["overstock_dollars_confidence"],
+        "lost_sales_qty": float(raw_metric_bundle["lost_sales_qty"]),
+        "opportunity_cost_stockout": raw_metric_bundle["opportunity_cost_stockout"],
+        "opportunity_cost_stockout_confidence": raw_metric_bundle["opportunity_cost_stockout_confidence"],
+        "opportunity_cost_overstock": raw_metric_bundle["opportunity_cost_overstock"],
+        "opportunity_cost_overstock_confidence": raw_metric_bundle["opportunity_cost_overstock_confidence"],
+        "raw_holdout_metrics": dict(raw_metric_bundle),
+        "rule_overlay_holdout_metrics": dict(rule_overlay_metric_bundle),
+        "rule_overlay_enabled": False,
         "eval_rows": int(len(eval_part)),
         "interval_q90_width": interval_width,
     }
@@ -726,6 +755,7 @@ def _record_retraining_event(
     completed_at: datetime,
     run_id: str,
     dataset_name: str,
+    lineage_metadata: dict | None = None,
     error: str | None = None,
 ) -> None:
     """
@@ -747,6 +777,8 @@ def _record_retraining_event(
     }
     if trigger_metadata:
         payload["trigger_metadata"] = trigger_metadata
+    if lineage_metadata:
+        payload["lineage_metadata"] = lineage_metadata
     if error:
         payload["error"] = error
 
@@ -951,6 +983,30 @@ def retrain_forecast_model(
             version=ver,
             model_name=model_name,
         )
+        ensemble_result.setdefault("ensemble", {}).update(
+            standard_model_metadata(
+                model_name=model_name,
+                dataset_id=dataset_name,
+                forecast_grain=ensemble_result.get("ensemble", {}).get(
+                    "forecast_grain",
+                    "store-family-day" if dataset_name == "favorita" else "dataset_specific",
+                ),
+                feature_tier=ensemble_result.get("ensemble", {}).get("feature_tier", "unknown"),
+                trigger_source=trigger,
+                change_category="baseline_refresh" if trigger in {"scheduled", "manual"} else "promotion_decision",
+                segment_strategy=ensemble_result.get("ensemble", {}).get("segment_strategy", "global"),
+                rule_overlay_enabled=bool(ensemble_result.get("ensemble", {}).get("rule_overlay_enabled", False)),
+                evaluation_window_days=ensemble_result.get("ensemble", {}).get("evaluation_window_days", 30),
+                architecture=ensemble_result.get("ensemble", {}).get("architecture", "lightgbm"),
+                objective=ensemble_result.get("ensemble", {}).get("objective", "poisson"),
+                feature_set_id=ensemble_result.get("ensemble", {}).get(
+                    "feature_set_id",
+                    f"{ensemble_result.get('ensemble', {}).get('feature_tier', 'unknown')}_v1",
+                ),
+                tuning_profile=ensemble_result.get("ensemble", {}).get("tuning_profile", "baseline"),
+                candidate_version=ver,
+            )
+        )
         xgb_metrics = ensemble_result.get("xgboost", {}).get("metrics", {})
         logger.info(
             "retrain.trained",
@@ -987,6 +1043,30 @@ def retrain_forecast_model(
 
                 model_metrics = _candidate_metrics_from_holdout(features_df, ensemble_result)
                 model_metrics["tier"] = ensemble_result.get("ensemble", {}).get("feature_tier", "unknown")
+                model_metrics.update(
+                    standard_model_metadata(
+                        model_name=model_name,
+                        dataset_id=dataset_name,
+                        forecast_grain=ensemble_result.get("ensemble", {}).get(
+                            "forecast_grain",
+                            "store-family-day" if dataset_name == "favorita" else "dataset_specific",
+                        ),
+                        feature_tier=model_metrics["tier"],
+                        trigger_source=trigger,
+                        change_category="baseline_refresh" if trigger in {"scheduled", "manual"} else "promotion_decision",
+                        segment_strategy=ensemble_result.get("ensemble", {}).get("segment_strategy", "global"),
+                        rule_overlay_enabled=bool(model_metrics.get("rule_overlay_enabled", False)),
+                        evaluation_window_days=ensemble_result.get("ensemble", {}).get("evaluation_window_days", 30),
+                        architecture=ensemble_result.get("ensemble", {}).get("architecture", "lightgbm"),
+                        objective=ensemble_result.get("ensemble", {}).get("objective", "poisson"),
+                        feature_set_id=ensemble_result.get("ensemble", {}).get(
+                            "feature_set_id",
+                            f"{model_metrics['tier']}_v1",
+                        ),
+                        tuning_profile=ensemble_result.get("ensemble", {}).get("tuning_profile", "baseline"),
+                        candidate_version=ver,
+                    )
+                )
                 smoke_test_passed = bool(
                     model_metrics.get("eval_rows", 0) >= 10
                     and model_metrics.get("mae") is not None
@@ -1253,6 +1333,18 @@ def retrain_forecast_model(
                     completed_at=datetime.utcnow(),
                     run_id=run_id,
                     dataset_name=dataset_name,
+                    lineage_metadata={
+                        "version": ver,
+                        "model_name": model_name,
+                        "feature_tier": ensemble_result.get("ensemble", {}).get("feature_tier", "unknown"),
+                        "forecast_grain": ensemble_result.get("ensemble", {}).get("forecast_grain"),
+                        "architecture": ensemble_result.get("ensemble", {}).get("architecture", "lightgbm"),
+                        "objective": ensemble_result.get("ensemble", {}).get("objective", "poisson"),
+                        "segment_strategy": ensemble_result.get("ensemble", {}).get("segment_strategy", "global"),
+                        "feature_set_id": ensemble_result.get("ensemble", {}).get("feature_set_id"),
+                        "tuning_profile": ensemble_result.get("ensemble", {}).get("tuning_profile"),
+                        "lineage_label": ensemble_result.get("ensemble", {}).get("lineage_label"),
+                    },
                 )
             except Exception as retrain_log_exc:
                 logger.warning("retrain.event_log_failed", error=str(retrain_log_exc), exc_info=True)
@@ -1274,6 +1366,11 @@ def retrain_forecast_model(
                     completed_at=datetime.utcnow(),
                     run_id=run_id,
                     dataset_name=dataset_name,
+                    lineage_metadata={
+                        "version": ver,
+                        "model_name": model_name,
+                        "trigger": trigger,
+                    },
                     error=str(exc),
                 )
             except Exception as retrain_log_exc:

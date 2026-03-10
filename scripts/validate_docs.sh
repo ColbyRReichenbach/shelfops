@@ -9,11 +9,12 @@ ACTIVE_DOCS=(
   docs/README.md
   docs/overview/executive_overview.md
   docs/overview/technical_overview.md
-  docs/overview/market_positioning.md
   docs/overview/research_sources.md
   docs/product/production_readiness.md
   docs/product/roadmap.md
+  docs/product/known_limitations.md
   docs/product/known_issues.md
+  docs/product/future_integrations.md
   docs/product/decision_log.md
   docs/engineering/api_contracts.md
   docs/engineering/data_contract_spec.md
@@ -23,7 +24,16 @@ ACTIVE_DOCS=(
   docs/operations/smb_onboarding_runbook.md
   docs/operations/slo_policy.md
   docs/operations/integration_incident_runbook.md
-  docs/demo/recruiter_demo_runbook.md
+  docs/demo/README.md
+  docs/demo/AUDIENCE_PLAYBOOK.md
+  docs/demo/BUSINESS_WALKTHROUGH.md
+  docs/demo/TECHNICAL_WALKTHROUGH.md
+  docs/demo/DEMO_RUNBOOK.md
+  docs/demo/DEMO_SIGNOFF_CHECKLIST.md
+  docs/demo/CLAIMS_LEDGER.md
+  docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md
+  docs/demo/SLIDE_DECK_OUTLINE.md
+  docs/demo/VIDEO_SCRIPT_10MIN.md
   docs/evidence/README.md
   docs/evidence/snapshots/README.md
 )
@@ -32,11 +42,12 @@ DOCS_WITH_METADATA=(
   docs/README.md
   docs/overview/executive_overview.md
   docs/overview/technical_overview.md
-  docs/overview/market_positioning.md
   docs/overview/research_sources.md
   docs/product/production_readiness.md
   docs/product/roadmap.md
+  docs/product/known_limitations.md
   docs/product/known_issues.md
+  docs/product/future_integrations.md
   docs/product/decision_log.md
   docs/engineering/api_contracts.md
   docs/engineering/data_contract_spec.md
@@ -46,7 +57,6 @@ DOCS_WITH_METADATA=(
   docs/operations/smb_onboarding_runbook.md
   docs/operations/slo_policy.md
   docs/operations/integration_incident_runbook.md
-  docs/demo/recruiter_demo_runbook.md
   docs/evidence/README.md
   docs/evidence/snapshots/README.md
 )
@@ -88,7 +98,7 @@ while IFS= read -r line; do
   [[ -z "$target" ]] && continue
 
   if [[ "$target" == /* ]]; then
-    candidate="${target#/}"
+    candidate="$target"
   else
     candidate="$(dirname "$file")/$target"
   fi

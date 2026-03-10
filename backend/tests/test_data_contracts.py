@@ -1,8 +1,9 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from ml.data_contracts import load_canonical_transactions
+from ml.data_contracts import inspect_dataset_readiness, load_canonical_transactions
 from workers.retrain import _load_csv_data
 
 
@@ -35,6 +36,10 @@ def test_load_favorita_contract(tmp_path: Path):
     assert out["dataset_id"].iloc[0] == "favorita"
     assert out["country_code"].iloc[0] == "EC"
     assert out["frequency"].iloc[0] == "daily"
+
+    readiness = inspect_dataset_readiness(tmp_path)
+    assert readiness.status in {"ready", "limited"}
+    assert readiness.forecast_grain == "store_nbr x family x date"
 
 
 def test_load_walmart_contract(tmp_path: Path):
@@ -128,6 +133,19 @@ def test_retrain_loader_uses_canonical_contract(tmp_path: Path):
     assert set(["date", "store_id", "product_id", "quantity", "dataset_id", "country_code", "frequency"]).issubset(
         out.columns
     )
+
+
+def test_favorita_loader_fails_clearly_when_train_missing(tmp_path: Path):
+    (tmp_path / "holidays_events.csv").write_text("date,type\n2024-01-01,Holiday\n", encoding="utf-8")
+    (tmp_path / "transactions.csv").write_text("date,store_nbr,transactions\n2024-01-01,1,100\n", encoding="utf-8")
+
+    readiness = inspect_dataset_readiness(tmp_path)
+    assert readiness.dataset_id == "favorita"
+    assert readiness.status == "blocked"
+    assert "train.csv" in readiness.missing_files
+
+    with pytest.raises(FileNotFoundError, match="Favorita dataset is not ready"):
+        load_canonical_transactions(str(tmp_path))
 
 
 def test_profiled_loader_writes_canonical_csv(tmp_path: Path):

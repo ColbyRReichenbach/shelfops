@@ -12,12 +12,11 @@ import {
     LogOut,
     ChevronLeft,
     ChevronRight,
-    Settings,
     Brain,
+    Activity,
 } from 'lucide-react'
 import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import ErrorBoundary from '@/components/ErrorBoundary'
-import WelcomeModal from '@/components/demo/WelcomeModal'
 import { useAlertSummary } from '@/hooks/useShelfOps'
 
 const navItems = [
@@ -28,6 +27,7 @@ const navItems = [
     { to: '/inventory', icon: Warehouse, label: 'Inventory' },
     { to: '/stores', icon: Store, label: 'Stores' },
     { to: '/integrations', icon: Link2, label: 'Integrations' },
+    { to: '/operations', icon: Activity, label: 'Operations' },
     { to: '/ml-ops', icon: Brain, label: 'ML Ops' },
 ]
 
@@ -145,14 +145,9 @@ export default function ModernDashboardLayout() {
                         <span>/</span>
                         <span className="font-medium text-shelf-foreground">{currentPage}</span>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <button className="p-2 text-shelf-foreground/40 hover:text-shelf-primary transition-colors">
-                            <Settings className="h-5 w-5" />
-                        </button>
-                    </div>
+                    <div className="text-xs text-shelf-foreground/40">Production workspace</div>
                 </header>
 
-                <WelcomeModal />
                 <div className="animate-fade-in p-0">
                     <ErrorBoundary>
                         <Outlet />

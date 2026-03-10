@@ -27,12 +27,12 @@ export default function WelcomeModal() {
 
     const handleBuyerTour = () => {
         dismiss()
-        navigate('/?tour=buyer')
+        navigate('/demo?track=buyer')
     }
 
     const handleTechnicalTour = () => {
         dismiss()
-        navigate('/?tour=technical')
+        navigate('/demo?track=technical')
     }
 
     if (!isVisible) return null

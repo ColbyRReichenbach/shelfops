@@ -1,106 +1,159 @@
-# ShelfOps Demo One-Page Cheat Sheet (Local Use)
+# ShelfOps Demo One-Page Cheat Sheet
 
-## Goal
-Use two modes, not one blended pitch:
-1. Business walkthrough: prove product value, retail credibility, and SMB fit.
-2. Technical walkthrough: prove backend depth, MLOps design, and production thinking.
+## Purpose
+Use this as the presenter-side quick reference after the full scripts are already internalized.
 
-## Business Walkthrough Timing
-1. 0:00-1:30 Hook: retail pain + why you built it.
-2. 1:30-6:30 Frontend: dashboard -> alerts -> inventory -> forecasts -> integrations.
-3. 6:30-9:00 HITL PO decisions.
-4. 9:00-11:00 SMB value and pilot framing.
-5. 11:00-12:00 Close and transition.
+Primary scripts:
+- `docs/demo/BUSINESS_WALKTHROUGH.md`
+- `docs/demo/TECHNICAL_WALKTHROUGH.md`
 
-## Technical Walkthrough Timing
-1. 0:00-1:00 Technical framing.
-2. 1:00-4:00 Architecture and stack.
-3. 4:00-7:00 Multi-tenant and backend design.
-4. 7:00-10:00 Integrations including Kafka/event-stream path.
-5. 10:00-13:00 Forecasting plus business logic layer.
-6. 13:00-17:00 MLOps health, drift, retraining, experiments.
-7. 17:00-20:00 Model choice and tradeoffs.
+This sheet is not a replacement for those scripts. It is the fast memory aid for:
+- opening lines
+- page order
+- exact proof commands
+- non-negotiable claims
+- clean close language
 
-## Core Opening Line
-"ShelfOps gives smaller retailers the operating discipline large retailers get from expensive systems: better inventory visibility, guided purchase decisions, and an auditable model lifecycle."
+## Core Positioning
+- Product for SMB, project for enterprise.
+- Inventory intelligence for teams still operating manually or through fragmented systems.
+- Forecasts matter only because they improve decisions.
+- Human review is deliberate, not a missing feature.
+- The backend is intentionally more mature than the buyer workflow because simple customer UX should sit on top of disciplined systems.
 
-## Core Framing Line
-"This is a product for SMB retailers, built with enterprise-grade backend and MLOps patterns."
+## Business Walkthrough
 
-## Must-Hit Themes
-1. 4+ years of retail experience shaped the problem selection.
-2. Forecasts are only useful because they connect to purchase-order decisions.
-3. Human review is deliberate, not a missing feature.
-4. LightGBM is the current default because it is the most practical fit for this data and runtime.
-5. Enterprise adapters exist to prove scale and technical depth, not to overclaim GA enterprise readiness.
-6. Kafka matters as proof of event-driven/backend engineering ability, not because every SMB needs Kafka on day one.
+### Goal
+Prove:
+1. you understand the retail problem from lived experience
+2. the product is operational, not just analytical
+3. SMB value is clear without overclaiming enterprise readiness
 
-## Bring-Up
+### Timing
+1. `0:00-1:30` Problem + why you built it
+2. `1:30-3:30` Dashboard as shared operating surface
+3. `3:30-5:30` Alerts + inventory workflow
+4. `5:30-7:00` Forecasts as decision support
+5. `7:00-8:00` Integrations and onboarding practicality
+6. `8:00-9:30` HITL purchase decisions
+7. `9:30-11:00` Team personas and page ownership
+8. `11:00-12:00` Today / Pilot next / Later close
+
+### Must-Show Pages
+1. Dashboard
+2. Alerts
+3. Inventory
+4. Forecasts
+5. Integrations
+6. Purchase-order proof
+
+### Must-Say Themes
+- 4+ years of retail experience shaped the product.
+- Stockouts and inventory distortion are business problems, not just reporting problems.
+- Different teams use different pages.
+- This system helps smaller retailers operate with more discipline without removing human judgment.
+
+### Business Stats To Use
+- AlixPartners: 66% of shoppers likely go elsewhere if the product is out of stock.
+- PwC: product availability is the biggest in-store experience factor.
+- IHL Group: inventory distortion costs retailers more than $1.7T globally.
+
+Sources:
+- `docs/demo/BUSINESS_WALKTHROUGH.md`
+
+## Technical Walkthrough
+
+### Goal
+Prove:
+1. you built the full system, not just a model
+2. your stack choices are pragmatic
+3. your MLOps workflow is auditable and business-safe
+
+### Timing
+1. `0:00-1:30` Technical thesis
+2. `1:30-4:30` Full stack overview
+3. `4:30-7:00` Frontend role-based design
+4. `7:00-10:30` Backend, tenant isolation, workers, integrations
+5. `10:30-14:30` Forecast model, feature tiers, business rules
+6. `14:30-16:30` Anomaly model
+7. `16:30-18:30` Experiment workflow
+8. `18:30-21:00` Promotion gates, archive, rollback, shadowing
+9. `21:00-22:30` Operations and retriggers
+10. `22:30-24:00` Today / Pilot next / Later close
+
+### Must-Show Pages
+1. Dashboard shell
+2. Operations
+3. Forecasts
+4. Alerts
+5. ML Ops
+
+### Must-Say Stack
+- Frontend: React, TypeScript, Vite, React Query, Recharts
+- Backend: FastAPI, async SQLAlchemy, Postgres
+- Workers: Celery + Redis
+- Event-stream proof: Redpanda/Kafka path
+- ML: LightGBM, scikit-learn, SHAP, Pandera, MLflow
+
+### Must-Say Model Story
+- Forecasting is LightGBM-first with Poisson objective.
+- LightGBM was chosen for tabular retail demand because it is practical, cheap to run, explainable, and reliable.
+- Feature tiers are deliberate: cold-start first, richer production tier later.
+- Business rules sit on top of forecasts because retail actionability is not just a raw prediction problem.
+- Anomaly detection uses Isolation Forest because the problem is unsupervised and speed plus reliability matters more than novelty.
+
+### Must-Say MLOps Story
+- Experiments are typed and logged.
+- Challengers do not auto-promote.
+- Promotion gates combine DS and business metrics.
+- Archived champions are retained.
+- Rollback is explicit.
+- Retriggers include scheduled, drift, new data, and manual refresh paths.
+
+## Exact Proof Commands
+
+### Bring Up
 ```bash
 export MLFLOW_HOST_PORT=5001
-docker compose up -d db redis mlflow redpanda api ml-worker sync-worker celery-beat
-curl -s http://localhost:8000/health
-curl -s http://localhost:5001/health
+docker compose up -d db redis mlflow redpanda api ml-worker
+curl -s http://localhost:8000/health | jq
 PYTHONPATH=backend python3 backend/scripts/prepare_demo_runtime.py
 ```
 
-## Frontend Path (http://localhost:3000)
-1. Dashboard: "What needs attention now."
-2. Alerts: "Teams acknowledge and resolve, not just monitor."
-3. Inventory: "Store/SKU-level stock posture."
-4. Forecasts: "Predicted demand guides buying."
-5. Integrations: "Square works now; others staged."
-
-## HITL Proof (PO approve/reject + audit)
+### HITL PO Proof
 ```bash
-PO_IDS=$(curl -s "http://localhost:8000/api/v1/purchase-orders/suggested?limit=2" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(" ".join([x["po_id"] for x in d[:2]]))')
-PO1=$(echo "$PO_IDS" | awk '{print $1}')
-PO2=$(echo "$PO_IDS" | awk '{print $2}')
-
-curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/$PO1/approve" \
-  -H "Content-Type: application/json" \
-  -d '{"quantity": 12, "reason_code":"budget_constraint", "notes":"Demo edited approval"}'
-
-curl -s -X POST "http://localhost:8000/api/v1/purchase-orders/$PO2/reject" \
-  -H "Content-Type: application/json" \
-  -d '{"reason_code":"forecast_disagree", "notes":"Demo rejection path"}'
-
-curl -s "http://localhost:8000/api/v1/purchase-orders/$PO1/decisions"
-curl -s "http://localhost:8000/api/v1/purchase-orders/$PO2/decisions"
+curl -s "http://localhost:8000/api/v1/purchase-orders/suggested?limit=2" | jq
+cat docs/productization_artifacts/demo_runtime/demo_runtime_summary.json | jq
 ```
 
-## Technical Proof (MLOps + integrations)
+### MLOps / Runtime Proof
 ```bash
 curl -s http://localhost:8000/api/v1/integrations/sync-health | jq
-curl -s http://localhost:8000/api/v1/ml/models/health
-curl -s 'http://localhost:8000/ml-alerts?limit=5' | jq
+curl -s http://localhost:8000/api/v1/ml/models/health | jq
+curl -s 'http://localhost:8000/api/v1/ml/effectiveness?window_days=30&model_name=demand_forecast' | jq
+curl -s 'http://localhost:8000/api/v1/alerts?alert_type=anomaly_detected&status=open' | jq
+curl -s 'http://localhost:8000/api/v1/ml/anomalies?days=7&limit=5' | jq
 curl -s 'http://localhost:8000/experiments?limit=10' | jq
 ```
 
-## Experiment Governance Proof
+### Worker Appendix
 ```bash
-EXP_ID=$(curl -s -X POST http://localhost:8000/experiments \
-  -H "Content-Type: application/json" \
-  -d '{"experiment_name":"Department segmentation trial","hypothesis":"Category segmentation improves volatile demand fit","experiment_type":"segmentation","model_name":"demand_forecast","proposed_by":"demo@shelfops.com"}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["experiment_id"])')
-
-curl -s -X PATCH "http://localhost:8000/experiments/$EXP_ID/approve" \
-  -H "Content-Type: application/json" \
-  -d '{"approved_by":"manager@shelfops.com","rationale":"Demo approval"}'
-
-curl -s -X POST "http://localhost:8000/experiments/$EXP_ID/complete" \
-  -H "Content-Type: application/json" \
-  -d '{"decision":"reject","decision_rationale":"No lift in this demo run","results":{"baseline_mae":21.59,"experimental_mae":21.80,"improvement_pct":-0.97},"experimental_version":"v_demo_exp_01"}'
-
-curl -s "http://localhost:8000/experiments/$EXP_ID"
-curl -s "http://localhost:8000/ml-alerts?alert_type=experiment_complete&limit=5"
+docker compose logs --no-color --tail=80 ml-worker
+docker compose logs --no-color --tail=80 api
 ```
 
-## Best Transition Line
-"The business story is the workflow. The technical story is how I built the backend, MLOps loop, and integrations so that workflow can actually be trusted."
+## Non-Negotiable Truths
+- Do not imply enterprise GA readiness.
+- Do not call the system real-time streaming if the behavior is scheduled or polled.
+- Do not imply fully autonomous ordering.
+- Do not oversell model maturity.
+- Do say the architecture demonstrates enterprise-grade patterns.
 
-## Limitation Line (Say Once)
-"Metrics shown here come from seeded/simulated data for reproducibility. Customer onboarding adds tenant-specific data contracts, shadow evaluation, and gated promotion before production ownership transfer."
+## Best Transition Line
+"The business story is the workflow. The technical story is the system design, governance, and operating discipline that make that workflow trustworthy."
+
+## Limitation Line
+"The demo runtime is deterministic so the walkthrough is repeatable. Business metrics shown in the MLOps view are modeled estimates from seeded demo evidence, while real customer ownership still relies on tenant-specific contracts, shadow evaluation, and gated promotion."
 
 ## Close Line
-"Today’s live demo is optimized for mid-market operations. Enterprise adapters and governance are implemented and actively being hardened."
+"Today is a truthful live workflow. Pilot next is operator visibility, integration resilience, and release confidence for a first SMB rollout. Later is broader enterprise hardening and richer model sophistication."

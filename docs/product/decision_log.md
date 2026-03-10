@@ -1,6 +1,6 @@
 # ShelfOps Production Decision Log
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: engineering leadership and reviewers
 - Scope: durable architecture and release decisions
 - Source of truth: this decision log
@@ -48,4 +48,3 @@
 - Spec: `docs/engineering/observability_spec.md`
 - Auto-fix scope is deliberately limited: LLM proposes, human applies. Auto-applying code
   changes is out of scope for v1.
-

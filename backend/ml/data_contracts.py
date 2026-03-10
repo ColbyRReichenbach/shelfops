@@ -9,12 +9,28 @@ from __future__ import annotations
 
 import glob
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 import structlog
 
 logger = structlog.get_logger()
+
+
+@dataclass(frozen=True)
+class DatasetReadiness:
+    dataset_id: str
+    status: str
+    message: str
+    forecast_grain: str
+    required_files: list[str]
+    missing_files: list[str]
+    required_fields: list[str]
+    missing_fields: list[str]
+    date_min: str = ""
+    date_max: str = ""
+    row_count: int = 0
 
 CANONICAL_REQUIRED_COLS = {"date", "store_id", "product_id", "quantity"}
 CANONICAL_BASE_COLS = [
@@ -115,6 +131,112 @@ def _load_favorita(data_dir: Path) -> pd.DataFrame:
     if "product_id" not in mapped.columns:
         mapped["product_id"] = mapped["category"].astype(str)
     return _finalize_contract(mapped, dataset_id="favorita", country_code="EC", frequency="daily")
+
+
+def inspect_dataset_readiness(data_dir: str | Path) -> DatasetReadiness:
+    """Inspect dataset readiness without silently falling back across domains."""
+    path = Path(data_dir)
+    if not path.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+    favorita_markers = {"holidays_events.csv", "oil.csv", "test.csv"}
+    favorita_required = ["train.csv", "holidays_events.csv"]
+    favorita_fields = ["date", "store_nbr", "family", "sales", "onpromotion"]
+
+    looks_like_favorita = (
+        "favorita" in path.name.lower()
+        or "favorita" in str(path).lower()
+        or bool(favorita_markers.intersection({p.name for p in path.glob("*.csv")}))
+    )
+    if looks_like_favorita:
+        missing_files = [name for name in favorita_required if not (path / name).exists()]
+        if missing_files:
+            return DatasetReadiness(
+                dataset_id="favorita",
+                status="blocked",
+                message=(
+                    "Favorita dataset is not ready. Expected Kaggle transaction-grain files are missing; "
+                    "the pipeline requires train.csv at store-family-day grain and will not fall back to generic CSV loading."
+                ),
+                forecast_grain="store_nbr x family x date",
+                required_files=favorita_required,
+                missing_files=missing_files,
+                required_fields=favorita_fields,
+                missing_fields=favorita_fields,
+            )
+
+        header = pd.read_csv(path / "train.csv", nrows=0)
+        missing_fields = [field for field in favorita_fields if field not in header.columns]
+        if missing_fields:
+            return DatasetReadiness(
+                dataset_id="favorita",
+                status="invalid",
+                message="Favorita train.csv is present but missing required fields for store-family-day modeling.",
+                forecast_grain="store_nbr x family x date",
+                required_files=favorita_required,
+                missing_files=[],
+                required_fields=favorita_fields,
+                missing_fields=missing_fields,
+            )
+
+        frame = pd.read_csv(path / "train.csv", usecols=["date"], parse_dates=["date"], low_memory=False)
+        if frame.empty:
+            return DatasetReadiness(
+                dataset_id="favorita",
+                status="invalid",
+                message="Favorita train.csv is empty.",
+                forecast_grain="store_nbr x family x date",
+                required_files=favorita_required,
+                missing_files=[],
+                required_fields=favorita_fields,
+                missing_fields=[],
+            )
+
+        date_series = frame["date"].dropna().sort_values()
+        if date_series.empty:
+            return DatasetReadiness(
+                dataset_id="favorita",
+                status="invalid",
+                message="Favorita train.csv does not contain parseable dates.",
+                forecast_grain="store_nbr x family x date",
+                required_files=favorita_required,
+                missing_files=[],
+                required_fields=favorita_fields,
+                missing_fields=[],
+            )
+
+        coverage_days = int((date_series.max() - date_series.min()).days) + 1
+        min_days = max(28, min(90, len(date_series)))
+        status = "ready" if coverage_days >= min_days else "limited"
+        message = (
+            "Favorita dataset ready for store-family-day modeling."
+            if status == "ready"
+            else "Favorita source files are valid, but date coverage is short for full time-series validation."
+        )
+        return DatasetReadiness(
+            dataset_id="favorita",
+            status=status,
+            message=message,
+            forecast_grain="store_nbr x family x date",
+            required_files=favorita_required,
+            missing_files=[],
+            required_fields=favorita_fields,
+            missing_fields=[],
+            date_min=str(date_series.min().date()),
+            date_max=str(date_series.max().date()),
+            row_count=int(len(frame)),
+        )
+
+    return DatasetReadiness(
+        dataset_id="generic",
+        status="unknown",
+        message="Dataset domain inferred at load time.",
+        forecast_grain="dataset_specific",
+        required_files=[],
+        missing_files=[],
+        required_fields=[],
+        missing_fields=[],
+    )
 
 
 def _load_walmart(data_dir: Path) -> pd.DataFrame:
@@ -248,6 +370,13 @@ def load_canonical_transactions(data_dir: str) -> pd.DataFrame:
     path = Path(data_dir)
     if not path.exists():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+    readiness = inspect_dataset_readiness(path)
+    if readiness.dataset_id == "favorita" and readiness.status in {"blocked", "invalid"}:
+        raise FileNotFoundError(
+            f"{readiness.message} Missing files: {readiness.missing_files or 'none'}. "
+            f"Required fields: {readiness.required_fields}."
+        )
 
     if (path / "train.csv").exists() and (path / "holidays_events.csv").exists():
         return _load_favorita(path)

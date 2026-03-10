@@ -22,8 +22,10 @@ def test_render_markdown_contains_table_row():
             date_max="2024-01-10",
             frequency="daily",
             country_code="EC",
+            forecast_grain="store_nbr x family x date",
         )
     ]
     md = render_markdown(rows)
     assert "| favorita | `data/kaggle/favorita` | `ready` | 10 | 2 | 3 |" in md
+    assert "store_nbr x family x date" in md
     assert "Public datasets are training/evaluation domains only" in md

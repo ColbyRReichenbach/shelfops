@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
+import { getWebSocketBaseUrl } from '@/lib/api'
 
 export interface WsMessage {
     type:
@@ -32,11 +33,11 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
 
     const connect = useCallback(async () => {
         try {
-            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
             const token = import.meta.env.DEV ? null : await getAccessTokenSilently()
+            const wsBase = getWebSocketBaseUrl()
             const wsUrl = token
-                ? `${protocol}://${window.location.host}/ws/alerts?token=${encodeURIComponent(token)}`
-                : `${protocol}://${window.location.host}/ws/alerts`
+                ? `${wsBase}/ws/alerts?token=${encodeURIComponent(token)}`
+                : `${wsBase}/ws/alerts`
             const ws = new WebSocket(wsUrl)
 
             ws.onopen = () => {

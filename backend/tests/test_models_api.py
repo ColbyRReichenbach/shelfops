@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 
 @pytest.mark.asyncio
@@ -66,6 +67,7 @@ async def test_models_health_uses_real_drift_and_data_signals(client, seeded_db,
     assert triggers["drift_detected"] is True
     assert triggers["new_data_available"] is True
     assert triggers["new_data_rows_since_last_retrain"] >= 1
+    assert payload["recent_retraining_events"][0]["trigger_type"] == "scheduled"
 
 
 @pytest.mark.asyncio
@@ -94,9 +96,7 @@ async def test_manual_promotion_requires_admin_role(client, seeded_db, test_db):
 
 @pytest.mark.asyncio
 async def test_manual_promotion_admin_records_reason(client, mock_user, seeded_db, test_db):
-    from sqlalchemy import select
-
-    from db.models import ModelVersion
+    from db.models import ModelExperiment, ModelVersion
 
     mock_user["roles"] = ["admin"]
 
@@ -129,6 +129,19 @@ async def test_manual_promotion_admin_records_reason(client, mock_user, seeded_d
     model = result.scalar_one()
     assert model.status == "champion"
     assert (model.metrics or {}).get("last_manual_promotion", {}).get("reason") == reason
+    assert (model.metrics or {}).get("last_lifecycle_event", {}).get("event_type") in {
+        "promoted_to_champion",
+        "rollback_promoted",
+    }
+
+    exp_result = await test_db.execute(
+        select(ModelExperiment).where(
+            ModelExperiment.customer_id == customer_id,
+            ModelExperiment.experimental_version == "v202",
+        )
+    )
+    experiment = exp_result.scalar_one()
+    assert experiment.experiment_type == "promotion_decision"
 
 
 @pytest.mark.asyncio
@@ -166,3 +179,49 @@ async def test_manual_promotion_syncs_file_registry_state(client, mock_user, see
     assert captured["model_name"] == "demand_forecast"
     assert captured["candidate_status"] == "champion"
     assert captured["active_champion_version"] == "v203"
+
+
+@pytest.mark.asyncio
+async def test_models_history_exposes_lineage_and_lifecycle(client, seeded_db, test_db):
+    from db.models import ModelVersion
+
+    customer_id = seeded_db["customer_id"]
+    test_db.add(
+        ModelVersion(
+            customer_id=customer_id,
+            model_name="demand_forecast",
+            version="v301",
+            status="archived",
+            metrics={
+                "mae": 8.7,
+                "wape": 0.11,
+                "mase": 0.52,
+                "bias_pct": -0.01,
+                "dataset_id": "favorita",
+                "forecast_grain": "store-family-day",
+                "feature_set_id": "cold_start_v1",
+                "architecture": "lightgbm",
+                "objective": "poisson",
+                "segment_strategy": "global",
+                "tuning_profile": "baseline",
+                "trigger_source": "scheduled",
+                "lineage_label": "demand_forecast__lightgbm__poisson__global__cold_start_v1",
+                "lifecycle_events": [{"event_type": "archived"}],
+            },
+            smoke_test_passed=True,
+            promoted_at=datetime.utcnow() - timedelta(days=2),
+            archived_at=datetime.utcnow() - timedelta(days=1),
+        )
+    )
+    await test_db.commit()
+
+    response = await client.get("/api/v1/ml/models/history?limit=5")
+    assert response.status_code == 200
+    payload = response.json()
+    row = next(item for item in payload if item["version"] == "v301")
+    assert row["dataset_id"] == "favorita"
+    assert row["forecast_grain"] == "store-family-day"
+    assert row["architecture"] == "lightgbm"
+    assert row["objective"] == "poisson"
+    assert row["lineage_label"] is not None
+    assert row["lifecycle_events"][0]["event_type"] == "archived"

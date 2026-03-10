@@ -60,4 +60,4 @@ Show:
 
 ## 9:30-10:00 — Close
 Say:
-"Today’s live path is mid-market ready. Enterprise adapters and governance are implemented and being hardened. This project demonstrates production-style ownership across operations, data science, and ML systems."
+"Today is a truthful live workflow: alerts, forecasts, purchase-order decisions, and governed model operations. Pilot next is observability, integration resilience, and release confidence for a first SMB rollout. Later is broader enterprise hardening and deeper model sophistication, but I do not overclaim that those pieces are fully ready today."

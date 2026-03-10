@@ -23,6 +23,8 @@ from typing import Any
 
 import structlog
 
+from ml.lineage import append_lifecycle_event
+
 logger = structlog.get_logger()
 
 # MLflow import with graceful fallback
@@ -105,8 +107,8 @@ def _refresh_model_performance_log(registry: dict[str, Any] | None = None) -> No
         "",
         "## Decision Log",
         "",
-        "| order | version | model_name | dataset | tier | rows_trained | mae | mape | status | trained_at | promoted_at | decision | decision_basis |",
-        "|---:|---|---|---|---|---:|---:|---:|---|---|---|---|---|",
+        "| order | version | model_name | dataset | grain | tier | rows_trained | mae | wape | mase | bias_pct | status | trained_at | promoted_at | decision | decision_basis |",
+        "|---:|---|---|---|---|---|---:|---:|---:|---:|---:|---|---|---|---|---|",
     ]
 
     rows = registry.get("models", [])
@@ -134,13 +136,18 @@ def _refresh_model_performance_log(registry: dict[str, Any] | None = None) -> No
             basis = "status not mapped"
 
         mae = row.get("mae")
-        mape = row.get("mape")
+        wape = row.get("wape")
+        mase = row.get("mase")
+        bias = row.get("bias_pct")
         mae_s = f"{mae:.6f}" if isinstance(mae, (int, float)) else "-"
-        mape_s = f"{mape:.6f}" if isinstance(mape, (int, float)) else "-"
+        wape_s = f"{wape:.6f}" if isinstance(wape, (int, float)) else "-"
+        mase_s = f"{mase:.6f}" if isinstance(mase, (int, float)) else "-"
+        bias_s = f"{bias:.6f}" if isinstance(bias, (int, float)) else "-"
 
         lines.append(
             f"| {idx} | {version} | {row.get('model_name', 'demand_forecast')} | {row.get('dataset', 'unknown')} | "
-            f"{row.get('feature_tier', 'unknown')} | {row.get('rows_trained', '-')} | {mae_s} | {mape_s} | "
+            f"{row.get('forecast_grain', 'unknown')} | {row.get('feature_tier', 'unknown')} | {row.get('rows_trained', '-')} | "
+            f"{mae_s} | {wape_s} | {mase_s} | {bias_s} | "
             f"{status} | {row.get('trained_at', '-')} | {row.get('promoted_at', '-')} | {decision} | {basis} |"
         )
 
@@ -180,9 +187,30 @@ def register_model(
         "rows_trained": rows_trained,
         "mae": metrics.get("mae"),
         "mape": metrics.get("mape"),
+        "wape": metrics.get("wape"),
+        "mase": metrics.get("mase"),
+        "bias_pct": metrics.get("bias_pct"),
+        "forecast_grain": metrics.get("forecast_grain"),
+        "segment_strategy": metrics.get("segment_strategy"),
+        "rule_overlay_enabled": metrics.get("rule_overlay_enabled"),
+        "evaluation_window_days": metrics.get("evaluation_window_days"),
         "status": "champion" if promote else "candidate",
         "promoted_at": datetime.now(timezone.utc).isoformat() if promote else None,
     }
+    entry = append_lifecycle_event(
+        entry,
+        event_type="registered",
+        from_status=None,
+        to_status=entry["status"],
+        reason="file_registry_registration",
+        related_version=version,
+        metadata={
+            "dataset_id": metrics.get("dataset_id"),
+            "architecture": metrics.get("architecture"),
+            "objective": metrics.get("objective"),
+            "lineage_label": metrics.get("lineage_label"),
+        },
+    )
 
     # Demote existing champion if promoting new one
     if promote:
@@ -190,6 +218,15 @@ def register_model(
         for m in registry["models"]:
             if m["status"] == "champion":
                 m["status"] = "archived"
+                archived = append_lifecycle_event(
+                    m,
+                    event_type="archived",
+                    from_status="champion",
+                    to_status="archived",
+                    reason=f"superseded_by:{version}",
+                    related_version=version,
+                )
+                m.update(archived)
         # Update champion pointer
         (MODEL_DIR / "champion.json").write_text(
             json.dumps({"version": version, "promoted_at": entry["promoted_at"]}, indent=2)

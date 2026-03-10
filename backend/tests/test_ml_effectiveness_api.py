@@ -63,7 +63,14 @@ async def test_ml_effectiveness_endpoint_returns_rolling_metrics(client, seeded_
     assert payload["sample_count"] >= 6
     assert payload["metrics"]["mae"] is not None
     assert payload["metrics"]["mape_nonzero"] is not None
+    assert payload["metrics"]["wape"] is not None
+    assert payload["metrics"]["mase"] is not None
+    assert payload["metrics"]["bias_pct"] is not None
     assert payload["metrics"]["stockout_miss_rate"] is not None
     assert payload["metrics"]["overstock_rate"] is not None
     assert payload["metrics"]["coverage"] is not None
+    assert "opportunity_cost_stockout" in payload["metrics"]
+    assert payload["forecast_grain"] in {None, "store-family-day"}
+    assert payload["segment_breakdowns"]["family"]["available"] is True
+    assert payload["by_version"][0]["wape"] is not None
     assert payload["trend"] in {"improving", "stable", "degrading"}
