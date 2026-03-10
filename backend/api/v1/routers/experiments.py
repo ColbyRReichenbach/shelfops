@@ -111,7 +111,11 @@ async def list_experiments(
     if model_name:
         query = query.where(ModelExperiment.model_name == model_name)
     if experiment_type:
-        query = query.where(ModelExperiment.experiment_type == normalize_experiment_type(experiment_type))
+        try:
+            normalized_type = normalize_experiment_type(experiment_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        query = query.where(ModelExperiment.experiment_type == normalized_type)
 
     query = query.order_by(ModelExperiment.created_at.desc()).limit(limit)
 

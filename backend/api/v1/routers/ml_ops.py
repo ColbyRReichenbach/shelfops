@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_tenant_db
 from db.models import BacktestResult, DemandForecast, ForecastAccuracy, ModelVersion, OpportunityCostLog, Product
+from ml.business_metrics import calculate_overstock_dollars
 
 logger = structlog.get_logger()
 
@@ -391,6 +392,7 @@ async def get_model_effectiveness(
             DemandForecast.lower_bound,
             DemandForecast.upper_bound,
             Product.category.label("family"),
+            Product.unit_cost,
         )
         .outerjoin(
             DemandForecast,
@@ -437,6 +439,7 @@ async def get_model_effectiveness(
                 "lower_bound": row.lower_bound,
                 "upper_bound": row.upper_bound,
                 "family": row.family or "unknown",
+                "unit_cost": _safe_float(row.unit_cost),
             }
             for row in rows
         ]
@@ -485,6 +488,9 @@ async def get_model_effectiveness(
         trend = "stable"
 
     confidence = _confidence_label(sample_count)
+    overstock_dollars_value, _ = calculate_overstock_dollars(
+        frame.rename(columns={"forecasted_demand": "predicted_qty", "actual_demand": "actual_qty"})
+    )
 
     opp_query = (
         select(
@@ -561,10 +567,7 @@ async def get_model_effectiveness(
             "coverage": round(float(coverage), 4) if coverage is not None else None,
             "stockout_miss_rate": round(stockout_miss_rate, 4),
             "overstock_rate": round(overstock_rate, 4),
-            "overstock_dollars": _round_or_none(
-                opp_summary.get("overstock").holding_cost if opp_summary.get("overstock") else 0.0,
-                2,
-            ),
+            "overstock_dollars": _round_or_none(overstock_dollars_value, 2),
             "opportunity_cost_stockout": _round_or_none(
                 opp_summary.get("stockout").opportunity_cost if opp_summary.get("stockout") else 0.0,
                 2,

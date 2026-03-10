@@ -144,3 +144,10 @@ async def test_list_experiments_filters_by_model_name(client, seeded_db, test_db
     assert len(payload) == 1
     assert payload[0]["model_name"] == "demand_forecast"
     assert payload[0]["experiment_name"] == "forecast_feature_hypothesis"
+
+
+@pytest.mark.asyncio
+async def test_list_experiments_invalid_type_returns_400(client):
+    response = await client.get("/experiments?experiment_type=definitely_not_valid")
+    assert response.status_code == 400
+    assert "Unsupported experiment_type" in response.json()["detail"]
