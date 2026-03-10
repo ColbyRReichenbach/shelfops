@@ -39,7 +39,7 @@ async def test_propose_experiment_accepts_extended_taxonomy(client, seeded_db, t
     result = await test_db.execute(select(ModelExperiment))
     experiment = result.scalar_one()
     assert experiment.experiment_type == "feature_set"
-    assert experiment.proposed_by == "dev@shelfops.com"
+    assert experiment.proposed_by == "test@shelfops.com"
     assert (experiment.results or {}).get("lineage_metadata", {}).get("change_ticket") == "EXP-001"
 
 
@@ -176,10 +176,10 @@ async def test_approve_experiment_uses_authenticated_actor(client, seeded_db, te
         json={"approved_by": "spoofed@shelfops.com", "rationale": "ship it"},
     )
     assert response.status_code == 200
-    assert response.json()["approved_by"] == "dev@shelfops.com"
+    assert response.json()["approved_by"] == "test@shelfops.com"
 
     await test_db.refresh(experiment)
-    assert experiment.approved_by == "dev@shelfops.com"
+    assert experiment.approved_by == "test@shelfops.com"
 
 
 @pytest.mark.asyncio

@@ -5,13 +5,25 @@ Uses per-test transactions with SAVEPOINT/rollback so each test gets a
 clean database state while sharing the same session-level schema.
 """
 
+import os
+import sys
 import uuid
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
+VALID_DEBUG_VALUES = {"1", "0", "true", "false", "yes", "no", "on", "off"}
+if os.environ.get("DEBUG", "").strip().lower() not in VALID_DEBUG_VALUES:
+    os.environ["DEBUG"] = "false"
+os.environ.setdefault("APP_ENV", "test")
 
 from api.deps import get_current_user, get_db, get_tenant_db
 from api.main import app
