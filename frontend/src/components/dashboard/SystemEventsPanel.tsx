@@ -1,13 +1,11 @@
 /**
  * SystemEventsPanel — Live WebSocket event feed, collapsible side drawer.
- * WS-4 demo component. Sets window.__demoEventReceived for Shepherd.js steps.
  */
 
 import { useState, useCallback, useRef } from 'react'
 import { X, Radio, ChevronDown, ChevronUp } from 'lucide-react'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { WsMessage } from '@/hooks/useWebSocket'
-import { useDemoMode } from '@/hooks/useDemoMode'
 
 // Extend window for Shepherd.js interop
 declare global {
@@ -50,30 +48,61 @@ function formatTimestamp(): string {
     })
 }
 
-function eventToSystemEvent(msg: WsMessage): SystemEvent {
+function summarizeProductionMessage(msg: WsMessage): Pick<SystemEvent, 'message' | 'detail'> {
+    if (msg.payload && typeof msg.payload === 'object') {
+        const payload = msg.payload as Record<string, unknown>
+        const message =
+            (typeof payload.message === 'string' && payload.message) ||
+            (typeof payload.summary === 'string' && payload.summary) ||
+            `${msg.type.replace(/_/g, ' ')} received`
+        const fragments = [
+            typeof payload.version === 'string' ? `version ${payload.version}` : null,
+            typeof payload.model_version === 'string' ? `model ${payload.model_version}` : null,
+            typeof payload.store_id === 'string' ? `store ${payload.store_id.slice(0, 8)}` : null,
+            typeof payload.product_id === 'string' ? `product ${payload.product_id.slice(0, 8)}` : null,
+            typeof payload.status === 'string' ? `status ${payload.status}` : null,
+        ].filter(Boolean)
+
+        return {
+            message,
+            detail: fragments.length > 0 ? fragments.join(' · ') : undefined,
+        }
+    }
+
+    return {
+        message: `${msg.type.replace(/_/g, ' ')} received`,
+        detail: undefined,
+    }
+}
+
+function eventToSystemEvent(msg: WsMessage, demoMode: 'buyer' | 'technical' | null): SystemEvent {
     const ts = formatTimestamp()
     const id = `${msg.type}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    const productionSummary = summarizeProductionMessage(msg)
 
     return {
         id,
         timestamp: ts,
         type: msg.type,
-        message: BUYER_LABELS[msg.type] ?? msg.type,
-        technical: TECHNICAL_LABELS[msg.type] ?? msg.type,
+        message: demoMode ? BUYER_LABELS[msg.type] ?? msg.type : productionSummary.message,
+        technical: demoMode ? TECHNICAL_LABELS[msg.type] ?? msg.type : productionSummary.message,
         detail:
-            msg.type === 'po_decision'
+            demoMode === 'technical' && msg.type === 'po_decision'
                 ? 'Feature matrix update scheduled for next retrain'
-                : undefined,
+                : productionSummary.detail,
     }
 }
 
 interface SystemEventsPanelProps {
     isOpen?: boolean
+    demoMode?: 'buyer' | 'technical' | null
 }
 
-export default function SystemEventsPanel({ isOpen: initialOpen = false }: SystemEventsPanelProps) {
-    const { isTechnical } = useDemoMode()
-    const [isOpen, setIsOpen] = useState(initialOpen || isTechnical)
+export default function SystemEventsPanel({
+    isOpen: initialOpen = false,
+    demoMode = null,
+}: SystemEventsPanelProps) {
+    const [isOpen, setIsOpen] = useState(initialOpen || demoMode === 'technical')
     const [events, setEvents] = useState<SystemEvent[]>([])
     const listRef = useRef<HTMLDivElement>(null)
 
@@ -81,12 +110,13 @@ export default function SystemEventsPanel({ isOpen: initialOpen = false }: Syste
         // Skip heartbeats — don't pollute the feed
         if (msg.type === 'heartbeat') return
 
-        // Signal Shepherd.js that a real event arrived
-        window.__demoEventReceived = true
+        if (demoMode) {
+            window.__demoEventReceived = true
+        }
 
-        const systemEvent = eventToSystemEvent(msg)
+        const systemEvent = eventToSystemEvent(msg, demoMode)
         setEvents(prev => [systemEvent, ...prev].slice(0, 50))
-    }, [])
+    }, [demoMode])
 
     const { connected } = useWebSocket(handleMessage)
 
@@ -174,13 +204,13 @@ export default function SystemEventsPanel({ isOpen: initialOpen = false }: Syste
                                     <span className="font-mono text-shelf-foreground/40 flex-shrink-0 mt-0.5">
                                         [{event.timestamp}]
                                     </span>
-                                    <div className="min-w-0 flex-1">
-                                        <p className="text-shelf-foreground/80">
-                                            {isTechnical
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-shelf-foreground/80">
+                                            {demoMode === 'technical'
                                                 ? (event.technical ?? event.message)
                                                 : event.message}
                                         </p>
-                                        {isTechnical && event.detail && (
+                                        {event.detail && (
                                             <p className="text-shelf-foreground/40 mt-0.5">
                                                 {event.detail}
                                             </p>

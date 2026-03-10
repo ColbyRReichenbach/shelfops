@@ -1,7 +1,7 @@
 <div align="center">
 
 # ShelfOps
-**AI-powered inventory intelligence for retail — predicts stockouts 2–3 days early, optimizes reorder points, and automates PO workflows. Multi-tenant SaaS with production ML governance.**
+**Inventory intelligence for SMB retail: forecast-guided replenishment, human-reviewed purchase-order workflows, and auditable ML operations.**
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -13,7 +13,7 @@
 [![Celery](https://img.shields.io/badge/Celery-5-37814A?logo=celery&logoColor=white)](https://docs.celeryq.dev/)
 [![MLflow](https://img.shields.io/badge/MLflow-Tracking-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![pytest](https://img.shields.io/badge/pytest-497%20passing-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![pytest](https://img.shields.io/badge/pytest-tested-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
 
 Built by **Colby Reichenbach**
 
@@ -25,7 +25,7 @@ Built by **Colby Reichenbach**
 
 ---
 
-## The Problem I Kept Seeing
+## Why I Built It
 
 I spent four years working in retail, most of it in inventory and receiving. The same problems showed up at every store I worked, regardless of size or category:
 
@@ -34,26 +34,27 @@ I spent four years working in retail, most of it in inventory and receiving. The
 - **Ordering by gut** — managers placing purchase orders based on memory and habit, not data. Fast-movers stock out on Friday. Slow-movers pile up and get marked down at end of quarter.
 - **No early warning** — by the time you realize something's wrong, customers have already walked out empty-handed.
 
-These aren't edge cases. They're the daily reality for thousands of independent and mid-size retailers, and they quietly eat margins every single day. I built ShelfOps because I wanted to give those stores the same kind of inventory intelligence that enterprise retailers pay millions for — without the enterprise price tag or a six-month implementation.
+ShelfOps is my attempt to turn that operational pain into a usable system: a product for SMB retailers built with the backend and MLOps discipline I would expect in a much larger platform.
 
 ---
 
-## What ShelfOps Does
+## What It Does
 
-ShelfOps connects to your point-of-sale and ERP data, learns your demand patterns, and gives you a **2–3 day early warning** before a stockout hits. Then it acts — generating reorder recommendations, drafting purchase orders, and flagging anomalies before they turn into lost sales.
+ShelfOps combines inventory visibility, forecast-guided replenishment, alert triage, and human-reviewed purchase-order decisions in one workflow.
 
-- **Predicts stockouts 2–3 days early** using a machine learning ensemble trained on your store's own history
-- **Dynamic reorder optimization** — calculates reorder points and order quantities that adjust as patterns change, not static thresholds you set and forget
-- **Automated PO workflows** — drafts and routes purchase orders without manual spreadsheet work
-- **Ghost stock detection** — surfaces inventory discrepancies between what the system thinks you have and what's actually there
-- **Promotion-aware forecasting** — accounts for markdowns and campaigns so demand spikes don't throw off your baseline
-- **Multi-location ready** — built from day one to manage multiple stores under one account
+- **Forecast-guided buying** with a LightGBM-first demand model and business-rule overlays
+- **Human-in-the-loop PO workflow** with approve, edit, reject, and decision-history paths
+- **Alert and anomaly review** so unusual inventory or demand behavior is surfaced in the same operator workflow
+- **Auditable ML lifecycle** with champion/challenger tracking, retraining logs, and promotion gates
+- **Multi-tenant backend patterns** for store, org, and integration boundaries
 
 ---
 
 ## Built For
 
-Small and mid-size retailers who need enterprise-grade inventory intelligence without the enterprise complexity. The integration layer supports EDI (X12 846/856/810), SFTP batch files, and event-stream integrations (Kafka/Redpanda via scheduled consumers), so the platform scales with you as your operation grows.
+SMB retailers that still rely on spreadsheets, manual checks, or fragmented tooling, but want stronger inventory discipline without enterprise rollout complexity.
+
+The platform also includes EDI, SFTP, and Kafka-style ingestion paths to demonstrate how the same workflow can scale into more enterprise-shaped environments. Those enterprise paths are architecture proof, not a claim of broad enterprise GA readiness.
 
 ---
 

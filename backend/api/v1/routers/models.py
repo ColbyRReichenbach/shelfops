@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.deps import get_current_user, get_tenant_db
 from db.models import ModelVersion
+from ml.lineage import append_lifecycle_event
 
 logger = structlog.get_logger()
 
@@ -164,7 +165,13 @@ async def get_model_health(
     from db.models import MLAlert, ModelRetrainingLog, Transaction
 
     retraining_result = await db.execute(
-        select(ModelRetrainingLog.trigger_type, ModelRetrainingLog.started_at)
+        select(
+            ModelRetrainingLog.trigger_type,
+            ModelRetrainingLog.started_at,
+            ModelRetrainingLog.status,
+            ModelRetrainingLog.version_produced,
+            ModelRetrainingLog.trigger_metadata,
+        )
         .where(
             ModelRetrainingLog.customer_id == customer_id,
             ModelRetrainingLog.model_name == "demand_forecast",
@@ -208,10 +215,32 @@ async def get_model_health(
         "last_retrain_at": last_retrain.started_at.isoformat() if last_retrain else None,
     }
 
+    recent_retraining_events_result = await db.execute(
+        select(ModelRetrainingLog)
+        .where(
+            ModelRetrainingLog.customer_id == customer_id,
+            ModelRetrainingLog.model_name == "demand_forecast",
+        )
+        .order_by(ModelRetrainingLog.started_at.desc())
+        .limit(5)
+    )
+    recent_retraining_events = [
+        {
+            "trigger_type": row.trigger_type,
+            "status": row.status,
+            "version_produced": row.version_produced,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "completed_at": row.completed_at.isoformat() if row.completed_at else None,
+            "trigger_metadata": row.trigger_metadata,
+        }
+        for row in recent_retraining_events_result.scalars().all()
+    ]
+
     return {
         "champion": champion_data,
         "challenger": challenger_data,
         "retraining_triggers": retraining_triggers,
+        "recent_retraining_events": recent_retraining_events,
         "models_count": 1 + (1 if challenger else 0),
     }
 
@@ -310,6 +339,7 @@ async def promote_model(
         raise HTTPException(status_code=400, detail=f"Model {version} is already champion")
 
     model_metrics = dict(model.metrics or {})
+    original_status = model.status
     history = list(model_metrics.get("manual_promotion_history", []))
     entry = {
         "version": version,
@@ -320,6 +350,16 @@ async def promote_model(
     history.append(entry)
     model_metrics["last_manual_promotion"] = entry
     model_metrics["manual_promotion_history"] = history
+    model_metrics = append_lifecycle_event(
+        model_metrics,
+        event_type="manual_promotion_requested",
+        from_status=original_status,
+        to_status="champion",
+        reason=reason,
+        actor=actor,
+        related_version=version,
+        metadata={"rollback": original_status == "archived"},
+    )
     model.metrics = model_metrics
     await db.flush()
 
@@ -335,14 +375,14 @@ async def promote_model(
             customer_id=customer_id,
             experiment_name=f"manual_promotion_demand_forecast_{version}",
             hypothesis="Manual promotion approved by admin reviewer",
-            experiment_type="model_architecture",
+            experiment_type="rollback" if original_status == "archived" else "promotion_decision",
             model_name="demand_forecast",
             baseline_version=None,
             experimental_version=version,
             status="completed",
             proposed_by=actor,
             approved_by=actor,
-            results={"reason": reason, "actor": actor, "manual": True},
+            results={"reason": reason, "actor": actor, "manual": True, "rollback": original_status == "archived"},
             decision_rationale=reason,
             completed_at=datetime.utcnow(),
         )
@@ -429,7 +469,22 @@ async def get_model_history(
             "status": v.status,
             "mae": v.metrics.get("mae") if v.metrics else None,
             "mape": v.metrics.get("mape") if v.metrics else None,
+            "wape": v.metrics.get("wape") if v.metrics else None,
+            "mase": v.metrics.get("mase") if v.metrics else None,
+            "bias_pct": v.metrics.get("bias_pct") if v.metrics else None,
             "tier": v.metrics.get("tier") if v.metrics else None,
+            "dataset_id": v.metrics.get("dataset_id") if v.metrics else None,
+            "forecast_grain": v.metrics.get("forecast_grain") if v.metrics else None,
+            "feature_set_id": v.metrics.get("feature_set_id") if v.metrics else None,
+            "architecture": v.metrics.get("architecture") if v.metrics else None,
+            "objective": v.metrics.get("objective") if v.metrics else None,
+            "segment_strategy": v.metrics.get("segment_strategy") if v.metrics else None,
+            "tuning_profile": v.metrics.get("tuning_profile") if v.metrics else None,
+            "trigger_source": v.metrics.get("trigger_source") if v.metrics else None,
+            "lineage_label": v.metrics.get("lineage_label") if v.metrics else None,
+            "promotion_block_reason": v.metrics.get("promotion_block_reason") if v.metrics else None,
+            "promotion_decision": v.metrics.get("promotion_decision") if v.metrics else None,
+            "lifecycle_events": v.metrics.get("lifecycle_events", []) if v.metrics else [],
             "created_at": v.created_at.isoformat(),
             "promoted_at": v.promoted_at.isoformat() if v.promoted_at else None,
             "archived_at": v.archived_at.isoformat() if v.archived_at else None,

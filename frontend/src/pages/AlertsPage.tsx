@@ -1,12 +1,24 @@
 import { useState, useCallback } from 'react'
-import { AlertTriangle, ArrowRight, Loader2, AlertCircle, Wifi, WifiOff } from 'lucide-react'
+import { AlertTriangle, ArrowRight, Loader2, AlertCircle, Wifi, WifiOff, XCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { useAlerts, useAlertSummary, useAcknowledgeAlert, useResolveAlert } from '@/hooks/useShelfOps'
+import { useAlerts, useAlertSummary, useAcknowledgeAlert, useResolveAlert, useDismissAlert } from '@/hooks/useShelfOps'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { WsMessage } from '@/hooks/useWebSocket'
 
 const STATUS_TABS = ['open', 'acknowledged', 'resolved', 'dismissed'] as const
+
+const ALERT_LABELS: Record<string, string> = {
+    anomaly_detected: 'Anomaly Review',
+    stockout_predicted: 'Stockout Risk',
+    reorder_recommended: 'Reorder Suggested',
+    forecast_accuracy_low: 'Forecast Accuracy Low',
+    model_drift_detected: 'Model Drift',
+    data_stale: 'Data Stale',
+    receiving_discrepancy: 'Receiving Discrepancy',
+    vendor_reliability_low: 'Vendor Reliability Low',
+    reorder_point_changed: 'Reorder Point Changed',
+}
 
 export default function AlertsPage() {
     const [activeTab, setActiveTab] = useState<string>('open')
@@ -26,6 +38,7 @@ export default function AlertsPage() {
     const { data: summary } = useAlertSummary()
     const acknowledgeAlert = useAcknowledgeAlert()
     const resolveAlert = useResolveAlert()
+    const dismissAlert = useDismissAlert()
 
     const totalAlerts = summary?.total ?? alerts.length
     const openAlerts = summary?.open ?? 0
@@ -102,9 +115,26 @@ export default function AlertsPage() {
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-bold text-shelf-foreground">
-                                            {alert.alert_type.replace(/_/g, ' ').toUpperCase()}
+                                            {ALERT_LABELS[alert.alert_type] ?? alert.alert_type.replace(/_/g, ' ').toUpperCase()}
                                         </h3>
                                         <p className="text-sm text-shelf-foreground/80 mt-1">{alert.message}</p>
+                                        {alert.alert_type === 'anomaly_detected' && (
+                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                                <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600">
+                                                    ML anomaly
+                                                </span>
+                                                {typeof alert.alert_metadata?.anomaly_type === 'string' && (
+                                                    <span className="rounded-full bg-shelf-primary/10 px-2 py-0.5 font-medium text-shelf-primary">
+                                                        {String(alert.alert_metadata.anomaly_type).replace(/_/g, ' ')}
+                                                    </span>
+                                                )}
+                                                {typeof alert.alert_metadata?.recommended_action === 'string' && (
+                                                    <span className="text-shelf-foreground/55">
+                                                        Recommended: {String(alert.alert_metadata.recommended_action)}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                         <div className="flex gap-2 mt-2 text-xs text-shelf-foreground/50">
                                             <span className="font-mono bg-shelf-foreground/5 px-1.5 rounded">Store: {alert.store_id.slice(0, 8)}</span>
                                             <span>•</span>
@@ -118,7 +148,7 @@ export default function AlertsPage() {
                                     </div>
                                 </div>
 
-                                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex flex-wrap items-center gap-2 justify-end">
                                     {alert.status === 'open' && (
                                         <button
                                             onClick={(e) => {
@@ -141,6 +171,19 @@ export default function AlertsPage() {
                                             disabled={resolveAlert.isPending}
                                         >
                                             Resolve
+                                        </button>
+                                    )}
+                                    {(alert.status === 'open' || alert.status === 'acknowledged') && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                dismissAlert.mutate(alert.alert_id)
+                                            }}
+                                            className="btn-secondary text-xs h-8 px-3 gap-1 text-red-600 hover:bg-red-50"
+                                            disabled={dismissAlert.isPending}
+                                        >
+                                            <XCircle className="h-3 w-3" />
+                                            Dismiss
                                         </button>
                                     )}
                                     <Link

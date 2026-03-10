@@ -1,15 +1,14 @@
 # ShelfOps Documentation Index
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: engineers, hiring managers, operators, recruiters
-- Scope: active documentation surface after the 2026-02 overhaul
-- Source of truth: this index and linked active docs only
+- Scope: active source-of-truth docs plus clearly labeled planning/spec documents
+- Source of truth: this index, with only the sections below explicitly labeled as current-state docs treated as runtime truth
 
 ## Overview
 
 - Executive overview: `docs/overview/executive_overview.md`
 - Technical overview: `docs/overview/technical_overview.md`
-- Market positioning (SMB vs enterprise): `docs/overview/market_positioning.md`
 - Research sources: `docs/overview/research_sources.md`
 
 ## Product
@@ -28,7 +27,6 @@
 - Model readiness: `docs/engineering/model_readiness.md`
 - Model tuning, dataset readiness, and iteration logging contract: `docs/engineering/model_tuning_and_dataset_readiness.md`
 - ML effectiveness: `docs/engineering/ml_effectiveness.md`
-- ML improvement plan (diagnosis + phased iteration roadmap): `docs/engineering/ml_improvement_plan.md`
 
 ## Operations
 
@@ -38,8 +36,17 @@
 
 ## Demo
 
-- Recruiter demo runbook: `docs/demo/recruiter_demo_runbook.md`
+- Demo package index: `docs/demo/README.md`
 
 ## Evidence
 
 - Evidence policy and curated snapshots: `docs/evidence/README.md`
+
+## Planning And Specs
+
+These documents are intentionally kept outside the active source-of-truth surface. They may contain open questions, historical analysis, or proposed designs.
+
+- Strategy brainstorm: `docs/BRAINSTORM.md`
+- Historical ML diagnosis: `docs/engineering/ml_improvement_plan.md`
+- Domain generalization research spike: `docs/engineering/domain_generalization_spike.md`
+- Observability implementation spec: `docs/engineering/observability_spec.md`

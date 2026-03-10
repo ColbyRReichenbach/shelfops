@@ -1,6 +1,6 @@
 # ShelfOps SLO Policy
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: operations and platform engineering
 - Scope: reliability targets for SMB launch-candidate operation
 - Source of truth: runtime metrics paths and integration health endpoints
@@ -21,4 +21,4 @@
 
 ## Operational Gate
 
-Auto-promotion should be blocked when core SLOs are in critical state (`partial`, policy target; not yet enforced as an explicit SLO gate in promotion code paths).
+Auto-promotion should eventually be blocked when core runtime freshness SLOs are in critical state (`partial`, policy target; not yet enforced as an explicit SLO gate in promotion code paths).

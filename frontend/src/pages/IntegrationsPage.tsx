@@ -41,6 +41,8 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; 
     pending: { icon: Clock, color: 'text-yellow-500', label: 'Pending' },
 }
 
+const LIVE_PROVIDER_KEYS = new Set(['square'])
+
 function IntegrationCard({ integration }: { integration: Integration }) {
     const disconnect = useDisconnectIntegration()
     const [showConfirm, setShowConfirm] = useState(false)
@@ -124,10 +126,14 @@ function IntegrationCard({ integration }: { integration: Integration }) {
 
 function AvailableProviderCard({ provider, providerKey }: { provider: typeof PROVIDER_META[string]; providerKey: string }) {
     const connectUrl = providerKey === 'square' ? '/api/v1/integrations/square/connect' : '#'
-    const isSquare = providerKey === 'square'
+    const isLiveProvider = LIVE_PROVIDER_KEYS.has(providerKey)
 
     return (
-        <div className="card border border-dashed border-shelf-foreground/15 shadow-sm p-5 hover:border-shelf-primary/30 transition-all">
+        <div className={`card border shadow-sm p-5 transition-all ${
+            isLiveProvider
+                ? 'border-dashed border-shelf-foreground/15 hover:border-shelf-primary/30'
+                : 'border-shelf-foreground/10 bg-shelf-secondary/5'
+        }`}>
             <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
                     <div className={`h-11 w-11 rounded-xl ${provider.color}/20 flex items-center justify-center`}>
@@ -138,7 +144,7 @@ function AvailableProviderCard({ provider, providerKey }: { provider: typeof PRO
                         <p className="text-xs text-shelf-foreground/60 mt-0.5 max-w-sm">{provider.description}</p>
                     </div>
                 </div>
-                {isSquare ? (
+                {isLiveProvider ? (
                     <a
                         href={connectUrl}
                         className="btn-secondary text-xs h-8 px-3 gap-1"
@@ -147,7 +153,9 @@ function AvailableProviderCard({ provider, providerKey }: { provider: typeof PRO
                         <ExternalLink className="h-3 w-3" />
                     </a>
                 ) : (
-                    <span className="text-xs text-shelf-foreground/40 font-medium px-3 py-1.5">Coming soon</span>
+                    <span className="rounded-full bg-shelf-foreground/5 px-3 py-1.5 text-xs font-medium text-shelf-foreground/45">
+                        Roadmap only
+                    </span>
                 )}
             </div>
         </div>
@@ -161,6 +169,8 @@ export default function IntegrationsPage() {
     const availableProviders = Object.entries(PROVIDER_META).filter(
         ([key]) => !connectedProviders.has(key)
     )
+    const connectableProviders = availableProviders.filter(([key]) => LIVE_PROVIDER_KEYS.has(key))
+    const roadmapProviders = availableProviders.filter(([key]) => !LIVE_PROVIDER_KEYS.has(key))
 
     return (
         <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
@@ -199,12 +209,26 @@ export default function IntegrationsPage() {
                         </div>
                     )}
 
-                    {availableProviders.length > 0 && (
+                    {connectableProviders.length > 0 && (
                         <div className="space-y-3">
                             <h2 className="text-sm font-semibold text-shelf-foreground/70 uppercase tracking-wider">
-                                Available
+                                Available to Connect
                             </h2>
-                            {availableProviders.map(([key, provider]) => (
+                            {connectableProviders.map(([key, provider]) => (
+                                <AvailableProviderCard key={key} providerKey={key} provider={provider} />
+                            ))}
+                        </div>
+                    )}
+
+                    {roadmapProviders.length > 0 && (
+                        <div className="space-y-3">
+                            <h2 className="text-sm font-semibold text-shelf-foreground/70 uppercase tracking-wider">
+                                Roadmap Providers
+                            </h2>
+                            <p className="text-xs text-shelf-foreground/45">
+                                These providers are visible for planning only and are not interactive in production until OAuth and sync flows exist end to end.
+                            </p>
+                            {roadmapProviders.map(([key, provider]) => (
                                 <AvailableProviderCard key={key} providerKey={key} provider={provider} />
                             ))}
                         </div>

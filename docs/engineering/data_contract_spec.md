@@ -1,6 +1,6 @@
 # ShelfOps Data Contract Specification
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: data engineering, onboarding, ML engineering
 - Scope: contract schema, semantic controls, and validation gates
 - Source of truth: `backend/ml/contract_profiles.py`, `backend/ml/contract_mapper.py`

@@ -20,6 +20,8 @@ import structlog
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ml.lineage import append_lifecycle_event
+
 logger = structlog.get_logger()
 
 # Type aliases
@@ -43,6 +45,14 @@ def _confidence_label(value: Any) -> str:
     if not label:
         return "unavailable"
     return label
+
+
+def _relative_non_regression(candidate: float | None, champion: float | None, tolerance_pct: float) -> bool:
+    if candidate is None or champion is None:
+        return False
+    if champion == 0:
+        return candidate <= 0
+    return candidate <= champion * (1 + tolerance_pct / 100.0)
 
 
 # ─── Model Version CRUD ─────────────────────────────────────────────────────
@@ -84,6 +94,14 @@ async def register_model_version(
         metrics=metrics,
         smoke_test_passed=smoke_test_passed,
         created_at=datetime.utcnow(),
+    )
+    model_version.metrics = append_lifecycle_event(
+        model_version.metrics,
+        event_type="registered",
+        from_status=None,
+        to_status=status,
+        reason="db_model_registration",
+        related_version=version,
     )
 
     db.add(model_version)
@@ -204,7 +222,10 @@ async def evaluate_for_promotion(
       3. Coverage non-regression (candidate >= champion)
       4. Stockout miss-rate non-regression (if both present, <= +0.5pp)
       5. Overstock-rate non-regression (if both present, <= +0.5pp)
-      6. Overstock dollars improves >=1%, OR within +0.5% when stockout improves
+      6. Lost-sales quantity non-regression
+      7. Stockout opportunity-cost non-regression
+      8. Overstock carrying-cost non-regression
+      9. Overstock dollars improves >=1%, OR within +0.5% when stockout improves
 
     Args:
         db: Database session
@@ -235,19 +256,41 @@ async def evaluate_for_promotion(
 
     champion_mae = _as_float(champion_metrics.get("mae"))
     champion_mape = _as_float(champion_metrics.get("mape"))
+    champion_wape = _as_float(champion_metrics.get("wape"))
+    champion_mase = _as_float(champion_metrics.get("mase"))
+    champion_bias = _as_float(champion_metrics.get("bias_pct"))
     champion_coverage = _as_float(champion_metrics.get("coverage"))
     champion_stockout = _as_float(champion_metrics.get("stockout_miss_rate"))
     champion_overstock_rate = _as_float(champion_metrics.get("overstock_rate"))
     champion_overstock_dollars = _as_float(champion_metrics.get("overstock_dollars"))
     champion_overstock_confidence = _confidence_label(champion_metrics.get("overstock_dollars_confidence"))
+    champion_lost_sales_qty = _as_float(champion_metrics.get("lost_sales_qty"))
+    champion_stockout_cost = _as_float(champion_metrics.get("opportunity_cost_stockout"))
+    champion_stockout_cost_confidence = _confidence_label(champion_metrics.get("opportunity_cost_stockout_confidence"))
+    champion_overstock_cost = _as_float(champion_metrics.get("opportunity_cost_overstock"))
+    champion_overstock_cost_confidence = _confidence_label(
+        champion_metrics.get("opportunity_cost_overstock_confidence")
+    )
 
     candidate_mae = _as_float(candidate_metrics.get("mae"))
     candidate_mape = _as_float(candidate_metrics.get("mape"))
+    candidate_wape = _as_float(candidate_metrics.get("wape"))
+    candidate_mase = _as_float(candidate_metrics.get("mase"))
+    candidate_bias = _as_float(candidate_metrics.get("bias_pct"))
     candidate_coverage = _as_float(candidate_metrics.get("coverage"))
     candidate_stockout = _as_float(candidate_metrics.get("stockout_miss_rate"))
     candidate_overstock_rate = _as_float(candidate_metrics.get("overstock_rate"))
     candidate_overstock_dollars = _as_float(candidate_metrics.get("overstock_dollars"))
     candidate_overstock_confidence = _confidence_label(candidate_metrics.get("overstock_dollars_confidence"))
+    candidate_lost_sales_qty = _as_float(candidate_metrics.get("lost_sales_qty"))
+    candidate_stockout_cost = _as_float(candidate_metrics.get("opportunity_cost_stockout"))
+    candidate_stockout_cost_confidence = _confidence_label(
+        candidate_metrics.get("opportunity_cost_stockout_confidence")
+    )
+    candidate_overstock_cost = _as_float(candidate_metrics.get("opportunity_cost_overstock"))
+    candidate_overstock_cost_confidence = _confidence_label(
+        candidate_metrics.get("opportunity_cost_overstock_confidence")
+    )
 
     required_gate_inputs = {
         "candidate.mae": candidate_mae,
@@ -256,18 +299,29 @@ async def evaluate_for_promotion(
         "candidate.stockout_miss_rate": candidate_stockout,
         "candidate.overstock_rate": candidate_overstock_rate,
         "candidate.overstock_dollars": candidate_overstock_dollars,
+        "candidate.lost_sales_qty": candidate_lost_sales_qty,
+        "candidate.opportunity_cost_stockout": candidate_stockout_cost,
+        "candidate.opportunity_cost_overstock": candidate_overstock_cost,
         "champion.mae": champion_mae,
         "champion.mape": champion_mape,
         "champion.coverage": champion_coverage,
         "champion.stockout_miss_rate": champion_stockout,
         "champion.overstock_rate": champion_overstock_rate,
         "champion.overstock_dollars": champion_overstock_dollars,
+        "champion.lost_sales_qty": champion_lost_sales_qty,
+        "champion.opportunity_cost_stockout": champion_stockout_cost,
+        "champion.opportunity_cost_overstock": champion_overstock_cost,
     }
     missing_required_inputs = [name for name, value in required_gate_inputs.items() if value is None]
 
     # DS gates (strict)
-    mae_gate = candidate_mae is not None and champion_mae is not None and candidate_mae <= champion_mae * 1.02
-    mape_gate = candidate_mape is not None and champion_mape is not None and candidate_mape <= champion_mape * 1.02
+    mae_gate = _relative_non_regression(candidate_mae, champion_mae, tolerance_pct=2.0)
+    mape_gate = _relative_non_regression(candidate_mape, champion_mape, tolerance_pct=2.0)
+    wape_gate = True if candidate_wape is None or champion_wape is None else candidate_wape <= champion_wape * 1.02
+    mase_gate = True if candidate_mase is None or champion_mase is None else candidate_mase <= champion_mase * 1.02
+    bias_gate = (
+        True if candidate_bias is None or champion_bias is None else abs(candidate_bias) <= abs(champion_bias) + 0.01
+    )
     coverage_gate = (
         candidate_coverage is not None and champion_coverage is not None and candidate_coverage >= champion_coverage
     )
@@ -292,14 +346,38 @@ async def evaluate_for_promotion(
         "measured",
         "estimated",
     }
+    stockout_cost_confidence_gate = candidate_stockout_cost_confidence in {
+        "measured",
+        "estimated",
+    } and champion_stockout_cost_confidence in {
+        "measured",
+        "estimated",
+    }
+    overstock_cost_confidence_gate = candidate_overstock_cost_confidence in {
+        "measured",
+        "estimated",
+    } and champion_overstock_cost_confidence in {
+        "measured",
+        "estimated",
+    }
+
+    lost_sales_gate = _relative_non_regression(candidate_lost_sales_qty, champion_lost_sales_qty, tolerance_pct=0.5)
+    stockout_cost_gate = (
+        _relative_non_regression(candidate_stockout_cost, champion_stockout_cost, tolerance_pct=0.5)
+        and stockout_cost_confidence_gate
+    )
+    overstock_cost_gate = (
+        _relative_non_regression(candidate_overstock_cost, champion_overstock_cost, tolerance_pct=0.5)
+        and overstock_cost_confidence_gate
+    )
 
     if candidate_overstock_dollars is not None and champion_overstock_dollars is not None and overstock_confidence_gate:
         improved = candidate_overstock_dollars <= champion_overstock_dollars * 0.99
         near_flat_with_stockout_gain = (
             candidate_overstock_dollars <= champion_overstock_dollars * 1.005
-            and candidate_stockout is not None
-            and champion_stockout is not None
-            and candidate_stockout < champion_stockout
+            and candidate_stockout_cost is not None
+            and champion_stockout_cost is not None
+            and candidate_stockout_cost < champion_stockout_cost
         )
         overstock_dollars_gate = improved or near_flat_with_stockout_gain
     else:
@@ -310,9 +388,17 @@ async def evaluate_for_promotion(
             [
                 mae_gate,
                 mape_gate,
+                wape_gate,
+                mase_gate,
+                bias_gate,
                 coverage_gate,
                 stockout_gate,
                 overstock_rate_gate,
+                lost_sales_gate,
+                stockout_cost_confidence_gate,
+                stockout_cost_gate,
+                overstock_cost_confidence_gate,
+                overstock_cost_gate,
                 overstock_confidence_gate,
                 overstock_dollars_gate,
             ]
@@ -323,9 +409,17 @@ async def evaluate_for_promotion(
     gate_checks = {
         "mae_gate": mae_gate,
         "mape_gate": mape_gate,
+        "wape_gate": wape_gate,
+        "mase_gate": mase_gate,
+        "bias_gate": bias_gate,
         "coverage_gate": coverage_gate,
         "stockout_miss_gate": stockout_gate,
         "overstock_rate_gate": overstock_rate_gate,
+        "lost_sales_qty_gate": lost_sales_gate,
+        "opportunity_cost_stockout_confidence_gate": stockout_cost_confidence_gate,
+        "opportunity_cost_stockout_gate": stockout_cost_gate,
+        "opportunity_cost_overstock_confidence_gate": overstock_cost_confidence_gate,
+        "opportunity_cost_overstock_gate": overstock_cost_gate,
         "overstock_dollars_confidence_gate": overstock_confidence_gate,
         "overstock_dollars_gate": overstock_dollars_gate,
     }
@@ -335,35 +429,75 @@ async def evaluate_for_promotion(
         "champion_metrics": {
             "mae": champion_mae,
             "mape": champion_mape,
+            "wape": champion_wape,
+            "mase": champion_mase,
+            "bias_pct": champion_bias,
             "coverage": champion_coverage,
             "stockout_miss_rate": champion_stockout,
             "overstock_rate": champion_overstock_rate,
+            "lost_sales_qty": champion_lost_sales_qty,
+            "opportunity_cost_stockout": champion_stockout_cost,
+            "opportunity_cost_stockout_confidence": champion_stockout_cost_confidence,
+            "opportunity_cost_overstock": champion_overstock_cost,
+            "opportunity_cost_overstock_confidence": champion_overstock_cost_confidence,
             "overstock_dollars": champion_overstock_dollars,
             "overstock_dollars_confidence": champion_overstock_confidence,
         },
         "candidate_metrics": {
             "mae": candidate_mae,
             "mape": candidate_mape,
+            "wape": candidate_wape,
+            "mase": candidate_mase,
+            "bias_pct": candidate_bias,
             "coverage": candidate_coverage,
             "stockout_miss_rate": candidate_stockout,
             "overstock_rate": candidate_overstock_rate,
+            "lost_sales_qty": candidate_lost_sales_qty,
+            "opportunity_cost_stockout": candidate_stockout_cost,
+            "opportunity_cost_stockout_confidence": candidate_stockout_cost_confidence,
+            "opportunity_cost_overstock": candidate_overstock_cost,
+            "opportunity_cost_overstock_confidence": candidate_overstock_cost_confidence,
             "overstock_dollars": candidate_overstock_dollars,
             "overstock_dollars_confidence": candidate_overstock_confidence,
         },
         "thresholds": {
             "max_mae_regression_pct": 2.0,
             "max_mape_regression_pct": 2.0,
+            "max_wape_regression_pct": 2.0,
+            "max_mase_regression_pct": 2.0,
+            "max_bias_abs_regression_pp": 1.0,
             "max_stockout_miss_pp": 0.5,
             "max_overstock_rate_pp": 0.5,
+            "max_lost_sales_qty_regression_pct": 0.5,
+            "max_stockout_opportunity_cost_regression_pct": 0.5,
+            "max_overstock_opportunity_cost_regression_pct": 0.5,
             "overstock_dollars_improvement_pct": 1.0,
             "overstock_dollars_tolerance_pct": 0.5,
         },
         "missing_required_inputs": missing_required_inputs,
     }
 
+    fail_reasons = [name for name, passed in gate_checks.items() if not passed]
+    if missing_required_inputs:
+        fail_reasons.insert(0, f"missing_required_inputs:{','.join(sorted(missing_required_inputs))}")
+    decision_reason = (
+        "passed_business_and_ds_gates"
+        if should_promote
+        else ("failed_gates:" + ",".join(fail_reasons) if fail_reasons else "failed_unknown_gate")
+    )
+
     # Persist decision context with candidate metrics for reproducibility.
     enriched_metrics = dict(candidate_metrics)
     enriched_metrics["promotion_decision"] = decision
+    enriched_metrics = append_lifecycle_event(
+        enriched_metrics,
+        event_type="promotion_evaluated",
+        from_status="candidate",
+        to_status="champion" if should_promote else "challenger",
+        reason=decision_reason,
+        related_version=candidate_version,
+        metadata={"gate_checks": gate_checks},
+    )
     await db.execute(
         update(ModelVersion)
         .where(
@@ -375,15 +509,6 @@ async def evaluate_for_promotion(
     )
     await db.commit()
 
-    fail_reasons = [name for name, passed in gate_checks.items() if not passed]
-    if missing_required_inputs:
-        fail_reasons.insert(0, f"missing_required_inputs:{','.join(sorted(missing_required_inputs))}")
-    decision_reason = (
-        "passed_business_and_ds_gates"
-        if should_promote
-        else ("failed_gates:" + ",".join(fail_reasons) if fail_reasons else "failed_unknown_gate")
-    )
-
     # Persist to model experiment log for reproducible decision trace.
     from db.models import ModelExperiment
 
@@ -391,7 +516,7 @@ async def evaluate_for_promotion(
         customer_id=customer_id,
         experiment_name=f"promotion_eval_{model_name}_{candidate_version}",
         hypothesis="Candidate meets business + DS promotion gates.",
-        experiment_type="model_architecture",
+        experiment_type="promotion_decision",
         model_name=model_name,
         baseline_version=champion["version"],
         experimental_version=candidate_version,
@@ -431,6 +556,14 @@ async def evaluate_for_promotion(
         }
     else:
         # Not promoted → set as challenger for shadow testing
+        challenger_metrics = append_lifecycle_event(
+            enriched_metrics,
+            event_type="entered_shadow",
+            from_status="candidate",
+            to_status="challenger",
+            reason=decision_reason,
+            related_version=champion["version"],
+        )
         await db.execute(
             update(ModelVersion)
             .where(
@@ -438,7 +571,7 @@ async def evaluate_for_promotion(
                 ModelVersion.model_name == model_name,
                 ModelVersion.version == candidate_version,
             )
-            .values(status="challenger", routing_weight=0.0)
+            .values(status="challenger", routing_weight=0.0, metrics=challenger_metrics)
         )
         await db.commit()
 
@@ -475,32 +608,49 @@ async def promote_to_champion(
     2. Promote new version to champion
     3. Publish alert
     """
-    from sqlalchemy import update
-
     from db.models import ModelVersion
 
     now = datetime.utcnow()
-
-    # Archive existing champion
-    await db.execute(
-        update(ModelVersion)
-        .where(
+    result = await db.execute(
+        select(ModelVersion).where(
             ModelVersion.customer_id == customer_id,
             ModelVersion.model_name == model_name,
-            ModelVersion.status == "champion",
         )
-        .values(status="archived", archived_at=now)
     )
+    models = result.scalars().all()
+    target = next((row for row in models if row.version == version), None)
+    if target is None:
+        raise ValueError(f"Model version not found for promotion: {model_name}:{version}")
 
-    # Promote new champion
-    await db.execute(
-        update(ModelVersion)
-        .where(
-            ModelVersion.customer_id == customer_id,
-            ModelVersion.model_name == model_name,
-            ModelVersion.version == version,
-        )
-        .values(status="champion", promoted_at=now, routing_weight=1.0)
+    current_champion = next((row for row in models if row.status == "champion" and row.version != version), None)
+    prior_status = target.status
+
+    for row in models:
+        if row.status == "champion" and row.version != version:
+            row.status = "archived"
+            row.archived_at = now
+            row.metrics = append_lifecycle_event(
+                row.metrics,
+                event_type="archived",
+                from_status="champion",
+                to_status="archived",
+                reason=f"superseded_by:{version}",
+                related_version=version,
+            )
+            row.metrics["archived_by_version"] = version
+
+    target.status = "champion"
+    target.promoted_at = now
+    target.archived_at = None
+    target.routing_weight = 1.0
+    target.metrics = append_lifecycle_event(
+        target.metrics,
+        event_type="rollback_promoted" if prior_status == "archived" else "promoted_to_champion",
+        from_status=prior_status,
+        to_status="champion",
+        reason="manual_or_auto_promotion",
+        related_version=current_champion.version if current_champion else None,
+        metadata={"restored_from_archive": prior_status == "archived"},
     )
 
     await db.commit()

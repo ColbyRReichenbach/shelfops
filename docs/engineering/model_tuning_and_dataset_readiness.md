@@ -1,6 +1,6 @@
 # ShelfOps Model Tuning and Dataset Readiness
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: ML engineers and data reviewers
 - Scope: dataset readiness, tuning protocol, and promotion gate inputs
 - Source of truth: `backend/workers/retrain.py`, `backend/ml/arena.py`, `backend/ml/experiment.py`, `backend/scripts/validate_training_datasets.py`
@@ -22,7 +22,7 @@
 ## Tuning Policy
 
 - Time-based splits only for evaluation comparability (`implemented`).
-- Canonical metrics: `mae`, `mape_nonzero`, `stockout_miss_rate`, `overstock_rate` (`implemented`).
+- Canonical metrics: `wape`, `mase`, `bias_pct`, `stockout_miss_rate`, `overstock_rate`, `overstock_dollars`, `opportunity_cost_*` (`implemented`).
 - Promotion requires non-regression DS and business gates (`implemented`).
 - Large auto-search expansion without stronger production telemetry is deferred (`partial`).
 

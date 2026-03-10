@@ -12,6 +12,29 @@ export interface ApiError {
     detail: string
 }
 
+export function getApiBaseUrl(): string {
+    if (!API_BASE) {
+        return window.location.origin
+    }
+    return new URL(API_BASE, window.location.origin).toString().replace(/\/$/, '')
+}
+
+export function getWebSocketBaseUrl(): string {
+    const apiUrl = new URL(getApiBaseUrl())
+    apiUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:'
+    return apiUrl.toString().replace(/\/$/, '')
+}
+
+export function getApiErrorDetail(error: unknown, fallback = 'Unknown error'): string {
+    if (error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
+        return error.detail
+    }
+    if (error instanceof Error && error.message) {
+        return error.message
+    }
+    return fallback
+}
+
 async function request<T>(
     path: string,
     token: string | null,
@@ -33,6 +56,15 @@ async function request<T>(
     if (!response.ok) {
         const body = await response.json().catch(() => ({ detail: response.statusText }))
         throw { status: response.status, detail: body.detail ?? 'Unknown error' } as ApiError
+    }
+
+    if (response.status === 204) {
+        return undefined as T
+    }
+
+    const contentLength = response.headers.get('content-length')
+    if (contentLength === '0') {
+        return undefined as T
     }
 
     return response.json()

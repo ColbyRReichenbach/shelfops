@@ -1,6 +1,6 @@
 # ShelfOps Integration Incident Runbook
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: operations and integration engineering
 - Scope: incident response for EDI/SFTP/event and sync-health degradations
 - Source of truth: integration router contracts and worker behavior
@@ -16,7 +16,7 @@
 1. Identify impacted tenant and source (`implemented`).
 2. Inspect `integration_sync_log` evidence and failure payload (`implemented`).
 3. Classify severity (`implemented`).
-4. Run source-specific recovery checks (`implemented`).
+4. Run source-specific recovery checks or replay steps that exist today (`implemented`).
 5. Revalidate sync-health and logs before clearing incident (`implemented`).
 
 ## Escalation Boundaries

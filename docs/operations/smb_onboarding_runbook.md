@@ -1,6 +1,6 @@
 # ShelfOps SMB Onboarding Runbook
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: onboarding, ops, data engineering
 - Scope: SMB CSV/SFTP onboarding path
 - Source of truth: contract profiles and onboarding scripts
@@ -10,7 +10,7 @@
 1. Receive source sample extract (`implemented`).
 2. Author or approve tenant profile at `contracts/<tenant>/<source>/v1.yaml` (`implemented`).
 3. Run validation gate (`implemented`).
-4. Canonicalize and run candidate training path (`implemented`).
+4. Canonicalize and run onboarding validation / candidate training path (`implemented`).
 5. Promote only through DS + business gates (`implemented`).
 
 ## Verified Invocation Surfaces
@@ -26,4 +26,4 @@ PYTHONPATH=backend python3 backend/scripts/run_onboarding_flow.py --help
 
 ## Policy Note
 
-Square/REST normalization and webhook processors are implemented (`implemented`).
+Square-first normalization and CSV/SFTP onboarding are the current practical SMB entry paths (`implemented` / `pilot_validated` boundary).

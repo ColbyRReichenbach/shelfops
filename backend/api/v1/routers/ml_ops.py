@@ -15,13 +15,15 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import structlog
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_tenant_db
-from db.models import BacktestResult, DemandForecast, ForecastAccuracy, ModelVersion
+from api.deps import get_current_user, get_tenant_db
+from db.models import BacktestResult, DemandForecast, ForecastAccuracy, ModelVersion, OpportunityCostLog, Product
+from ml.business_metrics import calculate_overstock_dollars
 
 logger = structlog.get_logger()
 
@@ -29,6 +31,60 @@ router = APIRouter(prefix="/api/v1/ml", tags=["ml-ops"])
 
 MODEL_DIR = Path(__file__).parent.parent.parent.parent / "models"
 REPORTS_DIR = Path(__file__).parent.parent.parent.parent / "reports"
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _round_or_none(value: Any, digits: int = 4) -> float | None:
+    try:
+        if value is None:
+            return None
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _confidence_label(sample_count: int) -> str:
+    if sample_count >= 200:
+        return "measured"
+    if sample_count >= 50:
+        return "estimated"
+    return "low_sample"
+
+
+def _segment_summary(frame: pd.DataFrame, segment_col: str, label: str) -> dict[str, Any]:
+    if frame.empty or segment_col not in frame.columns or frame[segment_col].isna().all():
+        return {"available": False, "label": label, "segments": []}
+
+    segments = []
+    grouped = frame.groupby(segment_col, dropna=False)
+    for segment_value, group in grouped:
+        actual = group["actual_demand"].astype(float).to_numpy()
+        pred = group["forecasted_demand"].astype(float).to_numpy()
+        abs_error = abs(pred - actual)
+        denom = float(abs(actual).sum())
+        mean_actual = float(actual.mean()) if len(actual) else 0.0
+        segments.append(
+            {
+                "segment": str(segment_value),
+                "samples": int(len(group)),
+                "mae": round(float(abs_error.mean()), 4),
+                "wape": round(float(abs_error.sum() / denom), 4) if denom else 0.0,
+                "bias_pct": round(float((pred - actual).mean() / mean_actual), 4) if mean_actual else 0.0,
+                "stockout_miss_rate": round(
+                    float(((group["actual_demand"] > 0) & (group["forecasted_demand"] <= 0)).mean()), 4
+                ),
+                "overstock_rate": round(float((group["forecasted_demand"] > group["actual_demand"]).mean()), 4),
+            }
+        )
+
+    segments.sort(key=lambda item: item["samples"], reverse=True)
+    return {"available": True, "label": label, "segments": segments[:8]}
 
 
 # ── Model Registry ────────────────────────────────────────────────────────
@@ -64,6 +120,20 @@ async def list_models(
             "version": v.version,
             "status": v.status,
             "metrics": v.metrics,
+            "dataset_id": (v.metrics or {}).get("dataset_id"),
+            "forecast_grain": (v.metrics or {}).get("forecast_grain"),
+            "segment_strategy": (v.metrics or {}).get("segment_strategy"),
+            "feature_set_id": (v.metrics or {}).get("feature_set_id"),
+            "architecture": (v.metrics or {}).get("architecture"),
+            "objective": (v.metrics or {}).get("objective"),
+            "tuning_profile": (v.metrics or {}).get("tuning_profile"),
+            "trigger_source": (v.metrics or {}).get("trigger_source"),
+            "lineage_label": (v.metrics or {}).get("lineage_label"),
+            "rule_overlay_enabled": (v.metrics or {}).get("rule_overlay_enabled"),
+            "evaluation_window_days": (v.metrics or {}).get("evaluation_window_days"),
+            "promotion_reason": ((v.metrics or {}).get("promotion_decision") or {}).get("reason"),
+            "promotion_decision": (v.metrics or {}).get("promotion_decision"),
+            "lifecycle_events": (v.metrics or {}).get("lifecycle_events", []),
             "smoke_test_passed": v.smoke_test_passed,
             "routing_weight": v.routing_weight,
             "created_at": v.created_at.isoformat() if v.created_at else None,
@@ -75,12 +145,18 @@ async def list_models(
 
 
 @router.get("/models/{version}/shap")
-async def get_model_shap(version: str) -> dict[str, Any]:
+async def get_model_shap(
+    version: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
     """
     Get SHAP feature importance for a model version.
 
     Returns top features sorted by importance for bar chart rendering.
     """
+    del user, db
+
     # Check model-specific report dirs first, then global
     search_paths = [
         REPORTS_DIR / f"demand_forecast_{version}" / "feature_importance.json",
@@ -96,7 +172,7 @@ async def get_model_shap(version: str) -> dict[str, Any]:
             return {
                 "version": version,
                 "features": [{"name": k, "importance": round(v, 4)} for k, v in sorted_features],
-                "source": str(path),
+                "source": path.name,
             }
 
     return {"version": version, "features": [], "source": None}
@@ -158,12 +234,15 @@ async def list_backtests(
 @router.get("/experiments")
 async def list_experiments(
     model_name: str | None = None,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> list[dict[str, Any]]:
     """
     List training run history from local JSON logs.
 
     Reads from reports/{model_name}/ directories.
     """
+    del user, db
     runs = []
 
     # Scan report directories
@@ -203,12 +282,16 @@ async def list_experiments(
 
 
 @router.get("/registry")
-async def get_registry() -> dict[str, Any]:
+async def get_registry(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
     """
     Full model registry from local JSON file.
 
     Shows iteration history from v1 → vN with metrics.
     """
+    del user, db
     registry_path = MODEL_DIR / "registry.json"
     if not registry_path.exists():
         return {"models": [], "updated_at": None}
@@ -298,20 +381,22 @@ async def get_model_effectiveness(
     product_id: str | None = Query(None),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
-    """
-    Operational model effectiveness summary for rolling windows.
-
-    Uses live ForecastAccuracy rows and joins prediction intervals from DemandForecast
-    to compute coverage.
-    """
+    """Operational model effectiveness summary for rolling windows."""
     cutoff = datetime.utcnow() - timedelta(days=window_days)
 
-    versions_query = await db.execute(select(ModelVersion.version).where(ModelVersion.model_name == model_name))
-    model_versions = [str(row.version) for row in versions_query.all()]
+    version_rows = (
+        await db.execute(
+            select(ModelVersion.version, ModelVersion.metrics).where(ModelVersion.model_name == model_name)
+        )
+    ).all()
+    model_versions = [str(row.version) for row in version_rows]
+    version_meta = {str(row.version): (row.metrics or {}) for row in version_rows}
 
     query = (
         select(
             ForecastAccuracy.forecast_date,
+            ForecastAccuracy.store_id,
+            ForecastAccuracy.product_id,
             ForecastAccuracy.model_version,
             ForecastAccuracy.forecasted_demand,
             ForecastAccuracy.actual_demand,
@@ -319,6 +404,8 @@ async def get_model_effectiveness(
             ForecastAccuracy.mape,
             DemandForecast.lower_bound,
             DemandForecast.upper_bound,
+            Product.category.label("family"),
+            Product.unit_cost,
         )
         .outerjoin(
             DemandForecast,
@@ -327,6 +414,7 @@ async def get_model_effectiveness(
             & (DemandForecast.forecast_date == ForecastAccuracy.forecast_date)
             & (DemandForecast.model_version == ForecastAccuracy.model_version),
         )
+        .outerjoin(Product, Product.product_id == ForecastAccuracy.product_id)
         .where(ForecastAccuracy.evaluated_at >= cutoff)
         .order_by(ForecastAccuracy.forecast_date.asc())
     )
@@ -350,43 +438,61 @@ async def get_model_effectiveness(
             "confidence": "unavailable",
         }
 
-    def _safe_float(value: Any) -> float:
-        try:
-            return float(value or 0.0)
-        except (TypeError, ValueError):
-            return 0.0
+    frame = pd.DataFrame(
+        [
+            {
+                "forecast_date": row.forecast_date,
+                "store_id": str(row.store_id),
+                "product_id": str(row.product_id),
+                "model_version": str(row.model_version),
+                "forecasted_demand": _safe_float(row.forecasted_demand),
+                "actual_demand": _safe_float(row.actual_demand),
+                "mae": _safe_float(row.mae),
+                "mape": _safe_float(row.mape),
+                "lower_bound": row.lower_bound,
+                "upper_bound": row.upper_bound,
+                "family": row.family or "unknown",
+                "unit_cost": _safe_float(row.unit_cost),
+            }
+            for row in rows
+        ]
+    )
 
-    sample_count = len(rows)
-    mae_values = [_safe_float(r.mae) for r in rows]
-    mape_values = [_safe_float(r.mape) for r in rows]
+    sample_count = int(len(frame))
+    mae_avg = float(frame["mae"].mean())
+    abs_actual_sum = float(frame["actual_demand"].abs().sum())
+    mean_actual = float(frame["actual_demand"].mean()) if sample_count else 0.0
+    wape = (
+        float((frame["forecasted_demand"] - frame["actual_demand"]).abs().sum() / abs_actual_sum)
+        if abs_actual_sum
+        else 0.0
+    )
+    bias = float((frame["forecasted_demand"] - frame["actual_demand"]).mean() / mean_actual) if mean_actual else 0.0
+    seasonality = 7 if sample_count > 7 else 1
+    naive_errors = (
+        frame["actual_demand"].iloc[seasonality:].reset_index(drop=True)
+        - frame["actual_demand"].iloc[:-seasonality].reset_index(drop=True)
+    ).abs()
+    naive_mae = float(naive_errors.mean()) if len(naive_errors) else 0.0
+    mase = float(mae_avg / naive_mae) if naive_mae else 0.0
 
-    stockout_misses = 0
-    overstock = 0
-    covered = 0
-    coverage_denominator = 0
-    for row in rows:
-        actual = _safe_float(row.actual_demand)
-        forecasted = _safe_float(row.forecasted_demand)
-        if actual > 0 and forecasted <= 0:
-            stockout_misses += 1
-        if forecasted > actual:
-            overstock += 1
-        if row.lower_bound is not None and row.upper_bound is not None:
-            coverage_denominator += 1
-            if _safe_float(row.lower_bound) <= actual <= _safe_float(row.upper_bound):
-                covered += 1
-
-    mae_avg = sum(mae_values) / sample_count
-    mape_avg = sum(mape_values) / sample_count
-    stockout_miss_rate = stockout_misses / sample_count
-    overstock_rate = overstock / sample_count
-    coverage = (covered / coverage_denominator) if coverage_denominator > 0 else None
+    stockout_miss_rate = float(((frame["actual_demand"] > 0) & (frame["forecasted_demand"] <= 0)).mean())
+    overstock_rate = float((frame["forecasted_demand"] > frame["actual_demand"]).mean())
+    coverage_mask = frame["lower_bound"].notna() & frame["upper_bound"].notna()
+    coverage = (
+        float(
+            (
+                (frame.loc[coverage_mask, "actual_demand"] >= frame.loc[coverage_mask, "lower_bound"])
+                & (frame.loc[coverage_mask, "actual_demand"] <= frame.loc[coverage_mask, "upper_bound"])
+            ).mean()
+        )
+        if coverage_mask.any()
+        else None
+    )
 
     midpoint = sample_count // 2
-    early = mae_values[:midpoint] if midpoint else mae_values
-    recent = mae_values[midpoint:] if midpoint else mae_values
-    early_mae = (sum(early) / len(early)) if early else mae_avg
-    recent_mae = (sum(recent) / len(recent)) if recent else mae_avg
+    early_mae = float(frame["mae"].iloc[:midpoint].mean()) if midpoint else mae_avg
+    recent_mae = float(frame["mae"].iloc[midpoint:].mean()) if midpoint else mae_avg
     if recent_mae < early_mae * 0.97:
         trend = "improving"
     elif recent_mae > early_mae * 1.03:
@@ -394,30 +500,69 @@ async def get_model_effectiveness(
     else:
         trend = "stable"
 
-    if sample_count >= 200:
-        confidence = "measured"
-    elif sample_count >= 50:
-        confidence = "estimated"
+    confidence = _confidence_label(sample_count)
+    overstock_dollars_value, _ = calculate_overstock_dollars(
+        frame.rename(columns={"forecasted_demand": "predicted_qty", "actual_demand": "actual_qty"})
+    )
+
+    opp_query = (
+        select(
+            OpportunityCostLog.cost_type,
+            func.sum(OpportunityCostLog.opportunity_cost).label("opportunity_cost"),
+            func.sum(OpportunityCostLog.holding_cost).label("holding_cost"),
+            func.sum(OpportunityCostLog.lost_sales_qty).label("lost_sales_qty"),
+        )
+        .where(OpportunityCostLog.date >= cutoff.date())
+        .group_by(OpportunityCostLog.cost_type)
+    )
+    if store_id:
+        opp_query = opp_query.where(OpportunityCostLog.store_id == store_id)
+    if product_id:
+        opp_query = opp_query.where(OpportunityCostLog.product_id == product_id)
+    opp_rows = (await db.execute(opp_query)).all()
+    opp_summary = {str(row.cost_type): row for row in opp_rows}
+
+    store_totals = frame.groupby("store_id")["actual_demand"].sum().sort_values()
+    if len(store_totals) >= 2:
+        ranked = store_totals.rank(method="first")
+        bins = min(10, len(store_totals))
+        deciles = pd.qcut(ranked, q=bins, labels=False, duplicates="drop") + 1
+        store_decile_map = {store_key: f"D{int(decile)}" for store_key, decile in deciles.items()}
     else:
-        confidence = "low_sample"
+        store_decile_map = {store_key: "D1" for store_key in store_totals.index}
+    frame["store_decile"] = frame["store_id"].map(store_decile_map).fillna("D1")
 
-    by_version: dict[str, dict[str, float | int]] = {}
-    for row in rows:
-        key = str(row.model_version)
-        item = by_version.setdefault(key, {"samples": 0, "mae_sum": 0.0, "mape_sum": 0.0})
-        item["samples"] += 1
-        item["mae_sum"] += _safe_float(row.mae)
-        item["mape_sum"] += _safe_float(row.mape)
-
-    version_metrics = [
-        {
-            "model_version": version,
-            "samples": values["samples"],
-            "mae": round(values["mae_sum"] / values["samples"], 4) if values["samples"] else None,
-            "mape_nonzero": round(values["mape_sum"] / values["samples"], 4) if values["samples"] else None,
-        }
-        for version, values in sorted(by_version.items())
-    ]
+    version_metrics = []
+    for version, group in frame.groupby("model_version"):
+        version_actual_sum = float(group["actual_demand"].abs().sum())
+        version_mean_actual = float(group["actual_demand"].mean()) if len(group) else 0.0
+        version_metrics.append(
+            {
+                "model_version": version,
+                "samples": int(len(group)),
+                "mae": round(float(group["mae"].mean()), 4),
+                "mape_nonzero": round(float(group["mape"].mean()), 4),
+                "wape": round(
+                    float((group["forecasted_demand"] - group["actual_demand"]).abs().sum() / version_actual_sum),
+                    4,
+                )
+                if version_actual_sum
+                else 0.0,
+                "mase": round(float(group["mae"].mean() / naive_mae), 4) if naive_mae else 0.0,
+                "bias_pct": round(
+                    float((group["forecasted_demand"] - group["actual_demand"]).mean() / version_mean_actual),
+                    4,
+                )
+                if version_mean_actual
+                else 0.0,
+                "forecast_grain": version_meta.get(version, {}).get("forecast_grain"),
+                "dataset_id": version_meta.get(version, {}).get("dataset_id"),
+                "segment_strategy": version_meta.get(version, {}).get("segment_strategy"),
+                "rule_overlay_enabled": version_meta.get(version, {}).get("rule_overlay_enabled"),
+                "evaluation_window_days": version_meta.get(version, {}).get("evaluation_window_days"),
+            }
+        )
+    version_metrics.sort(key=lambda item: item["model_version"])
 
     return {
         "window_days": window_days,
@@ -428,12 +573,48 @@ async def get_model_effectiveness(
         "confidence": confidence,
         "metrics": {
             "mae": round(mae_avg, 4),
-            "mape_nonzero": round(mape_avg, 4),
+            "mape_nonzero": round(float(frame["mape"].mean()), 4),
+            "wape": round(wape, 4),
+            "mase": round(mase, 4),
+            "bias_pct": round(bias, 4),
             "coverage": round(float(coverage), 4) if coverage is not None else None,
             "stockout_miss_rate": round(stockout_miss_rate, 4),
             "overstock_rate": round(overstock_rate, 4),
+            "overstock_dollars": _round_or_none(overstock_dollars_value, 2),
+            "opportunity_cost_stockout": _round_or_none(
+                opp_summary.get("stockout").opportunity_cost if opp_summary.get("stockout") else 0.0,
+                2,
+            ),
+            "opportunity_cost_overstock": _round_or_none(
+                opp_summary.get("overstock").holding_cost if opp_summary.get("overstock") else 0.0,
+                2,
+            ),
+            "lost_sales_qty": _round_or_none(
+                opp_summary.get("stockout").lost_sales_qty if opp_summary.get("stockout") else 0.0,
+                2,
+            ),
         },
         "by_version": version_metrics,
+        "forecast_grain": next(
+            (meta.get("forecast_grain") for meta in version_meta.values() if meta.get("forecast_grain")),
+            None,
+        ),
+        "evaluation_window": {
+            "days": window_days,
+            "sample_count": sample_count,
+            "start_date": frame["forecast_date"].min().isoformat() if sample_count else None,
+            "end_date": frame["forecast_date"].max().isoformat() if sample_count else None,
+        },
+        "segment_breakdowns": {
+            "family": _segment_summary(frame, "family", "family"),
+            "store_decile": _segment_summary(frame, "store_decile", "store_decile"),
+            "promo": {
+                "available": False,
+                "label": "promo",
+                "segments": [],
+                "reason": "promotion flags are not stored on ForecastAccuracy rows",
+            },
+        },
         "window_start": cutoff.date().isoformat(),
         "window_end": datetime.utcnow().date().isoformat(),
     }

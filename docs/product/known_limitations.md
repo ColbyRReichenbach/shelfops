@@ -1,84 +1,61 @@
 # ShelfOps — Known Platform Limitations
 
-- Last updated: March 8, 2026
+- Last verified date: March 9, 2026
 - Audience: engineers, technical reviewers, enterprise evaluators
-- Scope: current architectural constraints and platform boundaries — distinct from operational P0/P1 blockers in `docs/product/known_issues.md`
+- Scope: current architectural constraints and platform boundaries, separate from active blockers in `docs/product/known_issues.md`
+- Source of truth: active backend/frontend code paths and current product docs
 
-These are known boundaries of the current design, not defects. Each is a deliberate tradeoff made to ship a reliable SMB-focused platform. Most are addressable in later phases and are tracked as forward investments in `docs/product/future_integrations.md`.
-
----
+These are deliberate boundaries of the current system, not hidden defects.
 
 ## ML and Forecasting
 
-**Static lead times in the optimizer**
-The reorder point (ROP) and EOQ calculations in `backend/inventory/optimizer.py` treat supplier lead times as fixed inputs per vendor. There is no mechanism to dynamically adjust lead time estimates based on external signals (weather events, carrier delays, port congestion). Buyers must manually update lead time values when disruptions occur.
-
-**Prediction intervals are heuristic, not calibrated**
-The forecast pipeline populates `lower_bound`, `upper_bound`, and `confidence`, but the interval logic in `backend/ml/predict.py` is still a residual-based heuristic rather than calibrated quantile regression. Buyers get directional uncertainty bands, not statistically validated coverage guarantees.
-
-**Binary feature tier selection**
-`detect_feature_tier()` in `backend/ml/features.py` selects either the 27-feature baseline tier or the 45-feature enriched tier based on a single threshold (history depth). There is no per-feature importance scoring or dynamic feature selection — a tenant either qualifies for the enriched tier in full or falls back to baseline.
-
-**No exogenous signal ingestion**
-The model is trained entirely on historical POS and inventory data. It has no awareness of external signals — social media trends, news events, competitor stockouts, or macroeconomic indicators — that can drive demand shocks with no historical analog.
-
-**Minimum training history requirement**
-New tenants and newly added product lines still start with limited tenant-specific history. ShelfOps falls back to cold-start feature tiers and conservative promotion-gate behavior, but early-window forecasts remain less personalized until sufficient tenant data accumulates.
-
-**Time-series CV only — no cross-tenant model sharing**
-Models are trained per-tenant with time-based cross-validation splits. There is no cross-tenant knowledge transfer or pre-training. A new tenant with 30 days of history is starting cold; it cannot benefit from patterns observed across other tenants.
-
----
+- Static lead times in the optimizer.
+  `backend/inventory/optimizer.py` treats lead time as an input, not a dynamically inferred signal.
+- Prediction intervals are heuristic, not calibrated.
+  `backend/ml/predict.py` emits directional bounds, but they are not quantile-calibrated intervals.
+- Feature-tiering is coarse.
+  `backend/ml/features.py` serves either `cold_start` or `production`; there is no dynamic per-feature selection.
+- No exogenous signal ingestion.
+  Forecasting still relies on tenant POS, inventory, pricing, and promotion context rather than weather, news, or social demand signals.
+- New tenants still ramp from limited history.
+  Cold-start behavior and conservative gates exist, but early-window forecasts are less personalized until tenant history accumulates.
+- No cross-tenant pretraining or transfer learning.
+  Models are trained per tenant and evaluated with time-based splits only.
 
 ## Infrastructure and Scalability
 
-**Single-region deployment**
-The current deployment targets a single region. There are no multi-region routing, data residency controls, or cross-region failover mechanisms. This is a blocker for enterprise buyers in regulated markets (EU data residency, HIPAA-adjacent supply chains).
-
-**Celery beat is a single scheduler process**
-The 12 scheduled jobs run through a single Celery beat process. There is no high-availability (HA) scheduler configuration. If the beat process crashes, scheduled jobs stop until it is restarted. This is acceptable for the current SMB deployment target but would require an HA scheduler (e.g., RedBeat with Redis locking) for enterprise SLO commitments.
-
-**Batch ingestion cadence — not real-time**
-The fastest ingest cadence is 5 minutes (Kafka worker). SFTP and EDI workers run every 15 minutes. Forecast updates and reorder recommendations are therefore delayed by at least one ingestion cycle after a sale event. Real-time shelf-level inventory accuracy is not achievable with the current architecture.
-
-**No horizontal autoscaling for ML workers**
-The `ml` Celery queue (retrain, forecasts, monitoring) runs on a fixed worker pool. There is no autoscaling logic to add capacity during scheduled heavy jobs (e.g., midnight retrain across many tenants). Under high tenant load, ML jobs queue and delay.
-
-**Local dev only — no staging environment**
-The `docker-compose.yml` covers local development. There is no persistent staging environment. Pre-production validation relies on deterministic fixture-based tests and replay simulations rather than a live staging tier.
-
----
+- Single-region, local-first deployment posture.
+  The repo supports local orchestration and deterministic validation, not a multi-region deployment surface.
+- Single scheduler path.
+  Scheduled tenant fan-out is centralized in `backend/workers/scheduler.py`; no HA scheduler setup is tracked in-repo.
+- Batch-oriented ingest cadence.
+  Kafka-style ingest is scheduled, and EDI/SFTP remain batch-oriented. The platform is near-real-time at best, not instant event-by-event processing.
+- Fixed worker capacity.
+  ML worker scaling is static; there is no autoscaling policy in the tracked runtime.
+- No persistent staging environment.
+  Release confidence still relies on CI, local replay, and deterministic runtime prep rather than a permanent staging tier.
 
 ## Multi-Tenancy and Security
 
-**RLS is application-enforced, not audited externally**
-Row-level security is enforced via `SET LOCAL app.current_tenant` at the session level. There is no external audit layer that continuously verifies cross-tenant data isolation. The convention is correctly implemented throughout the codebase, but relies on developer discipline (`get_tenant_db` usage) rather than a hard enforcement boundary outside the application.
-
-**Enterprise onboarding is non-GA**
-Enterprise tenant provisioning, billing integration, and SLA-backed onboarding flows are not available as a self-service path. Enterprise customers require manual onboarding. This is tracked as a deferred item in `docs/product/known_issues.md`.
-
----
+- Tenant isolation relies on DB RLS plus application session context.
+  RLS is enabled and forced in migrations, and API routes use `get_tenant_db()` to set `app.current_customer_id`. There is no separate external audit service continuously validating tenant isolation.
+- Enterprise onboarding is non-GA.
+  Enterprise provisioning and SLA-backed onboarding remain manual and policy-bounded.
 
 ## Integrations
 
-**No inbound webhook retry queue**
-Inbound webhook events (e.g., Square POS) are processed synchronously. If the processing pipeline fails after acknowledgment, the event is not replayed. There is no persistent webhook event store or dead-letter queue for failed inbound events.
-
-**EDI X12 subset only**
-The EDI adapter (`backend/integrations/edi_adapter.py`) handles transaction sets 846 (inventory advice), 856 (advance ship notice), and 810 (invoice). Other common retail EDI sets — 850 (purchase order), 855 (PO acknowledgment), 860 (PO change) — are not currently parsed.
-
-**No native ERP connectors**
-Enterprise ERP platforms (SAP S/4HANA, Oracle NetSuite, Microsoft Dynamics 365) are not supported via native API connectors. Data from these systems must be routed through the SFTP batch or EDI pathways, which may not match the real-time expectations of enterprise buyers.
-
----
+- No inbound webhook replay or dead-letter path.
+  Webhook recovery remains a pre-pilot hardening gap.
+- EDI coverage is partial.
+  The adapter covers a useful X12 subset, not the full retail EDI surface.
+- No native ERP connectors.
+  Enterprise ERP data still needs to come through file- or adapter-based paths.
 
 ## Frontend and Observability
 
-**No prediction interval visualization**
-The dashboard surfaces forecast values and SHAP feature importance but does not display confidence intervals or model uncertainty. Buyers have no visual signal for when the model is operating outside its reliable range.
-
-**SHAP explanations not surfaced in buyer-facing views**
-SHAP feature importance is rendered in the ML Ops page (`FeatureImportance` component, Models tab) for operator/technical users. It is not available in the buyer-facing forecast or reorder recommendation views — buyers do not see a per-prediction driver summary or week-over-week explanation alongside their suggested POs.
-
-**No tenant-level observability dashboard**
-There is no operator-facing view of per-tenant model health, forecast accuracy trends, data freshness, or integration sync status. Monitoring is logged to the database (`IntegrationSyncLog`, accuracy backfill tables) but not surfaced in the UI.
+- No prediction-interval visualization in buyer workflows.
+  The UI does not yet surface uncertainty where forecast-driven actions are taken.
+- SHAP is technical, not buyer-facing.
+  Explainability is available in ML Ops surfaces, not embedded into buyer decision views.
+- Operator observability exists, but it is still shallow.
+  The `Operations` page exposes sync health, alert load, and model health, but it is not yet a full tenant operations console.

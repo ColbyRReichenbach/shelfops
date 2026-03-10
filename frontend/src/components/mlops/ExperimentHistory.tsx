@@ -2,15 +2,19 @@
  * ExperimentHistory — Training run table with metrics.
  */
 
-import { FlaskConical, Loader2 } from 'lucide-react'
+import { AlertCircle, FlaskConical, Loader2 } from 'lucide-react'
 import type { ExperimentRun } from '@/lib/types'
 
 export default function ExperimentHistory({
     experiments,
     isLoading,
+    isError,
+    errorMessage,
 }: {
     experiments: ExperimentRun[]
     isLoading: boolean
+    isError: boolean
+    errorMessage: string
 }) {
     if (isLoading) {
         return (
@@ -21,12 +25,21 @@ export default function ExperimentHistory({
         )
     }
 
+    if (isError) {
+        return (
+            <div className="card border border-red-200 bg-red-50/50 shadow-sm text-center py-16">
+                <AlertCircle className="h-8 w-8 mx-auto mb-3 text-red-500" />
+                <p className="text-sm text-red-600">{errorMessage}</p>
+            </div>
+        )
+    }
+
     if (experiments.length === 0) {
         return (
             <div className="card border border-white/40 shadow-sm text-center py-16">
                 <FlaskConical className="h-8 w-8 mx-auto mb-3 text-shelf-foreground/30" />
                 <p className="text-sm text-shelf-foreground/50">No training runs recorded</p>
-                <p className="text-xs text-shelf-foreground/40 mt-1">Run train_category_models.py to create experiments</p>
+                <p className="text-xs text-shelf-foreground/40 mt-1">Log a hypothesis above, then run the training pipeline to populate this history.</p>
             </div>
         )
     }
@@ -40,8 +53,9 @@ export default function ExperimentHistory({
                             <th className="px-4 py-3">Experiment</th>
                             <th className="px-4 py-3">Model</th>
                             <th className="px-4 py-3 text-right">MAE</th>
-                            <th className="px-4 py-3 text-right">MAPE</th>
-                            <th className="px-4 py-3 text-right">R²</th>
+                            <th className="px-4 py-3 text-right">WAPE</th>
+                            <th className="px-4 py-3 text-right">MASE</th>
+                            <th className="px-4 py-3 text-right">Bias</th>
                             <th className="px-4 py-3">Date</th>
                             <th className="px-4 py-3">Trigger</th>
                         </tr>
@@ -49,8 +63,9 @@ export default function ExperimentHistory({
                     <tbody className="divide-y divide-shelf-foreground/5">
                         {experiments.map((run, idx) => {
                             const mae = run.metrics?.mae ?? run.metrics?.test_mae
-                            const mape = run.metrics?.mape ?? run.metrics?.test_mape
-                            const r2 = run.metrics?.r2 ?? run.metrics?.test_r2
+                            const wape = run.metrics?.wape ?? run.metrics?.test_wape
+                            const mase = run.metrics?.mase ?? run.metrics?.test_mase
+                            const biasPct = run.metrics?.bias_pct
 
                             return (
                                 <tr key={run.source_file ?? idx} className="hover:bg-shelf-foreground/[0.02] transition-colors">
@@ -71,10 +86,13 @@ export default function ExperimentHistory({
                                         {mae !== undefined ? Number(mae).toFixed(2) : '—'}
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono">
-                                        {mape !== undefined ? `${(Number(mape) * 100).toFixed(1)}%` : '—'}
+                                        {wape !== undefined ? `${(Number(wape) * 100).toFixed(1)}%` : '—'}
                                     </td>
                                     <td className="px-4 py-3 text-right font-mono">
-                                        {r2 !== undefined ? Number(r2).toFixed(3) : '—'}
+                                        {mase !== undefined ? Number(mase).toFixed(2) : '—'}
+                                    </td>
+                                    <td className="px-4 py-3 text-right font-mono">
+                                        {biasPct !== undefined ? `${(Number(biasPct) * 100).toFixed(1)}%` : '—'}
                                     </td>
                                     <td className="px-4 py-3 text-shelf-foreground/60 text-xs">
                                         {run.timestamp

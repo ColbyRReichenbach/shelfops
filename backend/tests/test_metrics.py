@@ -5,7 +5,7 @@ Tests for WAPE and MASE metrics (ml/metrics.py).
 import numpy as np
 import pytest
 
-from ml.metrics import mase, wape
+from ml.metrics import bias_pct, mase, mean_error, wape
 
 
 def test_wape_basic():
@@ -98,3 +98,15 @@ def test_mase_zero_naive_mae_edge_case():
     # naive lag-1 MAE = 0 (constant series) → MASE = 0.0
     result = mase(actual, predicted, seasonality=1)
     assert result == 0.0
+
+
+def test_mean_error_positive_for_overforecasting():
+    actual = np.array([10.0, 20.0, 30.0])
+    predicted = np.array([12.0, 22.0, 33.0])
+    assert mean_error(actual, predicted) > 0
+
+
+def test_bias_pct_negative_for_underforecasting():
+    actual = np.array([10.0, 20.0, 30.0])
+    predicted = np.array([9.0, 18.0, 27.0])
+    assert bias_pct(actual, predicted) < 0

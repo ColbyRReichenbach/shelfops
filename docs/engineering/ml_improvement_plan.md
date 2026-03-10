@@ -1,8 +1,18 @@
 # ShelfOps — ML Model Improvement Plan
 
+- Last verified date: March 10, 2026
+- Audience: ML engineers and reviewers
+- Scope: historical diagnosis that explains why the current LightGBM-first path replaced the older stack
 - Author: DS Lead review, February 24, 2026
-- Status: Working document — iteration roadmap
+- Status: Historical analysis — not the current runtime contract
+- Source of truth: use `backend/ml/train.py`, `backend/ml/arena.py`, `backend/workers/retrain.py`, and active engineering docs for current behavior
 - Prerequisite reading: `docs/MLOPS_STANDARDS.md`, `backend/ml/train.py`, `backend/ml/features.py`
+
+> Historical note: this document captures the February 2026 diagnosis that led to the
+> current LightGBM-first pipeline. The live runtime contract now lives in
+> `backend/ml/train.py`, `backend/ml/arena.py`, `backend/workers/retrain.py`,
+> `docs/engineering/model_tuning_and_dataset_readiness.md`, and
+> `docs/overview/technical_overview.md`.
 
 ---
 

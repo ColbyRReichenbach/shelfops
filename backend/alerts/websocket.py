@@ -7,6 +7,7 @@ Skill: alert-systems (Redis pub/sub pattern)
 
 import asyncio
 import json
+from typing import cast
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -36,24 +37,46 @@ async def authenticate_ws(token: str) -> dict | None:
         return None
 
 
+def _extract_subprotocol_token(websocket: WebSocket) -> tuple[str | None, str | None]:
+    raw_header = websocket.headers.get("sec-websocket-protocol")
+    if not raw_header:
+        return None, None
+
+    for candidate in (value.strip() for value in raw_header.split(",")):
+        if candidate.startswith("bearer."):
+            return candidate.removeprefix("bearer."), candidate
+    return None, None
+
+
 @router.websocket("/ws/alerts")
-async def websocket_alerts(websocket: WebSocket, token: str = Query(...)):
+async def websocket_alerts(websocket: WebSocket, token: str | None = Query(None)):
     """
     WebSocket endpoint that streams alerts via Redis pub/sub.
 
-    Connect: ws://host/ws/alerts?token=<jwt>
+    Connect: ws://host/ws/alerts using Sec-WebSocket-Protocol: bearer.<jwt>
 
     Messages sent to client:
         {"type": "alert", "payload": {...}}
         {"type": "inventory_update", "payload": {...}}
     """
+    header_token, negotiated_protocol = _extract_subprotocol_token(websocket)
+    auth_token = header_token or token
+
     # Authenticate
-    user = await authenticate_ws(token)
+    if settings.debug and auth_token is None:
+        user = {
+            "sub": "dev-user",
+            "customer_id": "00000000-0000-0000-0000-000000000001",
+        }
+    elif auth_token is None:
+        user = None
+    else:
+        user = await authenticate_ws(auth_token)
     if user is None:
         await websocket.close(code=4001, reason="Unauthorized")
         return
 
-    await websocket.accept()
+    await websocket.accept(subprotocol=cast(str | None, negotiated_protocol))
 
     customer_id = user.get("customer_id", "")
     channel = f"alerts:{customer_id}"

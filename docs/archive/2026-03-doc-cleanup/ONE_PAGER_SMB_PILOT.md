@@ -3,6 +3,9 @@
 ## Pilot Goal
 Reduce avoidable stock risk while keeping planners in control of replenishment decisions.
 
+## Positioning
+ShelfOps is built for SMB operators who still rely heavily on manual inventory review, but it is backed by enterprise-style logic for security, auditability, and future scale.
+
 ## What Customers See in Pilot
 - Inventory risk dashboard.
 - Alert triage workflow.
@@ -24,8 +27,8 @@ Reduce avoidable stock risk while keeping planners in control of replenishment d
 4. Week 6: Readout with KPI deltas and rollout recommendation.
 
 ## What Is Live vs In Hardening
-- Live now: mid-market operating flow and reproducible model iteration.
-- In hardening: enterprise-grade ingestion test depth and expanded scheduler/runtime validation evidence.
+- Live now: SMB/mid-market operating flow, HITL replenishment, auditable forecasting lifecycle, and staged integration paths.
+- In hardening: deeper tenant-specific model calibration, enterprise rollout evidence, and broader runtime validation depth.
 
 ## Required Inputs
 - Transaction history, store/product IDs, and inventory snapshots.

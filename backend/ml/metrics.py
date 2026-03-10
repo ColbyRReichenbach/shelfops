@@ -64,3 +64,25 @@ def mase(actual: np.ndarray, predicted: np.ndarray, seasonality: int = 1) -> flo
         return 0.0
 
     return float(mae_model / mae_naive)
+
+
+def mean_error(actual: np.ndarray, predicted: np.ndarray) -> float:
+    """Signed mean error. Positive means over-forecasting."""
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    return float(np.mean(predicted - actual))
+
+
+def bias_pct(actual: np.ndarray, predicted: np.ndarray) -> float:
+    """
+    Bias normalized by mean actual demand.
+
+    Positive values indicate systematic over-forecasting.
+    Negative values indicate systematic under-forecasting.
+    """
+    actual = np.asarray(actual, dtype=float)
+    predicted = np.asarray(predicted, dtype=float)
+    mean_actual = float(np.mean(actual)) if len(actual) else 0.0
+    if mean_actual == 0:
+        return 0.0
+    return float(mean_error(actual, predicted) / mean_actual)

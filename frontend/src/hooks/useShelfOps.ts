@@ -9,8 +9,10 @@ import type {
     Product, Store, Alert, AlertSummary,
     Forecast, ForecastAccuracy, Integration,
     InventoryItem, InventorySummary,
+    ProductMutationPayload, StoreMutationPayload,
     MLModel, BacktestEntry, ExperimentRun,
-    SHAPFeature, MLHealth, SyncHealthResponse,
+    ExperimentLedgerEntry, ProposeExperimentPayload, ProposeExperimentResponse, ApproveExperimentPayload,
+    SHAPFeature, MLHealth, MLEffectiveness, ModelHistoryEntry, RuntimeModelHealth, SyncHealthResponse,
 } from '@/lib/types'
 
 // ─── Products ──────────────────────────────────────────────────────────────
@@ -37,6 +39,47 @@ export function useProduct(productId: string | undefined) {
     })
 }
 
+export function useCreateProduct() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: ProductMutationPayload) =>
+            api.post<Product>('/api/v1/products/', payload),
+        onSuccess: (product) => {
+            queryClient.invalidateQueries({ queryKey: ['products'] })
+            queryClient.invalidateQueries({ queryKey: ['product', product.product_id] })
+        },
+    })
+}
+
+export function useUpdateProduct() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ productId, payload }: { productId: string; payload: Partial<ProductMutationPayload> }) =>
+            api.patch<Product>(`/api/v1/products/${productId}`, payload),
+        onSuccess: (product) => {
+            queryClient.invalidateQueries({ queryKey: ['products'] })
+            queryClient.invalidateQueries({ queryKey: ['product', product.product_id] })
+        },
+    })
+}
+
+export function useDeleteProduct() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (productId: string) =>
+            api.delete<void>(`/api/v1/products/${productId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['products'] })
+        },
+    })
+}
+
 // ─── Stores ────────────────────────────────────────────────────────────────
 
 export function useStores(status?: string) {
@@ -48,6 +91,56 @@ export function useStores(status?: string) {
     return useQuery({
         queryKey: ['stores', status],
         queryFn: () => api.get<Store[]>(`/api/v1/stores/${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useStore(storeId: string | undefined) {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['store', storeId],
+        queryFn: () => api.get<Store>(`/api/v1/stores/${storeId}`),
+        enabled: !!storeId,
+    })
+}
+
+export function useCreateStore() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: StoreMutationPayload) =>
+            api.post<Store>('/api/v1/stores/', payload),
+        onSuccess: (store) => {
+            queryClient.invalidateQueries({ queryKey: ['stores'] })
+            queryClient.invalidateQueries({ queryKey: ['store', store.store_id] })
+        },
+    })
+}
+
+export function useUpdateStore() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ storeId, payload }: { storeId: string; payload: Partial<StoreMutationPayload> }) =>
+            api.patch<Store>(`/api/v1/stores/${storeId}`, payload),
+        onSuccess: (store) => {
+            queryClient.invalidateQueries({ queryKey: ['stores'] })
+            queryClient.invalidateQueries({ queryKey: ['store', store.store_id] })
+        },
+    })
+}
+
+export function useDeleteStore() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (storeId: string) =>
+            api.delete<void>(`/api/v1/stores/${storeId}`),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['stores'] })
+        },
     })
 }
 
@@ -107,6 +200,20 @@ export function useResolveAlert() {
                 action_type: 'resolved',
                 notes,
             }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['alerts'] })
+            queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
+        },
+    })
+}
+
+export function useDismissAlert() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (alertId: string) =>
+            api.patch<Alert>(`/api/v1/alerts/${alertId}/dismiss`, {}),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['alerts'] })
             queryClient.invalidateQueries({ queryKey: ['alert-summary'] })
@@ -254,11 +361,88 @@ export function useExperiments(modelName?: string) {
     })
 }
 
+export function useExperimentLedger(filters?: {
+    modelName?: string
+    status?: string
+    experimentType?: string
+    limit?: number
+}) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (filters?.modelName) params.set('model_name', filters.modelName)
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.experimentType) params.set('experiment_type', filters.experimentType)
+    if (filters?.limit) params.set('limit', String(filters.limit))
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-ledger', filters],
+        queryFn: () => api.get<ExperimentLedgerEntry[]>(`/api/v1/experiments${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useProposeExperiment() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: ProposeExperimentPayload) =>
+            api.post<ProposeExperimentResponse>('/api/v1/experiments', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+        },
+    })
+}
+
+export function useApproveExperiment() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ experimentId, rationale }: ApproveExperimentPayload) =>
+            api.patch(`/api/v1/experiments/${experimentId}/approve`, { rationale }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+        },
+    })
+}
+
 export function useMLHealth() {
     const api = useApi()
     return useQuery({
         queryKey: ['ml-health'],
         queryFn: () => api.get<MLHealth>('/api/v1/ml/health'),
+    })
+}
+
+export function useModelHistory(limit = 20) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    params.set('limit', String(limit))
+
+    return useQuery({
+        queryKey: ['model-history', limit],
+        queryFn: () => api.get<ModelHistoryEntry[]>(`/api/v1/ml/models/history?${params.toString()}`),
+    })
+}
+
+export function useRuntimeModelHealth() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['runtime-model-health'],
+        queryFn: () => api.get<RuntimeModelHealth>('/api/v1/ml/models/health'),
+    })
+}
+
+export function useMLEffectiveness(windowDays = 30, modelName = 'demand_forecast') {
+    const api = useApi()
+    const params = new URLSearchParams()
+    params.set('window_days', String(windowDays))
+    params.set('model_name', modelName)
+
+    return useQuery({
+        queryKey: ['ml-effectiveness', windowDays, modelName],
+        queryFn: () => api.get<MLEffectiveness>(`/api/v1/ml/effectiveness?${params.toString()}`),
     })
 }
 

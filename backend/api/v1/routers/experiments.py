@@ -23,12 +23,13 @@ from typing import Any, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_tenant_db
+from api.deps import get_current_user, get_tenant_db
 from db.models import ModelExperiment
+from ml.lineage import EXPERIMENT_TYPE_CHOICES, normalize_experiment_type
 
 logger = structlog.get_logger()
 
@@ -41,18 +42,21 @@ router = APIRouter(prefix="/experiments", tags=["experiments"])
 class ProposeExperimentRequest(BaseModel):
     experiment_name: str
     hypothesis: str
-    experiment_type: Literal["feature_engineering", "model_architecture", "data_source", "segmentation"]
+    experiment_type: str
     model_name: str = "demand_forecast"
-    proposed_by: str  # User ID or email
+    lineage_metadata: dict[str, Any] | None = None
+
+    @field_validator("experiment_type")
+    @classmethod
+    def validate_experiment_type(cls, value: str) -> str:
+        return normalize_experiment_type(value)
 
 
 class ApproveExperimentRequest(BaseModel):
-    approved_by: str
     rationale: str | None = None
 
 
 class RejectExperimentRequest(BaseModel):
-    rejected_by: str
     rationale: str
 
 
@@ -61,6 +65,24 @@ class CompleteExperimentRequest(BaseModel):
     decision_rationale: str
     results: dict[str, Any]  # {baseline_mae, experimental_mae, improvement_pct, etc.}
     experimental_version: str | None = None
+    rollback_version: str | None = None
+
+
+def _resolve_customer_id(user: dict) -> uuid.UUID:
+    raw = user.get("customer_id")
+    if not raw:
+        raise HTTPException(status_code=401, detail="No customer context set")
+    try:
+        return uuid.UUID(str(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Invalid customer context") from exc
+
+
+def _resolve_actor(user: dict) -> str:
+    actor = user.get("email") or user.get("sub")
+    if not actor:
+        raise HTTPException(status_code=401, detail="No authenticated actor available")
+    return str(actor)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -68,9 +90,11 @@ class CompleteExperimentRequest(BaseModel):
 
 @router.get("")
 async def list_experiments(
+    model_name: str | None = None,
     status: str | None = None,
     experiment_type: str | None = None,
     limit: int = 50,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> list[dict[str, Any]]:
     """
@@ -81,20 +105,21 @@ async def list_experiments(
       - experiment_type: 'feature_engineering', 'model_architecture', etc.
       - limit: Max experiments to return (default 50)
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Build query
     query = select(ModelExperiment).where(ModelExperiment.customer_id == customer_id)
 
     if status:
         query = query.where(ModelExperiment.status == status)
+    if model_name:
+        query = query.where(ModelExperiment.model_name == model_name)
     if experiment_type:
-        query = query.where(ModelExperiment.experiment_type == experiment_type)
+        try:
+            normalized_type = normalize_experiment_type(experiment_type)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        query = query.where(ModelExperiment.experiment_type == normalized_type)
 
     query = query.order_by(ModelExperiment.created_at.desc()).limit(limit)
 
@@ -113,6 +138,8 @@ async def list_experiments(
             "approved_by": exp.approved_by,
             "baseline_version": exp.baseline_version,
             "experimental_version": exp.experimental_version,
+            "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
+            "decision_rationale": exp.decision_rationale,
             "created_at": exp.created_at.isoformat(),
             "approved_at": exp.approved_at.isoformat() if exp.approved_at else None,
             "completed_at": exp.completed_at.isoformat() if exp.completed_at else None,
@@ -124,15 +151,11 @@ async def list_experiments(
 @router.get("/{experiment_id}")
 async def get_experiment_details(
     experiment_id: str,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """Get full details for a specific experiment."""
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -158,6 +181,7 @@ async def get_experiment_details(
         "proposed_by": exp.proposed_by,
         "approved_by": exp.approved_by,
         "results": exp.results,
+        "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
         "decision_rationale": exp.decision_rationale,
         "created_at": exp.created_at.isoformat(),
         "approved_at": exp.approved_at.isoformat() if exp.approved_at else None,
@@ -168,6 +192,7 @@ async def get_experiment_details(
 @router.post("")
 async def propose_experiment(
     request: ProposeExperimentRequest,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """
@@ -178,16 +203,11 @@ async def propose_experiment(
           "experiment_name": "Department-Tiered Forecasting",
           "hypothesis": "Electronics demand differs from Grocery. Dedicated model will improve MAE by 12%",
           "experiment_type": "segmentation",
-          "model_name": "demand_forecast",
-          "proposed_by": "jane.doe@shelfops.com"
+          "model_name": "demand_forecast"
         }
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get current champion version as baseline
     from ml.arena import get_champion_model
@@ -206,7 +226,8 @@ async def propose_experiment(
         model_name=request.model_name,
         baseline_version=baseline_version,
         status="proposed",
-        proposed_by=request.proposed_by,
+        proposed_by=actor,
+        results={"lineage_metadata": request.lineage_metadata or {}},
         created_at=datetime.utcnow(),
     )
 
@@ -217,7 +238,7 @@ async def propose_experiment(
         "experiment.proposed",
         experiment_id=str(experiment_id),
         experiment_name=request.experiment_name,
-        proposed_by=request.proposed_by,
+        proposed_by=actor,
     )
 
     return {
@@ -232,6 +253,7 @@ async def propose_experiment(
 async def approve_experiment(
     experiment_id: str,
     request: ApproveExperimentRequest,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """
@@ -239,12 +261,8 @@ async def approve_experiment(
 
     After approval, DS can begin implementation.
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -263,7 +281,7 @@ async def approve_experiment(
 
     # Approve
     exp.status = "approved"
-    exp.approved_by = request.approved_by
+    exp.approved_by = actor
     exp.approved_at = datetime.utcnow()
 
     if request.rationale:
@@ -275,13 +293,13 @@ async def approve_experiment(
         "experiment.approved",
         experiment_id=experiment_id,
         experiment_name=exp.experiment_name,
-        approved_by=request.approved_by,
+        approved_by=actor,
     )
 
     return {
         "status": "success",
         "message": "Experiment approved",
-        "approved_by": request.approved_by,
+        "approved_by": actor,
         "approved_at": exp.approved_at.isoformat(),
     }
 
@@ -290,15 +308,12 @@ async def approve_experiment(
 async def reject_experiment(
     experiment_id: str,
     request: RejectExperimentRequest,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """Reject an experiment (manager review)."""
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -312,10 +327,21 @@ async def reject_experiment(
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
+    if exp.status not in {"proposed", "approved"}:
+        raise HTTPException(status_code=400, detail=f"Cannot reject experiment in status: {exp.status}")
+
     # Reject
     exp.status = "rejected"
     exp.decision_rationale = request.rationale
     exp.completed_at = datetime.utcnow()
+    exp.results = {
+        **dict(exp.results or {}),
+        "review": {
+            **dict((exp.results or {}).get("review") or {}),
+            "rejected_by": actor,
+            "rejected_at": exp.completed_at.isoformat(),
+        },
+    }
 
     await db.commit()
 
@@ -323,14 +349,14 @@ async def reject_experiment(
         "experiment.rejected",
         experiment_id=experiment_id,
         experiment_name=exp.experiment_name,
-        rejected_by=request.rejected_by,
+        rejected_by=actor,
         rationale=request.rationale,
     )
 
     return {
         "status": "success",
         "message": "Experiment rejected",
-        "rejected_by": request.rejected_by,
+        "rejected_by": actor,
     }
 
 
@@ -338,6 +364,7 @@ async def reject_experiment(
 async def complete_experiment(
     experiment_id: str,
     request: CompleteExperimentRequest,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """
@@ -349,12 +376,8 @@ async def complete_experiment(
       - 'partial_adopt': Adopt for specific segments (e.g., Electronics only)
       - 'rollback': Emergency rollback (experimental model caused issues)
     """
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -368,18 +391,35 @@ async def complete_experiment(
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
+    if exp.status not in {"approved", "in_progress", "shadow_testing"}:
+        raise HTTPException(status_code=400, detail=f"Cannot complete experiment in status: {exp.status}")
+
+    existing_results = dict(exp.results or {})
+    lineage_metadata = dict(existing_results.get("lineage_metadata") or {})
+    decision_payload = dict(request.results)
+    decision_payload["decision"] = request.decision
+    decision_payload["decision_rationale"] = request.decision_rationale
+    decision_payload["completed_by"] = actor
+
     # Update experiment
     exp.status = "completed"
-    exp.results = request.results
+    exp.results = {
+        **existing_results,
+        "lineage_metadata": lineage_metadata,
+        "decision_payload": decision_payload,
+    }
     exp.decision_rationale = request.decision_rationale
     exp.completed_at = datetime.utcnow()
 
     if request.experimental_version:
         exp.experimental_version = request.experimental_version
 
+    registry_sync = None
+
     # If adopted, promote model
     if request.decision == "adopt" and request.experimental_version:
         from ml.arena import promote_to_champion
+        from ml.experiment import sync_registry_with_runtime_state
 
         await promote_to_champion(
             db=db,
@@ -387,6 +427,13 @@ async def complete_experiment(
             model_name=exp.model_name,
             version=request.experimental_version,
         )
+        registry_sync = {
+            "version": request.experimental_version,
+            "model_name": exp.model_name,
+            "candidate_status": "champion",
+            "active_champion_version": request.experimental_version,
+            "promotion_reason": "experiment_adopted",
+        }
 
         logger.info(
             "experiment.adopted",
@@ -394,6 +441,32 @@ async def complete_experiment(
             experimental_version=request.experimental_version,
             improvement_pct=request.results.get("improvement_pct"),
         )
+        sync_registry_with_runtime_state(**registry_sync)
+    elif request.decision == "rollback":
+        from ml.arena import promote_to_champion
+        from ml.experiment import sync_registry_with_runtime_state
+
+        rollback_version = request.rollback_version or exp.baseline_version or request.experimental_version
+        if not rollback_version:
+            raise HTTPException(
+                status_code=400, detail="Rollback requires rollback_version, baseline_version, or experimental_version"
+            )
+
+        await promote_to_champion(
+            db=db,
+            customer_id=customer_id,
+            model_name=exp.model_name,
+            version=rollback_version,
+        )
+        registry_sync = {
+            "version": rollback_version,
+            "model_name": exp.model_name,
+            "candidate_status": "champion",
+            "active_champion_version": rollback_version,
+            "promotion_reason": "experiment_rollback",
+        }
+        sync_registry_with_runtime_state(**registry_sync)
+        decision_payload["rollback_version"] = rollback_version
 
     await db.commit()
 
@@ -411,6 +484,7 @@ async def complete_experiment(
             "experiment_id": experiment_id,
             "decision": request.decision,
             "improvement_pct": request.results.get("improvement_pct"),
+            "rollback_version": request.rollback_version,
         },
         status="unread",
         action_url=f"/experiments/{experiment_id}/results",
@@ -430,22 +504,18 @@ async def complete_experiment(
         "status": "success",
         "message": f"Experiment completed with decision: {request.decision}",
         "completed_at": exp.completed_at.isoformat(),
-        "results": request.results,
+        "results": exp.results,
     }
 
 
 @router.get("/{experiment_id}/results")
 async def get_experiment_results(
     experiment_id: str,
+    user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
     """Get experiment results (after shadow testing complete)."""
-    # Get current customer_id
-    result = await db.execute(text("SELECT current_setting('app.current_customer_id', TRUE)"))
-    customer_id_str = result.scalar()
-    if not customer_id_str:
-        raise HTTPException(status_code=401, detail="No customer context set")
-    customer_id = uuid.UUID(customer_id_str)
+    customer_id = _resolve_customer_id(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -470,6 +540,7 @@ async def get_experiment_results(
         "baseline_version": exp.baseline_version,
         "experimental_version": exp.experimental_version,
         "results": exp.results,
+        "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
         "decision_rationale": exp.decision_rationale,
         "completed_at": exp.completed_at.isoformat() if exp.completed_at else None,
     }

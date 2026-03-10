@@ -10,6 +10,7 @@ async def test_ml_effectiveness_endpoint_returns_rolling_metrics(client, seeded_
     customer_id = seeded_db["customer_id"]
     store_id = seeded_db["store"].store_id
     product_id = seeded_db["product"].product_id
+    seeded_db["product"].unit_cost = 2.0
 
     test_db.add(
         ModelVersion(
@@ -63,7 +64,15 @@ async def test_ml_effectiveness_endpoint_returns_rolling_metrics(client, seeded_
     assert payload["sample_count"] >= 6
     assert payload["metrics"]["mae"] is not None
     assert payload["metrics"]["mape_nonzero"] is not None
+    assert payload["metrics"]["wape"] is not None
+    assert payload["metrics"]["mase"] is not None
+    assert payload["metrics"]["bias_pct"] is not None
     assert payload["metrics"]["stockout_miss_rate"] is not None
     assert payload["metrics"]["overstock_rate"] is not None
+    assert payload["metrics"]["overstock_dollars"] == 12.0
     assert payload["metrics"]["coverage"] is not None
+    assert "opportunity_cost_stockout" in payload["metrics"]
+    assert payload["forecast_grain"] in {None, "store-family-day"}
+    assert payload["segment_breakdowns"]["family"]["available"] is True
+    assert payload["by_version"][0]["wape"] is not None
     assert payload["trend"] in {"improving", "stable", "degrading"}

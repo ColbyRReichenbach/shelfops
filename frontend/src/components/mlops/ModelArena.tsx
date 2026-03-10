@@ -71,8 +71,11 @@ export default function ModelArena({ models }: { models: MLModel[] }) {
 function ModelCard({ model }: { model: MLModel }) {
     const config = STATUS_CONFIG[model.status] ?? STATUS_CONFIG.candidate
     const Icon = config.icon
-    const mae = model.metrics?.mae ?? model.metrics?.test_mae
-    const mape = model.metrics?.mape ?? model.metrics?.test_mape
+    const metrics = model.metrics ?? {}
+    const mae = Number(metrics.mae ?? metrics.test_mae ?? NaN)
+    const wape = Number(metrics.wape ?? NaN)
+    const mase = Number(metrics.mase ?? NaN)
+    const biasPct = Number(metrics.bias_pct ?? NaN)
 
     return (
         <div className={`card border ${config.border} shadow-sm p-4 ${config.bg}/30`}>
@@ -94,16 +97,30 @@ function ModelCard({ model }: { model: MLModel }) {
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
-                {mae !== undefined && (
+                {!Number.isNaN(mae) && (
                     <div>
                         <p className="text-shelf-foreground/50">MAE</p>
-                        <p className="font-mono font-semibold text-shelf-foreground">{Number(mae).toFixed(2)}</p>
+                        <p className="font-mono font-semibold text-shelf-foreground">{mae.toFixed(2)}</p>
                     </div>
                 )}
-                {mape !== undefined && (
+                {!Number.isNaN(wape) && (
                     <div>
-                        <p className="text-shelf-foreground/50">MAPE</p>
-                        <p className="font-mono font-semibold text-shelf-foreground">{(Number(mape) * 100).toFixed(1)}%</p>
+                        <p className="text-shelf-foreground/50">WAPE</p>
+                        <p className="font-mono font-semibold text-shelf-foreground">{(wape * 100).toFixed(1)}%</p>
+                    </div>
+                )}
+                {!Number.isNaN(mase) && (
+                    <div>
+                        <p className="text-shelf-foreground/50">MASE</p>
+                        <p className="font-mono font-semibold text-shelf-foreground">{mase.toFixed(2)}</p>
+                    </div>
+                )}
+                {!Number.isNaN(biasPct) && (
+                    <div>
+                        <p className="text-shelf-foreground/50">Bias</p>
+                        <p className={`font-mono font-semibold ${biasPct > 0 ? 'text-red-600' : biasPct < 0 ? 'text-blue-600' : 'text-shelf-foreground'}`}>
+                            {(biasPct * 100).toFixed(1)}%
+                        </p>
                     </div>
                 )}
                 {model.routing_weight !== null && (
@@ -117,6 +134,18 @@ function ModelCard({ model }: { model: MLModel }) {
                         <p className="text-shelf-foreground/50">Trained</p>
                         <p className="font-mono text-shelf-foreground">{new Date(model.created_at).toLocaleDateString()}</p>
                     </div>
+                )}
+            </div>
+
+            <div className="mt-3 border-t border-shelf-foreground/5 pt-3 space-y-1 text-[11px] text-shelf-foreground/55">
+                {model.dataset_id && <p>Dataset: <span className="font-mono text-shelf-foreground">{model.dataset_id}</span></p>}
+                {model.forecast_grain && <p>Grain: <span className="font-mono text-shelf-foreground">{model.forecast_grain}</span></p>}
+                {model.segment_strategy && <p>Segmentation: <span className="font-mono text-shelf-foreground">{model.segment_strategy}</span></p>}
+                {typeof model.rule_overlay_enabled === 'boolean' && (
+                    <p>Rule overlay: <span className="font-mono text-shelf-foreground">{model.rule_overlay_enabled ? 'enabled' : 'raw model only'}</span></p>
+                )}
+                {model.promotion_reason && (
+                    <p className="text-shelf-foreground/70">Promotion: {model.promotion_reason.replace(/_/g, ' ')}</p>
                 )}
             </div>
         </div>

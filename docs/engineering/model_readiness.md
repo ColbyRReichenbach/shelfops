@@ -1,6 +1,6 @@
 # ShelfOps Model Readiness
 
-- Last verified date: February 24, 2026
+- Last verified date: March 9, 2026
 - Audience: ML engineers and reviewers
 - Scope: current readiness state by model/component family
 - Source of truth: backend ML modules and associated tests
@@ -16,10 +16,10 @@
 
 | Component | Status | Notes |
 |---|---|---|
-| Demand forecast core (`train.py`, `predict.py`) | `implemented` | Active train/infer paths and runtime loop coverage. |
-| Backtest and promotion arena | `implemented` | Business + DS gate enforcement in place. |
-| Retraining event audit trail (`model_retraining_log`) | `implemented` | Retrain worker persists trigger/status/version events for runtime health APIs. |
-| Model iteration diagnostics (`backend/reports/*/run_*.json`) | `implemented` | Training/run traces are available for iteration and regression triage. |
+| Demand forecast core (`train.py`, `predict.py`) | `implemented` | LightGBM-first train/infer paths are active and runtime-served. |
+| Backtest, shadow, and promotion arena | `implemented` | DS and business gates are enforced before promotion. |
+| Retraining event audit trail (`model_retraining_log`) | `implemented` | Trigger, status, and version events are persisted for runtime health surfaces. |
+| Model iteration diagnostics (`backend/reports/*/run_*.json`) | `implemented` | Training traces are available for regression and hypothesis review. |
 | Contract profiles and mapper | `implemented` | Profile-driven mapping and DQ gates are active. |
 | Explainability export path | `implemented` | Feature importance and report paths are implemented. |
 | File registry parity with DB promotion lifecycle | `implemented` | Runtime retrain flow synchronizes file artifacts with DB lifecycle state. |
@@ -29,4 +29,4 @@
 
 ## Communication Rule
 
-Each external model claim must include one status label from this taxonomy (`implemented` policy).
+Each external model claim should be anchored to one status from this taxonomy.

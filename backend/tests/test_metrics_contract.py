@@ -32,6 +32,28 @@ def test_overstock_dollars_with_measured_cost_basis():
     assert metrics["overstock_dollars_confidence"] == "measured"
 
 
+def test_business_metrics_with_measured_pricing_basis():
+    y_true = pd.Series([10.0, 3.0, 5.0])
+    y_pred = pd.Series([8.0, 5.0, 5.0])
+    unit_cost = pd.Series([2.0, 2.0, 1.0])
+    unit_price = pd.Series([4.0, 4.0, 2.0])
+    holding_cost = pd.Series([0.1, 0.1, 0.05])
+
+    metrics = compute_forecast_metrics(
+        y_true,
+        y_pred,
+        unit_cost=unit_cost,
+        unit_price=unit_price,
+        holding_cost_per_unit_per_day=holding_cost,
+    )
+
+    assert float(metrics["lost_sales_qty"]) == 2.0
+    assert float(metrics["opportunity_cost_stockout"]) == 4.0
+    assert metrics["opportunity_cost_stockout_confidence"] == "measured"
+    assert float(metrics["opportunity_cost_overstock"]) == 0.2
+    assert metrics["opportunity_cost_overstock_confidence"] == "measured"
+
+
 def test_coverage_rate():
     y_true = [10, 8, 12, 6]
     lower = [9, 9, 10, 7]
