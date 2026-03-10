@@ -28,9 +28,7 @@ def normalize_experiment_type(value: str) -> str:
     normalized = str(value or "").strip().lower()
     normalized = EXPERIMENT_TYPE_ALIASES.get(normalized, normalized)
     if normalized not in EXPERIMENT_TYPE_CHOICES:
-        raise ValueError(
-            f"Unsupported experiment_type '{value}'. Expected one of: {sorted(EXPERIMENT_TYPE_CHOICES)}"
-        )
+        raise ValueError(f"Unsupported experiment_type '{value}'. Expected one of: {sorted(EXPERIMENT_TYPE_CHOICES)}")
     return normalized
 
 

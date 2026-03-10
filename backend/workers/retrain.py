@@ -1053,7 +1053,9 @@ def retrain_forecast_model(
                         ),
                         feature_tier=model_metrics["tier"],
                         trigger_source=trigger,
-                        change_category="baseline_refresh" if trigger in {"scheduled", "manual"} else "promotion_decision",
+                        change_category="baseline_refresh"
+                        if trigger in {"scheduled", "manual"}
+                        else "promotion_decision",
                         segment_strategy=ensemble_result.get("ensemble", {}).get("segment_strategy", "global"),
                         rule_overlay_enabled=bool(model_metrics.get("rule_overlay_enabled", False)),
                         evaluation_window_days=ensemble_result.get("ensemble", {}).get("evaluation_window_days", 30),

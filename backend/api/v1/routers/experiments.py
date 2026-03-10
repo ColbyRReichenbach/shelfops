@@ -422,7 +422,9 @@ async def complete_experiment(
 
         rollback_version = request.rollback_version or exp.baseline_version or request.experimental_version
         if not rollback_version:
-            raise HTTPException(status_code=400, detail="Rollback requires rollback_version, baseline_version, or experimental_version")
+            raise HTTPException(
+                status_code=400, detail="Rollback requires rollback_version, baseline_version, or experimental_version"
+            )
 
         await promote_to_champion(
             db=db,

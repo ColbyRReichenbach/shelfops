@@ -453,7 +453,9 @@ def generate_forecasts(
                     stores_df=stores_df,
                 )
                 tenant_timezone = (
-                    str(stores_df["timezone"].dropna().iloc[0]) if not stores_df.empty and "timezone" in stores_df else "UTC"
+                    str(stores_df["timezone"].dropna().iloc[0])
+                    if not stores_df.empty and "timezone" in stores_df
+                    else "UTC"
                 )
                 logger.info(
                     "forecast_generation.inference_tier_resolved",

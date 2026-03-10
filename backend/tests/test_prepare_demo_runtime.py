@@ -45,34 +45,24 @@ async def test_build_demo_runtime_seeds_deterministic_live_demo_state(test_db):
     purchase_orders = po_result.scalars().all()
     assert len(purchase_orders) == 3
 
-    version_result = await test_db.execute(
-        select(ModelVersion).where(ModelVersion.customer_id == DEV_CUSTOMER_ID)
-    )
+    version_result = await test_db.execute(select(ModelVersion).where(ModelVersion.customer_id == DEV_CUSTOMER_ID))
     versions = {row.version: row for row in version_result.scalars().all()}
     assert versions[CHAMPION_VERSION].status == "champion"
     assert versions[CHALLENGER_VERSION].status == "challenger"
 
-    integration_result = await test_db.execute(
-        select(Integration).where(Integration.customer_id == DEV_CUSTOMER_ID)
-    )
+    integration_result = await test_db.execute(select(Integration).where(Integration.customer_id == DEV_CUSTOMER_ID))
     providers = {row.provider for row in integration_result.scalars().all()}
     assert {"square", "kafka", "custom_edi", "custom_sftp"} <= providers
 
-    alert_result = await test_db.execute(
-        select(MLAlert).where(MLAlert.customer_id == DEV_CUSTOMER_ID)
-    )
+    alert_result = await test_db.execute(select(MLAlert).where(MLAlert.customer_id == DEV_CUSTOMER_ID))
     alert_types = {row.alert_type for row in alert_result.scalars().all()}
     assert {"drift_detected", "promotion_pending"} <= alert_types
 
-    operational_alert_result = await test_db.execute(
-        select(Alert).where(Alert.customer_id == DEV_CUSTOMER_ID)
-    )
+    operational_alert_result = await test_db.execute(select(Alert).where(Alert.customer_id == DEV_CUSTOMER_ID))
     operational_alert_types = {row.alert_type for row in operational_alert_result.scalars().all()}
     assert "anomaly_detected" in operational_alert_types
 
-    anomaly_result = await test_db.execute(
-        select(Anomaly).where(Anomaly.customer_id == DEV_CUSTOMER_ID)
-    )
+    anomaly_result = await test_db.execute(select(Anomaly).where(Anomaly.customer_id == DEV_CUSTOMER_ID))
     anomaly_types = {row.anomaly_type for row in anomaly_result.scalars().all()}
     assert {"inventory_discrepancy", "ml_detected"} <= anomaly_types
 
@@ -108,7 +98,5 @@ async def test_build_demo_runtime_is_idempotent_for_active_demo_records(test_db)
     purchase_orders = po_result.scalars().all()
     assert len(purchase_orders) == 3
 
-    integration_result = await test_db.execute(
-        select(Integration).where(Integration.customer_id == DEV_CUSTOMER_ID)
-    )
+    integration_result = await test_db.execute(select(Integration).where(Integration.customer_id == DEV_CUSTOMER_ID))
     assert len(integration_result.scalars().all()) == 4

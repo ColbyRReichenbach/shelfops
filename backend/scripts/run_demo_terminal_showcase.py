@@ -84,11 +84,7 @@ def main() -> int:
 
     _print_section("Suggested Purchase Orders")
     spotlight_ids = (summary.get("purchase_orders", {}) or {}).get("targets", {})
-    spotlight = [
-        po
-        for po in suggested
-        if po.get("po_id") in set(spotlight_ids.values())
-    ]
+    spotlight = [po for po in suggested if po.get("po_id") in set(spotlight_ids.values())]
     payload = {
         "count": len(suggested),
         "spotlight": spotlight[:3],

@@ -1109,7 +1109,9 @@ async def _seed_sync_logs(db: AsyncSession, customer_id: uuid.UUID, now: datetim
     for spec in log_specs:
         log = await db.get(IntegrationSyncLog, spec["id"])
         if log is None:
-            log = IntegrationSyncLog(sync_id=spec["id"], customer_id=customer_id, **{k: v for k, v in spec.items() if k != "id"})
+            log = IntegrationSyncLog(
+                sync_id=spec["id"], customer_id=customer_id, **{k: v for k, v in spec.items() if k != "id"}
+            )
             db.add(log)
         else:
             log.customer_id = customer_id
@@ -1288,21 +1290,21 @@ async def build_demo_runtime(
             "reject_po": (
                 f"curl -s -X POST http://localhost:8000/api/v1/purchase-orders/{po_targets['reject_path']}/reject "
                 "-H 'Content-Type: application/json' "
-                "-d '{\"reason_code\":\"forecast_disagree\",\"notes\":\"Demo rejection path\"}'"
+                '-d \'{"reason_code":"forecast_disagree","notes":"Demo rejection path"}\''
             ),
             "edit_and_approve_po": (
                 f"curl -s -X POST http://localhost:8000/api/v1/purchase-orders/{po_targets['edit_path']}/approve "
                 "-H 'Content-Type: application/json' "
-                "-d '{\"quantity\":54,\"reason_code\":\"budget_constraint\",\"notes\":\"Demo edited quantity\"}'"
+                '-d \'{"quantity":54,"reason_code":"budget_constraint","notes":"Demo edited quantity"}\''
             ),
             "propose_experiment": (
                 "curl -s -X POST http://localhost:8000/experiments "
                 "-H 'Content-Type: application/json' "
-                "-d '{\"experiment_name\":\"Favorita promo velocity trial\","
-                "\"hypothesis\":\"Promo-aware interactions reduce overstock without regressing MASE or WAPE\","
-                "\"experiment_type\":\"feature_set\","
-                "\"model_name\":\"demand_forecast\","
-                "\"proposed_by\":\"demo@shelfops.com\"}'"
+                '-d \'{"experiment_name":"Favorita promo velocity trial",'
+                '"hypothesis":"Promo-aware interactions reduce overstock without regressing MASE or WAPE",'
+                '"experiment_type":"feature_set",'
+                '"model_name":"demand_forecast",'
+                '"proposed_by":"demo@shelfops.com"}\''
             ),
         },
     }

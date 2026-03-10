@@ -75,7 +75,9 @@ def _segment_summary(frame: pd.DataFrame, segment_col: str, label: str) -> dict[
                 "mae": round(float(abs_error.mean()), 4),
                 "wape": round(float(abs_error.sum() / denom), 4) if denom else 0.0,
                 "bias_pct": round(float((pred - actual).mean() / mean_actual), 4) if mean_actual else 0.0,
-                "stockout_miss_rate": round(float(((group["actual_demand"] > 0) & (group["forecasted_demand"] <= 0)).mean()), 4),
+                "stockout_miss_rate": round(
+                    float(((group["actual_demand"] > 0) & (group["forecasted_demand"] <= 0)).mean()), 4
+                ),
                 "overstock_rate": round(float((group["forecasted_demand"] > group["actual_demand"]).mean()), 4),
             }
         )
@@ -444,7 +446,11 @@ async def get_model_effectiveness(
     mae_avg = float(frame["mae"].mean())
     abs_actual_sum = float(frame["actual_demand"].abs().sum())
     mean_actual = float(frame["actual_demand"].mean()) if sample_count else 0.0
-    wape = float((frame["forecasted_demand"] - frame["actual_demand"]).abs().sum() / abs_actual_sum) if abs_actual_sum else 0.0
+    wape = (
+        float((frame["forecasted_demand"] - frame["actual_demand"]).abs().sum() / abs_actual_sum)
+        if abs_actual_sum
+        else 0.0
+    )
     bias = float((frame["forecasted_demand"] - frame["actual_demand"]).mean() / mean_actual) if mean_actual else 0.0
     seasonality = 7 if sample_count > 7 else 1
     naive_errors = (

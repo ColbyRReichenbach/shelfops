@@ -284,7 +284,9 @@ async def evaluate_for_promotion(
     candidate_overstock_confidence = _confidence_label(candidate_metrics.get("overstock_dollars_confidence"))
     candidate_lost_sales_qty = _as_float(candidate_metrics.get("lost_sales_qty"))
     candidate_stockout_cost = _as_float(candidate_metrics.get("opportunity_cost_stockout"))
-    candidate_stockout_cost_confidence = _confidence_label(candidate_metrics.get("opportunity_cost_stockout_confidence"))
+    candidate_stockout_cost_confidence = _confidence_label(
+        candidate_metrics.get("opportunity_cost_stockout_confidence")
+    )
     candidate_overstock_cost = _as_float(candidate_metrics.get("opportunity_cost_overstock"))
     candidate_overstock_cost_confidence = _confidence_label(
         candidate_metrics.get("opportunity_cost_overstock_confidence")
@@ -315,20 +317,10 @@ async def evaluate_for_promotion(
     # DS gates (strict)
     mae_gate = _relative_non_regression(candidate_mae, champion_mae, tolerance_pct=2.0)
     mape_gate = _relative_non_regression(candidate_mape, champion_mape, tolerance_pct=2.0)
-    wape_gate = (
-        True
-        if candidate_wape is None or champion_wape is None
-        else candidate_wape <= champion_wape * 1.02
-    )
-    mase_gate = (
-        True
-        if candidate_mase is None or champion_mase is None
-        else candidate_mase <= champion_mase * 1.02
-    )
+    wape_gate = True if candidate_wape is None or champion_wape is None else candidate_wape <= champion_wape * 1.02
+    mase_gate = True if candidate_mase is None or champion_mase is None else candidate_mase <= champion_mase * 1.02
     bias_gate = (
-        True
-        if candidate_bias is None or champion_bias is None
-        else abs(candidate_bias) <= abs(champion_bias) + 0.01
+        True if candidate_bias is None or champion_bias is None else abs(candidate_bias) <= abs(champion_bias) + 0.01
     )
     coverage_gate = (
         candidate_coverage is not None and champion_coverage is not None and candidate_coverage >= champion_coverage

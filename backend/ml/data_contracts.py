@@ -32,6 +32,7 @@ class DatasetReadiness:
     date_max: str = ""
     row_count: int = 0
 
+
 CANONICAL_REQUIRED_COLS = {"date", "store_id", "product_id", "quantity"}
 CANONICAL_BASE_COLS = [
     "date",
