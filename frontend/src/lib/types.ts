@@ -261,7 +261,6 @@ export interface ProposeExperimentPayload {
     hypothesis: string
     experiment_type: ExperimentType
     model_name: string
-    proposed_by: string
     lineage_metadata?: Record<string, unknown>
 }
 
@@ -274,7 +273,6 @@ export interface ProposeExperimentResponse {
 
 export interface ApproveExperimentPayload {
     experimentId: string
-    approved_by: string
     rationale?: string
 }
 

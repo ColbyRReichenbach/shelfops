@@ -35,10 +35,8 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
         try {
             const token = import.meta.env.DEV ? null : await getAccessTokenSilently()
             const wsBase = getWebSocketBaseUrl()
-            const wsUrl = token
-                ? `${wsBase}/ws/alerts?token=${encodeURIComponent(token)}`
-                : `${wsBase}/ws/alerts`
-            const ws = new WebSocket(wsUrl)
+            const wsUrl = `${wsBase}/ws/alerts`
+            const ws = token ? new WebSocket(wsUrl, [`bearer.${token}`]) : new WebSocket(wsUrl)
 
             ws.onopen = () => {
                 setConnected(true)

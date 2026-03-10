@@ -44,7 +44,6 @@ class ProposeExperimentRequest(BaseModel):
     hypothesis: str
     experiment_type: str
     model_name: str = "demand_forecast"
-    proposed_by: str  # User ID or email
     lineage_metadata: dict[str, Any] | None = None
 
     @field_validator("experiment_type")
@@ -54,12 +53,10 @@ class ProposeExperimentRequest(BaseModel):
 
 
 class ApproveExperimentRequest(BaseModel):
-    approved_by: str
     rationale: str | None = None
 
 
 class RejectExperimentRequest(BaseModel):
-    rejected_by: str
     rationale: str
 
 
@@ -79,6 +76,13 @@ def _resolve_customer_id(user: dict) -> uuid.UUID:
         return uuid.UUID(str(raw))
     except ValueError as exc:
         raise HTTPException(status_code=401, detail="Invalid customer context") from exc
+
+
+def _resolve_actor(user: dict) -> str:
+    actor = user.get("email") or user.get("sub")
+    if not actor:
+        raise HTTPException(status_code=401, detail="No authenticated actor available")
+    return str(actor)
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -199,11 +203,11 @@ async def propose_experiment(
           "experiment_name": "Department-Tiered Forecasting",
           "hypothesis": "Electronics demand differs from Grocery. Dedicated model will improve MAE by 12%",
           "experiment_type": "segmentation",
-          "model_name": "demand_forecast",
-          "proposed_by": "jane.doe@shelfops.com"
+          "model_name": "demand_forecast"
         }
     """
     customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get current champion version as baseline
     from ml.arena import get_champion_model
@@ -222,7 +226,7 @@ async def propose_experiment(
         model_name=request.model_name,
         baseline_version=baseline_version,
         status="proposed",
-        proposed_by=request.proposed_by,
+        proposed_by=actor,
         results={"lineage_metadata": request.lineage_metadata or {}},
         created_at=datetime.utcnow(),
     )
@@ -234,7 +238,7 @@ async def propose_experiment(
         "experiment.proposed",
         experiment_id=str(experiment_id),
         experiment_name=request.experiment_name,
-        proposed_by=request.proposed_by,
+        proposed_by=actor,
     )
 
     return {
@@ -258,6 +262,7 @@ async def approve_experiment(
     After approval, DS can begin implementation.
     """
     customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -276,7 +281,7 @@ async def approve_experiment(
 
     # Approve
     exp.status = "approved"
-    exp.approved_by = request.approved_by
+    exp.approved_by = actor
     exp.approved_at = datetime.utcnow()
 
     if request.rationale:
@@ -288,13 +293,13 @@ async def approve_experiment(
         "experiment.approved",
         experiment_id=experiment_id,
         experiment_name=exp.experiment_name,
-        approved_by=request.approved_by,
+        approved_by=actor,
     )
 
     return {
         "status": "success",
         "message": "Experiment approved",
-        "approved_by": request.approved_by,
+        "approved_by": actor,
         "approved_at": exp.approved_at.isoformat(),
     }
 
@@ -308,6 +313,7 @@ async def reject_experiment(
 ) -> dict[str, Any]:
     """Reject an experiment (manager review)."""
     customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -321,10 +327,21 @@ async def reject_experiment(
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
+    if exp.status not in {"proposed", "approved"}:
+        raise HTTPException(status_code=400, detail=f"Cannot reject experiment in status: {exp.status}")
+
     # Reject
     exp.status = "rejected"
     exp.decision_rationale = request.rationale
     exp.completed_at = datetime.utcnow()
+    exp.results = {
+        **dict(exp.results or {}),
+        "review": {
+            **dict((exp.results or {}).get("review") or {}),
+            "rejected_by": actor,
+            "rejected_at": exp.completed_at.isoformat(),
+        },
+    }
 
     await db.commit()
 
@@ -332,14 +349,14 @@ async def reject_experiment(
         "experiment.rejected",
         experiment_id=experiment_id,
         experiment_name=exp.experiment_name,
-        rejected_by=request.rejected_by,
+        rejected_by=actor,
         rationale=request.rationale,
     )
 
     return {
         "status": "success",
         "message": "Experiment rejected",
-        "rejected_by": request.rejected_by,
+        "rejected_by": actor,
     }
 
 
@@ -360,6 +377,7 @@ async def complete_experiment(
       - 'rollback': Emergency rollback (experimental model caused issues)
     """
     customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
 
     # Get experiment
     exp_result = await db.execute(
@@ -373,11 +391,15 @@ async def complete_experiment(
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
+    if exp.status not in {"approved", "in_progress", "shadow_testing"}:
+        raise HTTPException(status_code=400, detail=f"Cannot complete experiment in status: {exp.status}")
+
     existing_results = dict(exp.results or {})
     lineage_metadata = dict(existing_results.get("lineage_metadata") or {})
     decision_payload = dict(request.results)
     decision_payload["decision"] = request.decision
     decision_payload["decision_rationale"] = request.decision_rationale
+    decision_payload["completed_by"] = actor
 
     # Update experiment
     exp.status = "completed"

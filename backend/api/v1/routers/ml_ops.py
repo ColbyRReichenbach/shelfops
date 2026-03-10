@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.deps import get_tenant_db
+from api.deps import get_current_user, get_tenant_db
 from db.models import BacktestResult, DemandForecast, ForecastAccuracy, ModelVersion, OpportunityCostLog, Product
 from ml.business_metrics import calculate_overstock_dollars
 
@@ -145,12 +145,18 @@ async def list_models(
 
 
 @router.get("/models/{version}/shap")
-async def get_model_shap(version: str) -> dict[str, Any]:
+async def get_model_shap(
+    version: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
     """
     Get SHAP feature importance for a model version.
 
     Returns top features sorted by importance for bar chart rendering.
     """
+    del user, db
+
     # Check model-specific report dirs first, then global
     search_paths = [
         REPORTS_DIR / f"demand_forecast_{version}" / "feature_importance.json",
@@ -166,7 +172,7 @@ async def get_model_shap(version: str) -> dict[str, Any]:
             return {
                 "version": version,
                 "features": [{"name": k, "importance": round(v, 4)} for k, v in sorted_features],
-                "source": str(path),
+                "source": path.name,
             }
 
     return {"version": version, "features": [], "source": None}
@@ -228,12 +234,15 @@ async def list_backtests(
 @router.get("/experiments")
 async def list_experiments(
     model_name: str | None = None,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
 ) -> list[dict[str, Any]]:
     """
     List training run history from local JSON logs.
 
     Reads from reports/{model_name}/ directories.
     """
+    del user, db
     runs = []
 
     # Scan report directories
@@ -273,12 +282,16 @@ async def list_experiments(
 
 
 @router.get("/registry")
-async def get_registry() -> dict[str, Any]:
+async def get_registry(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
     """
     Full model registry from local JSON file.
 
     Shows iteration history from v1 → vN with metrics.
     """
+    del user, db
     registry_path = MODEL_DIR / "registry.json"
     if not registry_path.exists():
         return {"models": [], "updated_at": None}

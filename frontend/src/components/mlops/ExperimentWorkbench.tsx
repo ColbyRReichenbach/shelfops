@@ -35,7 +35,6 @@ type ExperimentFormState = {
     hypothesis: string
     experiment_type: ExperimentType
     model_name: string
-    proposed_by: string
     dataset_id: string
     forecast_grain: string
     architecture: string
@@ -48,13 +47,12 @@ type ExperimentFormState = {
     notes: string
 }
 
-function initialFormState(defaultModelName: string, proposedBy: string): ExperimentFormState {
+function initialFormState(defaultModelName: string): ExperimentFormState {
     return {
         experiment_name: '',
         hypothesis: '',
         experiment_type: 'feature_set',
         model_name: defaultModelName,
-        proposed_by: proposedBy,
         dataset_id: 'favorita',
         forecast_grain: 'store_nbr_family_date',
         architecture: 'lightgbm',
@@ -81,14 +79,13 @@ export default function ExperimentWorkbench({
 }) {
     const { user } = useAuth0()
     const defaultAuthor = user?.email ?? ''
-    const [form, setForm] = useState<ExperimentFormState>(() => initialFormState(defaultModelName, defaultAuthor))
+    const [form, setForm] = useState<ExperimentFormState>(() => initialFormState(defaultModelName))
     const [submitMessage, setSubmitMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
     const [approvalMessage, setApprovalMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
     useEffect(() => {
         setForm(current => {
             const next = { ...current }
-            if (!current.proposed_by && defaultAuthor) next.proposed_by = defaultAuthor
             if (!current.model_name && defaultModelName) next.model_name = defaultModelName
             return next
         })
@@ -110,7 +107,6 @@ export default function ExperimentWorkbench({
             hypothesis: form.hypothesis.trim(),
             experiment_type: form.experiment_type,
             model_name: form.model_name.trim() || defaultModelName,
-            proposed_by: form.proposed_by.trim(),
             lineage_metadata: {
                 dataset_id: form.dataset_id.trim() || null,
                 forecast_grain: form.forecast_grain.trim() || null,
@@ -125,10 +121,10 @@ export default function ExperimentWorkbench({
             },
         }
 
-        if (!payload.experiment_name || !payload.hypothesis || !payload.proposed_by) {
+        if (!payload.experiment_name || !payload.hypothesis) {
             setSubmitMessage({
                 tone: 'error',
-                text: 'Experiment name, hypothesis, and proposed by are required.',
+                text: 'Experiment name and hypothesis are required.',
             })
             return
         }
@@ -137,12 +133,11 @@ export default function ExperimentWorkbench({
             const response = await proposeExperiment.mutateAsync(payload)
             setSubmitMessage({
                 tone: 'success',
-                text: `Hypothesis logged. Baseline version: ${response.baseline_version ?? 'none detected yet'}.`,
+                text: `Hypothesis logged${defaultAuthor ? ` as ${defaultAuthor}` : ''}. Baseline version: ${response.baseline_version ?? 'none detected yet'}.`,
             })
             setForm(current => ({
-                ...initialFormState(payload.model_name, current.proposed_by),
+                ...initialFormState(payload.model_name),
                 model_name: payload.model_name,
-                proposed_by: current.proposed_by,
                 dataset_id: current.dataset_id,
                 forecast_grain: current.forecast_grain,
                 architecture: current.architecture,
@@ -162,18 +157,19 @@ export default function ExperimentWorkbench({
         try {
             await approveExperiment.mutateAsync({
                 experimentId: experiment.experiment_id,
-                approved_by: form.proposed_by.trim() || defaultAuthor || 'manual_approver',
                 rationale: 'Approved from ML Ops workbench for implementation.',
             })
             setApprovalMessage({
                 tone: 'success',
-                text: `Approved ${experiment.experiment_name}.`,
+                text: `Approved ${experiment.experiment_name}${defaultAuthor ? ` as ${defaultAuthor}` : ''}.`,
             })
         } catch (error) {
             const detail = error instanceof Error ? error.message : 'Unable to approve experiment.'
             setApprovalMessage({ tone: 'error', text: detail })
         }
     }
+
+    const actorLabel = defaultAuthor || 'the authenticated account'
 
     return (
         <div className="space-y-6">
@@ -184,6 +180,9 @@ export default function ExperimentWorkbench({
                             <h2 className="text-lg font-semibold text-shelf-primary">Log New Hypothesis</h2>
                             <p className="text-sm text-shelf-foreground/60 mt-1">
                                 This writes directly to the experiments API and anchors the audit trail before training starts.
+                            </p>
+                            <p className="text-xs text-shelf-foreground/45 mt-2">
+                                Audit actor is derived from {actorLabel}; it is no longer entered manually.
                             </p>
                         </div>
                         <div className="inline-flex items-center gap-2 rounded-full bg-shelf-primary/10 px-3 py-1 text-xs font-medium text-shelf-primary">
@@ -224,7 +223,7 @@ export default function ExperimentWorkbench({
                             />
                         </Field>
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <Field label="Model Name">
                                 <select
                                     value={form.model_name}
@@ -235,14 +234,6 @@ export default function ExperimentWorkbench({
                                         <option key={name} value={name}>{name}</option>
                                     ))}
                                 </select>
-                            </Field>
-                            <Field label="Proposed By">
-                                <input
-                                    value={form.proposed_by}
-                                    onChange={event => setForm(current => ({ ...current, proposed_by: event.target.value }))}
-                                    className="input"
-                                    placeholder="you@example.com"
-                                />
                             </Field>
                             <Field label="Baseline Version">
                                 <input

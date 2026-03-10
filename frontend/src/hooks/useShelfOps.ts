@@ -399,8 +399,8 @@ export function useApproveExperiment() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: ({ experimentId, approved_by, rationale }: ApproveExperimentPayload) =>
-            api.patch(`/api/v1/experiments/${experimentId}/approve`, { approved_by, rationale }),
+        mutationFn: ({ experimentId, rationale }: ApproveExperimentPayload) =>
+            api.patch(`/api/v1/experiments/${experimentId}/approve`, { rationale }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
         },

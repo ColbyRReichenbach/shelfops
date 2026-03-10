@@ -29,7 +29,6 @@ async def test_propose_experiment_accepts_extended_taxonomy(client, seeded_db, t
             "hypothesis": "Promo interactions will reduce overstock on promoted families.",
             "experiment_type": "feature_set",
             "model_name": "demand_forecast",
-            "proposed_by": "test@shelfops.com",
             "lineage_metadata": {"change_ticket": "EXP-001"},
         },
     )
@@ -40,6 +39,7 @@ async def test_propose_experiment_accepts_extended_taxonomy(client, seeded_db, t
     result = await test_db.execute(select(ModelExperiment))
     experiment = result.scalar_one()
     assert experiment.experiment_type == "feature_set"
+    assert experiment.proposed_by == "dev@shelfops.com"
     assert (experiment.results or {}).get("lineage_metadata", {}).get("change_ticket") == "EXP-001"
 
 
@@ -151,3 +151,88 @@ async def test_list_experiments_invalid_type_returns_400(client):
     response = await client.get("/experiments?experiment_type=definitely_not_valid")
     assert response.status_code == 400
     assert "Unsupported experiment_type" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_approve_experiment_uses_authenticated_actor(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="approval_actor_test",
+        hypothesis="Approval actor should come from auth context.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="proposed",
+        proposed_by="seed@shelfops.com",
+        results={"lineage_metadata": {"dataset_id": "favorita"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.patch(
+        f"/experiments/{experiment.experiment_id}/approve",
+        json={"approved_by": "spoofed@shelfops.com", "rationale": "ship it"},
+    )
+    assert response.status_code == 200
+    assert response.json()["approved_by"] == "dev@shelfops.com"
+
+    await test_db.refresh(experiment)
+    assert experiment.approved_by == "dev@shelfops.com"
+
+
+@pytest.mark.asyncio
+async def test_reject_experiment_enforces_state_and_records_actor(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="reject_state_test",
+        hypothesis="Reject should only work from reviewable states.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="completed",
+        proposed_by="seed@shelfops.com",
+        results={"lineage_metadata": {"dataset_id": "favorita"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.patch(
+        f"/experiments/{experiment.experiment_id}/reject",
+        json={"rejected_by": "spoofed@shelfops.com", "rationale": "too late"},
+    )
+    assert response.status_code == 400
+    assert "Cannot reject experiment in status: completed" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_complete_experiment_requires_reviewable_state(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="complete_state_test",
+        hypothesis="Completion should require active review state.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="proposed",
+        proposed_by="seed@shelfops.com",
+        results={"lineage_metadata": {"dataset_id": "favorita"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.post(
+        f"/experiments/{experiment.experiment_id}/complete",
+        json={
+            "decision": "reject",
+            "decision_rationale": "not ready",
+            "results": {"improvement_pct": -1.0},
+        },
+    )
+    assert response.status_code == 400
+    assert "Cannot complete experiment in status: proposed" in response.json()["detail"]
