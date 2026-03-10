@@ -1,4 +1,4 @@
-import { Loader2, TrendingUp } from 'lucide-react'
+import { AlertCircle, Loader2, TrendingUp } from 'lucide-react'
 import {
     CartesianGrid,
     Legend,
@@ -14,13 +14,24 @@ import {
 import { useModelHistory } from '@/hooks/useShelfOps'
 
 export default function ProductionModelTimeline() {
-    const { data: history = [], isLoading } = useModelHistory(12)
+    const { data: history = [], isLoading, isError, error } = useModelHistory(12)
 
     if (isLoading) {
         return (
             <div className="card border border-white/40 shadow-sm p-8 text-center">
                 <Loader2 className="mx-auto h-6 w-6 animate-spin text-shelf-primary" />
                 <p className="mt-2 text-sm text-shelf-foreground/60">Loading model history...</p>
+            </div>
+        )
+    }
+
+    if (isError) {
+        return (
+            <div className="card border border-red-200 bg-red-50/50 shadow-sm p-8 text-center">
+                <AlertCircle className="mx-auto h-6 w-6 text-red-500" />
+                <p className="mt-2 text-sm text-red-600">
+                    {error instanceof Error ? error.message : 'Unable to load model history.'}
+                </p>
             </div>
         )
     }

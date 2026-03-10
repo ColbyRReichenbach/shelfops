@@ -71,11 +71,15 @@ export default function ExperimentWorkbench({
     defaultModelName,
     runHistory,
     runsLoading,
+    runsError,
+    runsErrorMessage,
 }: {
     modelNames: string[]
     defaultModelName: string
     runHistory: ExperimentRun[]
     runsLoading: boolean
+    runsError: boolean
+    runsErrorMessage: string
 }) {
     const { user } = useAuth0()
     const defaultAuthor = user?.email ?? ''
@@ -93,7 +97,12 @@ export default function ExperimentWorkbench({
 
     const proposeExperiment = useProposeExperiment()
     const approveExperiment = useApproveExperiment()
-    const { data: ledger = [], isLoading: ledgerLoading } = useExperimentLedger({
+    const {
+        data: ledger = [],
+        isLoading: ledgerLoading,
+        isError: ledgerError,
+        error: ledgerErrorDetail,
+    } = useExperimentLedger({
         modelName: form.model_name || undefined,
         limit: 12,
     })
@@ -360,6 +369,8 @@ export default function ExperimentWorkbench({
                     <ExperimentLedgerList
                         experiments={ledger}
                         isLoading={ledgerLoading}
+                        isError={ledgerError}
+                        errorMessage={ledgerErrorDetail instanceof Error ? ledgerErrorDetail.message : 'Unable to load experiment ledger.'}
                         onApprove={handleApprove}
                         approvingId={approveExperiment.variables?.experimentId ?? null}
                         approvePending={approveExperiment.isPending}
@@ -374,7 +385,12 @@ export default function ExperimentWorkbench({
                         Runtime training and evaluation logs from the local report history.
                     </p>
                 </div>
-                <ExperimentHistory experiments={runHistory} isLoading={runsLoading} />
+                <ExperimentHistory
+                    experiments={runHistory}
+                    isLoading={runsLoading}
+                    isError={runsError}
+                    errorMessage={runsErrorMessage}
+                />
             </section>
         </div>
     )
@@ -383,12 +399,16 @@ export default function ExperimentWorkbench({
 function ExperimentLedgerList({
     experiments,
     isLoading,
+    isError,
+    errorMessage,
     onApprove,
     approvingId,
     approvePending,
 }: {
     experiments: ExperimentLedgerEntry[]
     isLoading: boolean
+    isError: boolean
+    errorMessage: string
     onApprove: (experiment: ExperimentLedgerEntry) => Promise<void>
     approvingId: string | null
     approvePending: boolean
@@ -398,6 +418,14 @@ function ExperimentLedgerList({
             <div className="rounded-xl border border-shelf-foreground/10 bg-shelf-secondary/5 p-6 text-center">
                 <Loader2 className="mx-auto h-5 w-5 animate-spin text-shelf-primary" />
                 <p className="mt-2 text-sm text-shelf-foreground/60">Loading experiment ledger...</p>
+            </div>
+        )
+    }
+
+    if (isError) {
+        return (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">
+                {errorMessage}
             </div>
         )
     }

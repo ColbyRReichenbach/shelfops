@@ -1303,8 +1303,7 @@ async def build_demo_runtime(
                 '-d \'{"experiment_name":"Favorita promo velocity trial",'
                 '"hypothesis":"Promo-aware interactions reduce overstock without regressing MASE or WAPE",'
                 '"experiment_type":"feature_set",'
-                '"model_name":"demand_forecast",'
-                '"proposed_by":"demo@shelfops.com"}\''
+                '"model_name":"demand_forecast"}\''
             ),
         },
     }

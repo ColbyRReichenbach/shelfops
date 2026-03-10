@@ -56,7 +56,6 @@ curl -s -X POST http://localhost:8000/experiments \
     "hypothesis":"Promo-aware interactions and recent demand velocity features will reduce overstock and stockout opportunity cost without regressing MASE or WAPE.",
     "experiment_type":"feature_set",
     "model_name":"demand_forecast",
-    "proposed_by":"demo@shelfops.com",
     "lineage_metadata":{
       "dataset_id":"favorita",
       "forecast_grain":"store_nbr_family_date",

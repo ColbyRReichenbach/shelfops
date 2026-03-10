@@ -187,6 +187,9 @@ export default function SHAPWaterfall({
                             <p className="text-xs text-shelf-foreground/60 bg-shelf-secondary/5 rounded-lg px-3 py-2">
                                 {buildSummary(data)}
                             </p>
+                            <p className="text-[11px] text-shelf-foreground/45">
+                                Demo explanation view: deterministic per-forecast contribution estimates for a repeatable walkthrough.
+                            </p>
 
                             <div className="h-[200px]">
                                 <ResponsiveContainer width="100%" height="100%">

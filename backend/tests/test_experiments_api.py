@@ -154,6 +154,33 @@ async def test_list_experiments_invalid_type_returns_400(client):
 
 
 @pytest.mark.asyncio
+async def test_api_v1_experiments_alias_matches_canonical_route(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    test_db.add(
+        ModelExperiment(
+            customer_id=customer_id,
+            experiment_name="alias_route_test",
+            hypothesis="The /api/v1 alias should expose the same experiment ledger.",
+            experiment_type="feature_set",
+            model_name="demand_forecast",
+            status="proposed",
+            proposed_by="test@shelfops.com",
+            results={"lineage_metadata": {"dataset_id": "favorita"}},
+        )
+    )
+    await test_db.commit()
+
+    canonical = await client.get("/experiments?limit=10")
+    alias = await client.get("/api/v1/experiments?limit=10")
+
+    assert canonical.status_code == 200
+    assert alias.status_code == 200
+    assert alias.json() == canonical.json()
+
+
+@pytest.mark.asyncio
 async def test_approve_experiment_uses_authenticated_actor(client, seeded_db, test_db):
     from db.models import ModelExperiment
 

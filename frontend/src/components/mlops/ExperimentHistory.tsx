@@ -2,21 +2,34 @@
  * ExperimentHistory — Training run table with metrics.
  */
 
-import { FlaskConical, Loader2 } from 'lucide-react'
+import { AlertCircle, FlaskConical, Loader2 } from 'lucide-react'
 import type { ExperimentRun } from '@/lib/types'
 
 export default function ExperimentHistory({
     experiments,
     isLoading,
+    isError,
+    errorMessage,
 }: {
     experiments: ExperimentRun[]
     isLoading: boolean
+    isError: boolean
+    errorMessage: string
 }) {
     if (isLoading) {
         return (
             <div className="card border border-white/40 shadow-sm text-center py-16">
                 <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
                 <p className="text-sm text-shelf-foreground/60">Loading experiments...</p>
+            </div>
+        )
+    }
+
+    if (isError) {
+        return (
+            <div className="card border border-red-200 bg-red-50/50 shadow-sm text-center py-16">
+                <AlertCircle className="h-8 w-8 mx-auto mb-3 text-red-500" />
+                <p className="text-sm text-red-600">{errorMessage}</p>
             </div>
         )
     }

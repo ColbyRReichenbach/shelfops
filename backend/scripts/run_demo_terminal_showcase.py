@@ -16,7 +16,6 @@ import json
 import sys
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
 from urllib.request import urlopen
 
 
@@ -114,12 +113,11 @@ def main() -> int:
             )
         )
 
-    experiment_name = quote("Promo uplift feature trial")
     print()
     print("Tip: after the live approve/reject path, query experiments with:")
     print(f"curl -s '{base_url}/experiments?limit=10' | jq")
     print(f"curl -s '{base_url}/experiments?status=proposed&limit=10' | jq")
-    print(f"curl -s '{base_url}/experiments?experiment_name={experiment_name}' | jq")
+    print(f"curl -s '{base_url}/experiments?model_name=demand_forecast&limit=10' | jq")
     return 0
 
 

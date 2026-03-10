@@ -31,13 +31,22 @@ export default function MLOpsPage() {
     const { data: health, isLoading: healthLoading } = useMLHealth()
     const { data: models = [] } = useMLModels(modelFilter || undefined)
     const { data: backtests = [], isLoading: backtestsLoading } = useBacktests(90, modelFilter || undefined)
-    const { data: experiments = [], isLoading: experimentsLoading } = useExperiments(modelFilter || undefined)
-    const { data: modelHistory = [] } = useModelHistory(12)
+    const {
+        data: experiments = [],
+        isLoading: experimentsLoading,
+        isError: experimentsError,
+        error: experimentsErrorDetail,
+    } = useExperiments(modelFilter || undefined)
+    const { data: modelHistory = [], isError: modelHistoryError, error: modelHistoryErrorDetail } = useModelHistory(12)
     const { data: syncData = [], isLoading: syncLoading } = useSyncHealth()
     const { data: effectiveness } = useMLEffectiveness(30, modelFilter || 'demand_forecast')
 
-    // Find champion version for SHAP
-    const championVersion = health?.champions?.[0]?.version ?? ''
+    const activeModelName = modelFilter || 'demand_forecast'
+    const championForInsights =
+        health?.champions?.find(champion => champion.model_name === activeModelName) ??
+        health?.champions?.find(champion => champion.model_name === 'demand_forecast') ??
+        health?.champions?.[0]
+    const championVersion = championForInsights?.version ?? ''
     const { data: shapData, isLoading: shapLoading } = useModelSHAP(championVersion)
 
     // Unique model names for filter dropdown
@@ -170,7 +179,11 @@ export default function MLOpsPage() {
                     )}
                     <ModelArena models={models} />
                     {modelHistory.length > 0 && (
-                        <ModelHistoryTable history={modelHistory} />
+                        <ModelHistoryTable
+                            history={modelHistory}
+                            isError={modelHistoryError}
+                            errorMessage={modelHistoryErrorDetail instanceof Error ? modelHistoryErrorDetail.message : 'Unable to load model lineage.'}
+                        />
                     )}
                     {shapData && shapData.features.length > 0 && (
                         <FeatureImportance
@@ -188,6 +201,8 @@ export default function MLOpsPage() {
                     defaultModelName={modelFilter || modelNames[0] || 'demand_forecast'}
                     runHistory={experiments}
                     runsLoading={experimentsLoading}
+                    runsError={experimentsError}
+                    runsErrorMessage={experimentsErrorDetail instanceof Error ? experimentsErrorDetail.message : 'Unable to load training run evidence.'}
                 />
             )}
 
@@ -290,7 +305,23 @@ function ScoreCell({ label, value }: { label: string; value: string }) {
     )
 }
 
-function ModelHistoryTable({ history }: { history: ModelHistoryEntry[] }) {
+function ModelHistoryTable({
+    history,
+    isError,
+    errorMessage,
+}: {
+    history: ModelHistoryEntry[]
+    isError: boolean
+    errorMessage: string
+}) {
+    if (isError) {
+        return (
+            <div className="card border border-red-200 bg-red-50/50 shadow-sm p-5 text-sm text-red-700">
+                {errorMessage}
+            </div>
+        )
+    }
+
     return (
         <div className="card border border-white/40 shadow-sm overflow-hidden">
             <div className="px-4 py-3 border-b border-shelf-foreground/5">

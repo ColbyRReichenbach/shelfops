@@ -149,6 +149,8 @@ Use them naturally, for example:
 
 "The demand trend and category views are there to help a buyer or planner understand where pressure is building. The top products view gives a quick sense of what matters most. And when the explainability layer is visible, it helps answer an important trust question: why does the system think demand is moving this way?"
 
+"For this prerecorded demo, that per-forecast explanation view is a deterministic contribution estimate so the walkthrough stays repeatable. I present it as a trust aid, not as a claim that every visible contribution came from a live production explainer."
+
 "I included that because inventory teams should not have to trust a black box on faith. Even in a business-oriented demo, I want to show that the product is trying to make the recommendation legible, not magical."
 
 "The larger point is that the forecast is there to influence buying earlier, not just to decorate a chart."

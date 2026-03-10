@@ -176,6 +176,8 @@ curl -s 'http://localhost:8000/api/v1/ml/effectiveness?window_days=30&model_name
 
 "I built that layer because raw prediction quality and operational safety are not the same thing. A retail system has to support decisions, not just output numbers."
 
+"One truth boundary I keep explicit in the demo is that the per-forecast explainability panel is a deterministic demo proxy for repeatable walkthroughs. It is useful for showing how I designed the trust surface, but I do not present it as a live production TreeExplainer running on every click."
+
 ### 6. Why Forecasting and Anomaly Detection Are Separate
 **Action**
 - Click `Alerts`

@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Activity, Loader2 } from 'lucide-react'
+import { Activity, AlertCircle, Loader2 } from 'lucide-react'
 
 import { useExperimentLedger, useRuntimeModelHealth, useSyncHealth } from '@/hooks/useShelfOps'
 
@@ -18,9 +18,24 @@ const TONE_STYLE: Record<ActivityItem['tone'], string> = {
 }
 
 export default function ProductionActivityFeed() {
-    const { data: runtimeHealth, isLoading: runtimeLoading } = useRuntimeModelHealth()
-    const { data: experimentLedger = [], isLoading: ledgerLoading } = useExperimentLedger({ limit: 6 })
-    const { data: syncSources = [], isLoading: syncLoading } = useSyncHealth()
+    const {
+        data: runtimeHealth,
+        isLoading: runtimeLoading,
+        isError: runtimeError,
+        error: runtimeErrorDetail,
+    } = useRuntimeModelHealth()
+    const {
+        data: experimentLedger = [],
+        isLoading: ledgerLoading,
+        isError: ledgerError,
+        error: ledgerErrorDetail,
+    } = useExperimentLedger({ limit: 6 })
+    const {
+        data: syncSources = [],
+        isLoading: syncLoading,
+        isError: syncError,
+        error: syncErrorDetail,
+    } = useSyncHealth()
 
     const items = useMemo<ActivityItem[]>(() => {
         const retrains = (runtimeHealth?.recent_retraining_events ?? []).map((event, index) => {
@@ -74,8 +89,27 @@ export default function ProductionActivityFeed() {
         )
     }
 
+    if (runtimeError || ledgerError || syncError) {
+        const message =
+            (runtimeErrorDetail instanceof Error && runtimeErrorDetail.message) ||
+            (ledgerErrorDetail instanceof Error && ledgerErrorDetail.message) ||
+            (syncErrorDetail instanceof Error && syncErrorDetail.message) ||
+            'Unable to load platform activity.'
+        return (
+            <div className="card border border-red-200 bg-red-50/50 shadow-sm p-8 text-center">
+                <AlertCircle className="mx-auto h-6 w-6 text-red-500" />
+                <p className="mt-2 text-sm text-red-600">{message}</p>
+            </div>
+        )
+    }
+
     if (items.length === 0) {
-        return null
+        return (
+            <div className="card border border-white/40 shadow-sm p-8 text-center">
+                <Activity className="mx-auto h-6 w-6 text-shelf-foreground/30" />
+                <p className="mt-2 text-sm text-shelf-foreground/55">No recent platform activity yet.</p>
+            </div>
+        )
     }
 
     return (

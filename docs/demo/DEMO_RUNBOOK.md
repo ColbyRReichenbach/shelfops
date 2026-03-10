@@ -196,8 +196,7 @@ curl -s -X POST http://localhost:8000/experiments \
     "experiment_name":"favorita_lgbm_feature_set_v2_promo_velocity",
     "hypothesis":"Adding promo interactions and recent demand velocity features will reduce overstock and stockout opportunity cost on Favorita without regressing MASE or WAPE.",
     "experiment_type":"feature_set",
-    "model_name":"demand_forecast",
-    "proposed_by":"demo@shelfops.com"
+    "model_name":"demand_forecast"
   }' | jq
 ```
 
@@ -206,7 +205,7 @@ Approve experiment:
 ```bash
 curl -s -X PATCH "http://localhost:8000/experiments/<EXPERIMENT_ID>/approve" \
   -H "Content-Type: application/json" \
-  -d '{"approved_by":"manager@shelfops.com","rationale":"Demo approval"}' | jq
+  -d '{"rationale":"Demo approval"}' | jq
 ```
 
 List experiments:
