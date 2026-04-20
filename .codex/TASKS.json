@@ -1,6 +1,6 @@
 {
   "project": "ShelfOps current-to-standout implementation plan",
-  "date": "2026-04-19",
+  "date": "2026-04-20",
   "execution_rules": [
     "Do not make unsupported business-impact claims.",
     "Do not use synthetic/demo data for model-performance claims unless labeled synthetic.",
@@ -100,6 +100,36 @@
             "pytest backend/tests/test_experiments_api.py -q passes.",
             "pytest backend/tests/test_security_guardrails.py -q passes.",
             "Docs match actual session context variable."
+          ]
+        },
+        {
+          "id": "P0-04",
+          "title": "Remove legacy model residue from the active champion path",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Removed disabled LSTM and stale ensemble fields from backend/models/v3/metadata.json so the active champion path reflects the deployed LightGBM-first model story only.",
+            "Added backend/tests/test_models_api.py coverage to fail if legacy disabled-model fields reappear in the active metadata contract.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_models_api.py -q."
+          ],
+          "files": [
+            "backend/models/v3/metadata.json",
+            "backend/models/champion.json",
+            "backend/models/registry.json",
+            "MODEL_CARD.md",
+            "backend/tests/test_models_api.py"
+          ],
+          "actions": [
+            "Remove disabled legacy-model fields such as lstm weights, lstm metrics, and stale ensemble language from the active champion metadata.",
+            "Keep the active champion artifact strictly aligned to the deployed LightGBM-first model story.",
+            "Regenerate or update any model-card content that reads from champion metadata so the public artifact path has no stale references.",
+            "Add a regression test that fails if active champion metadata exposes archived or disabled model branches."
+          ],
+          "acceptance": [
+            "Active champion metadata contains no disabled LSTM or stale ensemble fields.",
+            "MODEL_CARD.md and API responses describe the same active champion configuration.",
+            "pytest backend/tests/test_models_api.py -q passes with a metadata-integrity assertion."
           ]
         }
       ]
@@ -442,6 +472,78 @@
             "Fixture can create recommendation, simulate actuals, and compute outcome.",
             "Impact endpoint reports measured/estimated/provisional labels."
           ]
+        },
+        {
+          "id": "P2-04",
+          "title": "Separate forecast closeout from recommendation policy impact",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Split replenishment impact into forecast_closeout and recommendation_policy sections so forecast error and decision value are no longer conflated.",
+            "Reworked outcome copy and provenance to treat observed sales as a proxy closeout input, while policy value is computed against a do-nothing baseline using decision quantities.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_recommendation_service.py backend/tests/test_recommendation_outcomes.py backend/tests/test_replenishment_api.py -q."
+          ],
+          "files": [
+            "backend/recommendations/outcomes.py",
+            "backend/workers/monitoring.py",
+            "backend/db/models.py",
+            "backend/alembic/versions/*_recommendation_outcome_policy_fields.py",
+            "backend/tests/test_recommendation_outcomes.py",
+            "frontend/src/pages/PilotImpactPage.tsx",
+            "frontend/src/components/impact/ImpactScorecard.tsx",
+            "frontend/src/components/replenishment/RecommendationDrawer.tsx"
+          ],
+          "actions": [
+            "Split the current outcome logic into two explicit surfaces: forecast closeout metrics and recommendation policy metrics.",
+            "Stop treating observed sales as actual demand without a proxy label, and rename or relabel fields so measured demand is not implied where it is unavailable.",
+            "Replace the current estimated-value calculation with a true policy comparison against a defined baseline such as do-nothing or prior policy behavior.",
+            "Store separate forecast-proxy and recommendation-policy values in the outcome schema, with an Alembic migration if new columns are required.",
+            "Update the Impact page and replenishment drawer copy so forecast accuracy, closeout, and policy value cannot be conflated."
+          ],
+          "acceptance": [
+            "No user-facing recommendation-impact metric is derived only from forecast-vs-sales error without an explicit proxy label.",
+            "Impact API returns separate forecast closeout and recommendation policy sections with provenance.",
+            "pytest backend/tests/test_recommendation_outcomes.py -q covers the separation and passes."
+          ]
+        },
+        {
+          "id": "P2-05",
+          "title": "Productize replenishment queue generation and refresh",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added POST /api/v1/replenishment/generate and reusable queue-generation logic in backend/recommendations/service.py so the buyer queue can be generated from the active app rather than bootstrap-only seeding.",
+            "Defined idempotent behavior for open recommendations and exposed generation counts plus skip reasons through the API.",
+            "Added a dedicated replenishment worker task plus nightly beat fan-out so queue refresh is no longer manual-only in the active runtime.",
+            "Added a Refresh Queue control to the Replenishment page and invalidated queue-dependent frontend state after generation.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_recommendation_service.py backend/tests/test_recommendation_outcomes.py backend/tests/test_replenishment_api.py backend/tests/test_replenishment_worker.py -q and frontend npm run build."
+          ],
+          "files": [
+            "backend/api/v1/routers/replenishment.py",
+            "backend/recommendations/service.py",
+            "backend/scripts/bootstrap_sample_merchant.py",
+            "backend/workers/celery_app.py",
+            "backend/workers/replenishment.py",
+            "backend/workers/inventory_optimizer.py",
+            "backend/tests/test_replenishment_api.py",
+            "backend/tests/test_replenishment_worker.py",
+            "frontend/src/pages/ReplenishmentPage.tsx",
+            "frontend/src/hooks/useShelfOps.ts"
+          ],
+          "actions": [
+            "Add an authenticated queue-generation endpoint that creates or refreshes replenishment recommendations from active inventory, forecast, sourcing, and policy context.",
+            "Extract reusable queue-generation logic out of the sample bootstrap path so the product does not depend on seeded demo behavior.",
+            "Define idempotency rules for open recommendations and expose generation counts plus skip reasons in the API response.",
+            "Add a scheduled refresh path so recommendation generation can run on forecast refresh or a nightly cadence.",
+            "Expose a generate or refresh action in the Replenishment UI and invalidate queue-dependent data after successful generation."
+          ],
+          "acceptance": [
+            "The active app can generate a buyer queue without bootstrap-only scripts.",
+            "Repeated generation is idempotent according to documented open-recommendation rules.",
+            "pytest backend/tests/test_replenishment_api.py -q covers generation and refresh behavior."
+          ]
         }
       ]
     },
@@ -571,16 +673,20 @@
           "id": "P4-03",
           "title": "Add CSV onboarding",
           "status": "done",
-          "completed_at": "2026-04-19",
+          "completed_at": "2026-04-20",
           "notes": [
             "Added backend/data_sources/csv_onboarding.py with validation, ingestion, and readiness evaluation for stores, products, transactions, and inventory CSVs.",
             "Added authenticated CSV validate/ingest/readiness endpoints under /api/v1/data.",
+            "CSV ingest now creates or refreshes a first-class csv Integration row and writes CSV Onboarding sync-log entries so Integrations, Operations, and Data Readiness agree on source state.",
             "Verified with pytest backend/tests/test_csv_onboarding.py -q and pytest backend/tests/test_readiness_state_machine.py backend/tests/test_data_contracts.py backend/tests/test_integrations_api.py -q."
           ],
           "files": [
             "backend/data_sources/csv_onboarding.py",
             "backend/api/v1/routers/data.py",
-            "backend/tests/test_csv_onboarding.py"
+            "backend/db/models.py",
+            "backend/db/migrations/versions/015_add_csv_integration_provider.py",
+            "backend/tests/test_csv_onboarding.py",
+            "backend/tests/test_integrations_api.py"
           ],
           "actions": [
             "Validate products, stores, transactions, and inventory CSVs.",
@@ -591,6 +697,35 @@
             "Bad CSV returns actionable errors.",
             "Good CSV creates canonical records.",
             "Data readiness updates after ingest."
+          ]
+        },
+        {
+          "id": "P4-04",
+          "title": "Correct Square mapping coverage semantics across readiness surfaces",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Aligned frontend mapping-coverage types and rendering with backend locations_total and catalog_total keys so readiness views stop showing false zero-denominator states.",
+            "Added API regression coverage for the sync-health mapping totals contract.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_integrations_api.py -q."
+          ],
+          "files": [
+            "backend/data_sources/square.py",
+            "backend/api/v1/routers/integrations.py",
+            "frontend/src/components/data/MappingCoverageTable.tsx",
+            "frontend/src/lib/types.ts",
+            "backend/tests/test_integrations_api.py"
+          ],
+          "actions": [
+            "Align backend payload keys and frontend type expectations for Square mapping denominators so total, mapped, and unmapped counts refer to the same objects.",
+            "Audit sync-health and readiness payloads for any remaining key mismatches that can render false zero-coverage states.",
+            "Add a contract assertion that locks the mapping coverage response shape used by the frontend."
+          ],
+          "acceptance": [
+            "Data Readiness renders the same mapping totals returned by the backend.",
+            "No mapping row can show zero seen when totals exist in the API payload.",
+            "pytest backend/tests/test_integrations_api.py -q covers the response contract and passes."
           ]
         }
       ],
@@ -702,6 +837,131 @@
             "Active champion evidence is visible.",
             "Model limitations are visible."
           ]
+        },
+        {
+          "id": "P5-05",
+          "title": "Replace hardcoded champion evidence with runtime-backed model evidence",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added /api/v1/ml/models/evidence/active to serve champion evidence from backend artifacts, benchmark reports, and model-card claim boundaries.",
+            "Removed the hardcoded frontend evidence constant and rewired the MLOps hero, model-card, and calibration panels to runtime evidence with explicit unavailable states.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_models_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/lib/modelEvidence.ts",
+            "frontend/src/pages/MLOpsPage.tsx",
+            "frontend/src/components/mlops/ModelCardPanel.tsx",
+            "frontend/src/components/mlops/CalibrationPanel.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "backend/api/v1/routers/models.py",
+            "backend/api/v1/routers/ml_ops.py",
+            "backend/models/champion.json",
+            "backend/models/v3/metadata.json",
+            "backend/tests/test_models_api.py"
+          ],
+          "actions": [
+            "Add a backend evidence endpoint that serves the active champion version, dataset snapshot, benchmark comparison, calibration metadata, provenance, and limitations from runtime artifacts.",
+            "Remove hardcoded evidence constants from the frontend and render the MLOps hero, model card, and calibration panels from backend-delivered state.",
+            "Make any fallback or unavailable state explicit instead of silently preserving stale evidence in source code.",
+            "Add API-contract coverage so evidence panels break loudly if champion metadata and served evidence drift."
+          ],
+          "acceptance": [
+            "MLOps UI no longer depends on hardcoded benchmark rows, dates, or calibration values in frontend source.",
+            "Served model evidence matches backend champion metadata and model-card provenance.",
+            "pytest backend/tests/test_models_api.py -q covers the runtime evidence contract."
+          ]
+        },
+        {
+          "id": "P5-06",
+          "title": "Reset forecast explanation UI to truthful model-driver evidence",
+          "priority": "P1",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Removed the pseudo-random local forecast explanation path and replaced it with artifact-backed global model-driver evidence from backend/models/<version>/feature_importance.json, with active-champion fallback when a forecast version lacks a matching artifact.",
+            "Renamed the active Forecasts page surface away from SHAP and updated the UI copy to state clearly that the panel shows global model drivers rather than a local explanation for an individual forecast.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_forecasts_explain_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "backend/api/v1/routers/forecasts.py",
+            "backend/models/v3/feature_importance.json",
+            "backend/tests/test_forecasts_explain_api.py",
+            "frontend/src/components/forecasts/ModelDriversPanel.tsx",
+            "frontend/src/pages/ForecastsPage.tsx"
+          ],
+          "actions": [
+            "Remove pseudo-random local explanation logic from the active forecast explanation path or quarantine it behind explicit demo-only labeling.",
+            "If true local explanations are not available, replace the surface with artifact-backed model-driver evidence such as global feature importance and clear limitations.",
+            "Rename UI and API contracts away from SHAP unless the implementation is actually SHAP-compatible.",
+            "Keep the explanation surface secondary until it is technically defensible as forecast interpretation."
+          ],
+          "acceptance": [
+            "No active UI calls pseudo-random output SHAP or presents it as authoritative model interpretation.",
+            "Forecast explanation copy clearly states whether evidence is global, local, demo, or unavailable.",
+            "pytest backend/tests/test_forecasts_explain_api.py -q passes against the updated contract."
+          ]
+        },
+        {
+          "id": "P5-07",
+          "title": "Productize CSV onboarding flow in the active app",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added an in-product CSV onboarding workflow on the Data Readiness page with file loading, validation, issue review, and ingest actions backed by the existing data API.",
+            "Wired readiness refresh, integrations invalidation, and ingest feedback so operators can complete pre-pilot setup without manual API calls while keeping the Integrations page source state coherent.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_csv_onboarding.py backend/tests/test_integrations_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/DataReadinessPage.tsx",
+            "frontend/src/components/data/DataReadinessSummary.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/types.ts",
+            "backend/api/v1/routers/data.py"
+          ],
+          "actions": [
+            "Add CSV upload, validation, error review, and ingest actions to the active frontend instead of leaving the onboarding path API-only.",
+            "Expose actionable validation errors and readiness-state changes in the UI so an operator can complete pre-pilot setup without manual API calls.",
+            "Wire query invalidation so readiness, freshness, and recommendation eligibility refresh after ingest."
+          ],
+          "acceptance": [
+            "A user can validate and ingest CSV onboarding files from the active app.",
+            "Validation failures are rendered with actionable field-level guidance.",
+            "Frontend build succeeds after the onboarding flow is added."
+          ]
+        },
+        {
+          "id": "P5-08",
+          "title": "Productize Square mapping review and integration recovery UI",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added Square mapping preview, draft save, and confirmation flows to the Integrations page so operators can review mappings from the active frontend before sync.",
+            "Surfaced dead-letter webhook events and replay controls in the product UI instead of leaving recovery backend-only.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_csv_onboarding.py backend/tests/test_integrations_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/IntegrationsPage.tsx",
+            "frontend/src/pages/OperationsPage.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/types.ts",
+            "backend/api/v1/routers/integrations.py"
+          ],
+          "actions": [
+            "Expose Square mapping preview and confirmation flows in the active app so store, catalog, and variation mappings can be reviewed before sync.",
+            "Surface unmapped external IDs, dead-letter events, and replay controls in the Integrations or Operations UI instead of keeping recovery backend-only.",
+            "Update UI copy so connection status does not imply a fully productized onboarding path until mapping confirmation and recovery flows are available."
+          ],
+          "acceptance": [
+            "An operator can review and confirm Square mappings from the active frontend.",
+            "Webhook dead-letter and replay status are visible from the product surface.",
+            "Frontend build succeeds and no integrations page copy overstates onboarding completeness."
+          ]
         }
       ]
     },
@@ -713,14 +973,17 @@
           "id": "P6-01",
           "title": "Rewrite README and TECHNICAL docs",
           "status": "done",
-          "completed_at": "2026-04-19",
+          "completed_at": "2026-04-20",
           "notes": [
             "Rewrote README around the replenishment decision loop, evidence boundaries, active data scope, and pilot packaging links.",
-            "Rewrote TECHNICAL.md around the actual runtime architecture and evidence stack instead of the older broad demo narrative."
+            "Rewrote TECHNICAL.md around the actual runtime architecture and evidence stack instead of the older broad demo narrative.",
+            "Fixed the documented migration/run commands so local setup matches the real repo layout and backend/alembic.ini now resolves correctly from repo root."
           ],
           "files": [
             "README.md",
-            "TECHNICAL.md"
+            "TECHNICAL.md",
+            "AGENTS.md",
+            "backend/alembic.ini"
           ],
           "actions": [
             "Center product loop and business evidence.",

@@ -10,8 +10,11 @@ import pandas as pd
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import InventoryLevel, Product, Store, TenantMLReadiness, Transaction
+from db.models import Integration, IntegrationSyncLog, InventoryLevel, Product, Store, TenantMLReadiness, Transaction
 from ml.readiness import ReadinessThresholds, evaluate_and_persist_tenant_readiness
+
+CSV_PROVIDER = "csv"
+CSV_INTEGRATION_NAME = "CSV Onboarding"
 
 CSV_REQUIRED_FIELDS = {
     "stores": {"name"},
@@ -126,6 +129,7 @@ async def ingest_csv_batch(
 
     parsed = {file_type: parse_csv_payload(file_type, content) for file_type, content in payloads.items() if content}
     created_counts = {"stores": 0, "products": 0, "transactions": 0, "inventory": 0}
+    ingested_at = datetime.utcnow()
 
     store_map = await _upsert_stores(db, customer_id, parsed.get("stores"))
     product_map = await _upsert_products(db, customer_id, parsed.get("products"))
@@ -149,6 +153,20 @@ async def ingest_csv_batch(
 
     created_counts["stores"] = len(store_map)
     created_counts["products"] = len(product_map)
+
+    await _upsert_csv_integration(
+        db,
+        customer_id=customer_id,
+        ingested_at=ingested_at,
+        parsed=parsed,
+        created_counts=created_counts,
+    )
+    _record_csv_sync_logs(
+        db,
+        customer_id=customer_id,
+        ingested_at=ingested_at,
+        parsed=parsed,
+    )
 
     transactions_df = await _load_customer_transactions_df(db, customer_id=customer_id)
     readiness = await evaluate_and_persist_tenant_readiness(
@@ -252,6 +270,85 @@ async def _existing_store_names(db: AsyncSession, customer_id: uuid.UUID) -> set
 async def _existing_product_skus(db: AsyncSession, customer_id: uuid.UUID) -> set[str]:
     result = await db.execute(select(Product.sku).where(Product.customer_id == customer_id))
     return {str(row[0]).strip() for row in result.all() if row[0]}
+
+
+async def _upsert_csv_integration(
+    db: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    ingested_at: datetime,
+    parsed: dict[str, pd.DataFrame],
+    created_counts: dict[str, int],
+) -> Integration:
+    result = await db.execute(
+        select(Integration).where(
+            Integration.customer_id == customer_id,
+            Integration.provider == CSV_PROVIDER,
+        )
+    )
+    integration = result.scalar_one_or_none()
+    batch_summary = {
+        "file_rows": {file_type: int(len(frame)) for file_type, frame in parsed.items()},
+        "created_counts": created_counts,
+        "updated_at": ingested_at.isoformat(),
+    }
+    if integration is None:
+        integration = Integration(
+            customer_id=customer_id,
+            provider=CSV_PROVIDER,
+            integration_type="rest_api",
+            status="connected",
+            last_sync_at=ingested_at,
+            config={
+                "source_label": CSV_INTEGRATION_NAME,
+                "ingest_mode": "manual_upload",
+                "last_batch_summary": batch_summary,
+            },
+        )
+        db.add(integration)
+        await db.flush()
+        return integration
+
+    current_config = integration.config if isinstance(integration.config, dict) else {}
+    integration.integration_type = "rest_api"
+    integration.status = "connected"
+    integration.last_sync_at = ingested_at
+    integration.config = {
+        **current_config,
+        "source_label": CSV_INTEGRATION_NAME,
+        "ingest_mode": "manual_upload",
+        "last_batch_summary": batch_summary,
+    }
+    return integration
+
+
+def _record_csv_sync_logs(
+    db: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    ingested_at: datetime,
+    parsed: dict[str, pd.DataFrame],
+) -> None:
+    for file_type, frame in parsed.items():
+        if frame.empty:
+            continue
+        db.add(
+            IntegrationSyncLog(
+                customer_id=customer_id,
+                integration_type="CSV",
+                integration_name=CSV_INTEGRATION_NAME,
+                sync_type=file_type,
+                records_synced=int(len(frame)),
+                sync_status="success",
+                started_at=ingested_at,
+                completed_at=ingested_at,
+                sync_metadata={
+                    "source": "csv_onboarding",
+                    "rows": int(len(frame)),
+                    "columns": list(frame.columns),
+                },
+            )
+        )
 
 
 async def _upsert_stores(db: AsyncSession, customer_id: uuid.UUID, frame: pd.DataFrame | None) -> dict[str, uuid.UUID]:

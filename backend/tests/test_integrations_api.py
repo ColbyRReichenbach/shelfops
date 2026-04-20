@@ -5,6 +5,7 @@ API Integration Tests — Integration management endpoints.
 import hashlib
 import hmac
 import json
+from datetime import datetime
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -165,6 +166,76 @@ class TestIntegrationsAPI:
         assert seeded_integration["integration"].config["square_catalog_to_product"]["item-1"] == str(
             seeded_integration["product"].product_id
         )
+
+    async def test_sync_health_returns_square_mapping_coverage_totals(
+        self,
+        client: AsyncClient,
+        seeded_integration,
+        test_db,
+    ):
+        from db.models import IntegrationSyncLog
+
+        seeded_integration["integration"].config = {
+            "square_mapping_confirmed": True,
+            "square_mapping_coverage": {
+                "locations_total": 3,
+                "locations_mapped": 2,
+                "catalog_total": 5,
+                "catalog_mapped": 4,
+            },
+            "square_unmapped_location_ids": ["loc-3"],
+            "square_unmapped_catalog_ids": ["item-5"],
+        }
+        test_db.add(
+            IntegrationSyncLog(
+                customer_id=seeded_integration["customer_id"],
+                integration_type="POS",
+                integration_name="Square POS",
+                sync_type="inventory",
+                records_synced=42,
+                sync_status="success",
+                started_at=datetime.utcnow(),
+                completed_at=datetime.utcnow(),
+            )
+        )
+        await test_db.commit()
+
+        resp = await client.get("/api/v1/integrations/sync-health")
+
+        assert resp.status_code == 200
+        payload = resp.json()
+        square_source = next(source for source in payload["sources"] if source["integration_name"] == "Square POS")
+        assert square_source["mapping_confirmed"] is True
+        assert square_source["mapping_coverage"] == {
+            "locations_total": 3,
+            "locations_mapped": 2,
+            "catalog_total": 5,
+            "catalog_mapped": 4,
+        }
+        assert square_source["unmapped_location_ids"] == ["loc-3"]
+        assert square_source["unmapped_catalog_ids"] == ["item-5"]
+
+    async def test_sync_health_includes_csv_onboarding_source(self, client: AsyncClient):
+        from tests.test_csv_onboarding import _inventory_csv, _products_csv, _stores_csv, _transactions_csv
+
+        ingest = await client.post(
+            "/api/v1/data/csv/ingest",
+            json={
+                "stores_csv": _stores_csv(),
+                "products_csv": _products_csv(),
+                "transactions_csv": _transactions_csv(),
+                "inventory_csv": _inventory_csv(),
+            },
+        )
+        assert ingest.status_code == 200
+
+        resp = await client.get("/api/v1/integrations/sync-health")
+        assert resp.status_code == 200
+        payload = resp.json()
+        csv_source = next(source for source in payload["sources"] if source["integration_name"] == "CSV Onboarding")
+        assert csv_source["integration_type"] == "CSV"
+        assert csv_source["syncs_24h"] == 4
+        assert csv_source["records_24h"] > 0
 
 
 def test_verify_square_oauth_state_rejects_tampered_signature():

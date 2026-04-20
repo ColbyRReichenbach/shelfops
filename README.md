@@ -67,11 +67,32 @@ Deferred in the current phase:
 - `Pilot Impact`: measured or provisional operational outcomes separated from simulated replay evidence
 - `Model Evidence`: champion model card, calibration, segment metrics, and promotion evidence
 
+## Pre-Pilot Quick Start
+
+For a clean local walkthrough that matches the current product story:
+
+```bash
+docker compose up -d db redis redpanda api
+./scripts/setup_production.sh
+./scripts/bootstrap_sample_merchant.sh
+cd frontend && npm run dev
+```
+
+That flow creates a deterministic `Production Pilot` tenant with:
+
+- current data-readiness state
+- seeded model health and backtests
+- replenishment recommendations
+- alerts and sync-health activity
+- impact and scenario surfaces with meaningful content
+
+See [PRE_PILOT_CHECKLIST.md](./PRE_PILOT_CHECKLIST.md) for the readiness standard to hit before outreach.
+
 ## Local Run
 
 ```bash
-docker-compose up db redis
-PYTHONPATH=backend alembic upgrade head
+docker compose up db redis
+(cd backend && PYTHONPATH=. alembic upgrade head)
 PYTHONPATH=backend uvicorn api.main:app --reload
 PYTHONPATH=backend celery -A workers.celery_app worker --loglevel=info
 cd frontend && npm install && npm run dev

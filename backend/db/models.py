@@ -544,7 +544,7 @@ class Integration(Base):
         UniqueConstraint("customer_id", "provider", name="uq_integration_per_provider"),
         Index("ix_integrations_customer", "customer_id"),
         CheckConstraint(
-            "provider IN ('square', 'shopify', 'lightspeed', 'clover', "
+            "provider IN ('csv', 'square', 'shopify', 'lightspeed', 'clover', "
             "'oracle_retail', 'sap', 'relex', 'manhattan', 'blue_yonder', "
             "'custom_edi', 'custom_sftp', 'kafka', 'pubsub')",
             name="ck_integration_provider",

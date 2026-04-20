@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import func, select
 
-from db.models import InventoryLevel, Product, Store, TenantMLReadiness, Transaction
+from db.models import Integration, IntegrationSyncLog, InventoryLevel, Product, Store, TenantMLReadiness, Transaction
 
 
 def _stores_csv() -> str:
@@ -74,12 +74,23 @@ async def test_good_csv_creates_canonical_records_and_updates_readiness(client, 
     product_count = await test_db.scalar(select(func.count(Product.product_id)))
     txn_count = await test_db.scalar(select(func.count(Transaction.transaction_id)))
     inv_count = await test_db.scalar(select(func.count(InventoryLevel.id)))
+    csv_integration = (
+        await test_db.execute(select(Integration).where(Integration.provider == "csv"))
+    ).scalar_one()
+    sync_log_count = await test_db.scalar(
+        select(func.count(IntegrationSyncLog.sync_id)).where(
+            IntegrationSyncLog.integration_name == "CSV Onboarding"
+        )
+    )
     readiness = (await test_db.execute(select(TenantMLReadiness))).scalar_one()
 
     assert store_count == 1
     assert product_count == 5
     assert txn_count == 95 * 5
     assert inv_count == 1
+    assert csv_integration.status == "connected"
+    assert csv_integration.last_sync_at is not None
+    assert sync_log_count == 4
     assert readiness.state == "warming"
 
     readiness_response = await client.get("/api/v1/data/readiness")
@@ -87,3 +98,23 @@ async def test_good_csv_creates_canonical_records_and_updates_readiness(client, 
     readiness_payload = readiness_response.json()
     assert readiness_payload["state"] == "warming"
     assert readiness_payload["snapshot"]["history_days"] >= 90
+
+
+async def test_csv_ingest_registers_first_class_integration(client):
+    ingest = await client.post(
+        "/api/v1/data/csv/ingest",
+        json={
+            "stores_csv": _stores_csv(),
+            "products_csv": _products_csv(),
+            "transactions_csv": _transactions_csv(),
+            "inventory_csv": _inventory_csv(),
+        },
+    )
+    assert ingest.status_code == 200
+
+    integrations = await client.get("/api/v1/integrations/")
+    assert integrations.status_code == 200
+    payload = integrations.json()
+    assert len(payload) == 1
+    assert payload[0]["provider"] == "csv"
+    assert payload[0]["status"] == "connected"

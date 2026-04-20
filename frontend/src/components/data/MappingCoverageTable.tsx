@@ -62,10 +62,10 @@ export default function MappingCoverageTable({ sources }: MappingCoverageTablePr
                                             </span>
                                         </td>
                                         <td className="px-4 py-4 text-sm text-[#1d1d1f]">
-                                            {coverage.locations_mapped ?? 0} mapped / {coverage.locations_seen ?? 0} seen
+                                            {coverage.locations_mapped ?? 0} mapped / {coverage.locations_total ?? 0} total
                                         </td>
                                         <td className="px-4 py-4 text-sm text-[#1d1d1f]">
-                                            {coverage.catalog_mapped ?? 0} mapped / {coverage.catalog_seen ?? 0} seen
+                                            {coverage.catalog_mapped ?? 0} mapped / {coverage.catalog_total ?? 0} total
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="space-y-2 text-sm text-[#1d1d1f]">

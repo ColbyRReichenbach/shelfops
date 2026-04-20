@@ -128,8 +128,8 @@ The repo relies on tenant-scoped session context rather than trusting the UI to 
 ## Local Development
 
 ```bash
-docker-compose up db redis
-PYTHONPATH=backend alembic upgrade head
+docker compose up db redis
+(cd backend && PYTHONPATH=. alembic upgrade head)
 PYTHONPATH=backend uvicorn api.main:app --reload
 PYTHONPATH=backend celery -A workers.celery_app worker --loglevel=info
 cd frontend && npm install && npm run dev
