@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     ml_cold_start_min_store_count: int = 1
     ml_cold_start_min_product_count: int = 25
 
+    # Anthropic
+    anthropic_api_key: str = ""
+
     # Email
     sendgrid_api_key: str = ""
     alert_from_email: str = "alerts@shelfops.com"
@@ -118,6 +121,7 @@ class Settings(BaseSettings):
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origin_regex: str = r"https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 
     model_config = {
         "env_file": str(_env_file),

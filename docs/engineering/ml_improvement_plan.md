@@ -22,7 +22,7 @@ Before designing improvements, we need to be honest about what the logged metric
 
 ### 1.1 The Weight Sweep Finding (Most Important)
 
-`docs/productization_artifacts/model_strategy_cycle.json` logged a systematic weight sweep on the seed dataset. The result is clear:
+A historical weight sweep on the old seed dataset logged the following result. The conclusion is clear:
 
 | XGB Weight | LSTM Weight | Ensemble MAE | Ensemble MAPE |
 |---|---|---|---|

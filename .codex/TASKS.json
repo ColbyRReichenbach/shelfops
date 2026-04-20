@@ -1,0 +1,1024 @@
+{
+  "project": "ShelfOps current-to-standout implementation plan",
+  "date": "2026-04-20",
+  "execution_rules": [
+    "Do not make unsupported business-impact claims.",
+    "Do not use synthetic/demo data for model-performance claims unless labeled synthetic.",
+    "Do not leave active champion pointing to archived legacy artifacts.",
+    "Every ML change must include tests and model-card evidence.",
+    "Every user-facing metric must include provenance: measured, estimated, simulated, provisional, or unavailable."
+  ],
+  "phases": [
+    {
+      "id": "P0",
+      "name": "Repo truth reset",
+      "tasks": [
+        {
+          "id": "P0-01",
+          "title": "Create CURRENT_STATE.md and CLAIMS.md",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added root CURRENT_STATE.md and CLAIMS.md.",
+            "Updated README and legacy demo docs to point to root CLAIMS.md as the public claim boundary.",
+            "Synthetic/demo status is now called out explicitly in root truth docs."
+          ],
+          "files": [
+            "CURRENT_STATE.md",
+            "CLAIMS.md",
+            "README.md"
+          ],
+          "actions": [
+            "Summarize implemented, partial, planned, and do-not-claim capabilities.",
+            "Move public claim source of truth from docs/demo/CLAIMS_LEDGER.md into root CLAIMS.md.",
+            "Update README links."
+          ],
+          "acceptance": [
+            "README links to CURRENT_STATE.md and CLAIMS.md.",
+            "No doc claims measured business impact without evidence.",
+            "Synthetic/demo status is explicit."
+          ]
+        },
+        {
+          "id": "P0-02",
+          "title": "Archive internal/demo artifacts and stale model files",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Archived legacy demo docs under docs/archive/2026-04-legacy-demo and moved productization artifacts under docs/archive/productization_artifacts.",
+            "Removed dead frontend demo routes and welcome surfaces, and stopped the API client and debug auth flow from routing through demo-only tenant headers.",
+            "Archived Summit demo model artifacts under backend/models/archive/summit_demo, cleaned backend/models/registry.json to keep only the active champion, and moved stale one-off reports into backend/reports/archive.",
+            "Extracted production tenant setup into backend/scripts/production_tenant.py so setup_production no longer depends on the legacy demo seeding script."
+          ],
+          "files": [
+            "docs/archive/2026-04-legacy-demo/",
+            "docs/archive/productization_artifacts/",
+            "frontend/src/App.tsx",
+            "frontend/src/lib/api.ts",
+            "backend/api/deps.py",
+            "backend/models/archive/summit_demo/",
+            "backend/models/registry.json",
+            "backend/reports/archive/",
+            "backend/scripts/production_tenant.py",
+            "scripts/setup_production.sh"
+          ],
+          "actions": [
+            "Archive demo-only docs and historical productization artifacts outside the active docs surface.",
+            "Remove dead frontend demo entry points and tenant-header routing.",
+            "Move stale Summit model artifacts and legacy report outputs into archive paths.",
+            "Extract live production setup responsibilities from legacy demo scripts."
+          ],
+          "acceptance": [
+            "backend/models/champion.json does not point to archived legacy model.",
+            "README does not cite stale demo artifacts as evidence.",
+            "Archive README explains artifacts are not active.",
+            "Active routes and docs no longer depend on legacy demo surfaces."
+          ]
+        },
+        {
+          "id": "P0-03",
+          "title": "Fix API namespace and tenant-doc mismatch",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Removed the duplicate experiments router include and normalized canonical examples to /api/v1/experiments.",
+            "Updated tenant/session naming references in technical docs.",
+            "Verified acceptance with pytest backend/tests/test_experiments_api.py -q and pytest backend/tests/test_security_guardrails.py -q."
+          ],
+          "files": [
+            "backend/api/main.py",
+            "backend/api/deps.py",
+            "TECHNICAL.md",
+            "docs/product/known_limitations.md"
+          ],
+          "actions": [
+            "Remove duplicate experiments router registration.",
+            "Normalize experiments route under /api/v1/experiments.",
+            "Make tenant context naming consistent in code and docs."
+          ],
+          "acceptance": [
+            "pytest backend/tests/test_experiments_api.py -q passes.",
+            "pytest backend/tests/test_security_guardrails.py -q passes.",
+            "Docs match actual session context variable."
+          ]
+        },
+        {
+          "id": "P0-04",
+          "title": "Remove legacy model residue from the active champion path",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Removed disabled LSTM and stale ensemble fields from backend/models/v3/metadata.json so the active champion path reflects the deployed LightGBM-first model story only.",
+            "Added backend/tests/test_models_api.py coverage to fail if legacy disabled-model fields reappear in the active metadata contract.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_models_api.py -q."
+          ],
+          "files": [
+            "backend/models/v3/metadata.json",
+            "backend/models/champion.json",
+            "backend/models/registry.json",
+            "MODEL_CARD.md",
+            "backend/tests/test_models_api.py"
+          ],
+          "actions": [
+            "Remove disabled legacy-model fields such as lstm weights, lstm metrics, and stale ensemble language from the active champion metadata.",
+            "Keep the active champion artifact strictly aligned to the deployed LightGBM-first model story.",
+            "Regenerate or update any model-card content that reads from champion metadata so the public artifact path has no stale references.",
+            "Add a regression test that fails if active champion metadata exposes archived or disabled model branches."
+          ],
+          "acceptance": [
+            "Active champion metadata contains no disabled LSTM or stale ensemble fields.",
+            "MODEL_CARD.md and API responses describe the same active champion configuration.",
+            "pytest backend/tests/test_models_api.py -q passes with a metadata-integrity assertion."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P1",
+      "name": "Focused benchmark evidence and model reset",
+      "tasks": [
+        {
+          "id": "P1-00",
+          "title": "Create focused data registry and remove active Favorita dependency",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added DATA_SOURCES.md, data_registry metadata, and per-source README files for the active M5 + FreshRetailNet + CSV/Square scope.",
+            "Added a legacy Favorita note under docs/archive/data_sources/favorita.md and updated root CLAIMS.md and README.md.",
+            "Shifted training-validation and download script defaults away from Favorita-first behavior while keeping legacy/reference paths explicit."
+          ],
+          "files": [
+            "DATA_SOURCES.md",
+            "data_registry/datasets.yaml",
+            "data_registry/m5/README.md",
+            "data_registry/freshretailnet_50k/README.md",
+            "data_registry/square/README.md",
+            "data_registry/csv_onboarding/README.md",
+            "backend/data_sources/legacy_favorita.py or docs/archive/data_sources/favorita.md",
+            "CLAIMS.md"
+          ],
+          "actions": [
+            "Declare M5/Walmart as the primary public benchmark.",
+            "Declare FreshRetailNet-50K as the secondary stockout/censored-demand benchmark.",
+            "Declare CSV + Square as the pilot/product validation path.",
+            "Declare Dominick's as deferred optional only.",
+            "Move Favorita out of the active champion path; keep it only as legacy/reference if needed.",
+            "Mark Rossmann, Instacart, Complete Journey, UCI Online Retail, and leaked/unauthorized data as out of active scope.",
+            "For every source, document allowed and disallowed claims."
+          ],
+          "acceptance": [
+            "DATA_SOURCES.md clearly states that the active build uses M5 + FreshRetailNet + CSV/Square only.",
+            "No active model champion metadata names Favorita.",
+            "Root CLAIMS.md distinguishes benchmark evidence from pilot evidence.",
+            "No task requires unauthorized, leaked, or legally ambiguous data."
+          ]
+        },
+        {
+          "id": "P1-01",
+          "title": "Add dataset snapshot infrastructure",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added backend/ml/dataset_snapshots.py with deterministic hashing, provenance metadata, and snapshot persistence.",
+            "Added the dataset_snapshots DB model and migration, and threaded dataset_snapshot_id into saved model metadata.",
+            "Updated run_training.py, run_onboarding_flow.py, and workers/retrain.py to create and persist snapshots during training flows."
+          ],
+          "files": [
+            "backend/ml/dataset_snapshots.py",
+            "backend/db/models.py",
+            "backend/alembic/versions/*_dataset_snapshots.py",
+            "backend/tests/test_dataset_snapshots.py"
+          ],
+          "actions": [
+            "Persist dataset id, source, row count, stores, products, date range, hash, schema version, frequency, grain, geography, and implementation status.",
+            "Attach dataset_snapshot_id to model metadata.",
+            "Support M5, FreshRetailNet, CSV, and Square tenant snapshots.",
+            "Attach dataset claim boundaries or a pointer to data_registry/datasets.yaml."
+          ],
+          "acceptance": [
+            "Dataset snapshot ID is returned by training scripts.",
+            "Snapshot metadata appears in model metadata.",
+            "Test validates stable hash for fixed fixture.",
+            "Snapshot includes source provenance and claim boundaries."
+          ]
+        },
+        {
+          "id": "P1-02",
+          "title": "Implement M5/Walmart adapter and canonicalization",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added backend/data_sources/m5.py and backend/scripts/prepare_m5.py for M5 canonicalization.",
+            "Updated ml.data_contracts to recognize M5 directory layouts and preserve extra benchmark fields such as price and calendar events.",
+            "Added adapter tests and made benchmark_datasets.py accept an explicit dataset/data-dir path so prepared M5 data can be benchmarked."
+          ],
+          "files": [
+            "backend/data_sources/m5.py",
+            "backend/tests/test_m5_adapter.py",
+            "backend/scripts/prepare_m5.py",
+            "DATA_SOURCES.md"
+          ],
+          "actions": [
+            "Convert M5 calendar, sell prices, and sales tables into canonical ShelfOps store-product-day records.",
+            "Preserve hierarchy fields: item, department, category, store, state, and aggregate IDs where available.",
+            "Attach sell price and calendar event features.",
+            "Create deterministic dataset snapshot.",
+            "Add a small fixture for tests; do not commit the full dataset if large or license-sensitive."
+          ],
+          "acceptance": [
+            "Adapter emits canonical rows with store_id, product_id, date, units_sold, price, category hierarchy, and calendar/event fields.",
+            "Adapter does not create fake inventory, PO, or supplier data without simulated provenance labels.",
+            "M5 snapshot can be used by benchmark script."
+          ]
+        },
+        {
+          "id": "P1-03",
+          "title": "Replace XGBoost benchmark with LightGBM plus baselines on M5",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added backend/ml/baselines.py with naive, seasonal naive, moving average, category/store average, and intermittent-demand baselines.",
+            "Rewrote backend/scripts/benchmark_datasets.py around a LightGBM benchmark path with JSON and Markdown output and no XGBoost dependency.",
+            "Marked M5 business-impact fields as not_available in the benchmark report and verified the script is import-safe enough for --help."
+          ],
+          "files": [
+            "backend/ml/baselines.py",
+            "backend/scripts/benchmark_datasets.py",
+            "backend/tests/test_baselines.py",
+            "backend/tests/test_benchmark_datasets.py"
+          ],
+          "actions": [
+            "Implement naive, seasonal naive, moving average, category/store average, and intermittent-demand baselines.",
+            "Run current LightGBM training path in benchmark script.",
+            "Make M5 the default benchmark dataset.",
+            "Output baseline comparison JSON and Markdown."
+          ],
+          "acceptance": [
+            "Benchmark report includes each baseline and LightGBM.",
+            "Report includes WAPE, MASE, MAE, bias, interval metrics if available, rows, date ranges, and segment coverage.",
+            "Stockout, PO, and supplier metrics are labeled not_available for M5 unless generated by an explicitly labeled simulation.",
+            "No XGBoost dependency is required for the current benchmark path."
+          ]
+        },
+        {
+          "id": "P1-04",
+          "title": "Add segment metrics for M5 and FreshRetailNet",
+          "priority": "P1",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added backend/ml/segments.py and backend/ml/evaluation.py for global plus segment metric reporting.",
+            "Implemented fast, medium, slow, intermittent, cold-start, promoted, high-volume, perishable, and stockout-window segment handling.",
+            "Added low-sample labeling and missing-field-safe evaluation tests."
+          ],
+          "files": [
+            "backend/ml/segments.py",
+            "backend/ml/evaluation.py",
+            "backend/tests/test_segments.py",
+            "backend/tests/test_model_evaluation.py"
+          ],
+          "actions": [
+            "Segment SKUs into fast, medium, slow, intermittent, cold-start, promoted, and high-volume categories where possible.",
+            "For M5, use hierarchy and demand-frequency based segments.",
+            "For FreshRetailNet, additionally support perishable and stockout-window segments.",
+            "Compute global and segment metrics with low-sample labels."
+          ],
+          "acceptance": [
+            "Evaluation report has global and segment metrics.",
+            "Low sample segments are labeled.",
+            "Empty or missing segment fields do not crash evaluation."
+          ]
+        },
+        {
+          "id": "P1-05",
+          "title": "Add calibrated prediction intervals",
+          "priority": "P1",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added calibration and quantile helper modules plus prediction-path interval metadata fields.",
+            "predict_demand now returns interval_method, calibration_status, and interval_coverage while explicitly labeling heuristic intervals as uncalibrated.",
+            "Training now writes split-conformal interval metadata, coverage, and conformal residual quantiles into saved model artifacts."
+          ],
+          "files": [
+            "backend/ml/quantile.py",
+            "backend/ml/calibration.py",
+            "backend/ml/predict.py",
+            "backend/tests/test_prediction_intervals.py",
+            "backend/tests/test_calibration.py"
+          ],
+          "actions": [
+            "Implement LightGBM quantile p10/p50/p90 or split-conformal intervals.",
+            "Store interval method and coverage in metadata.",
+            "Return calibration status from prediction path.",
+            "Downgrade any heuristic interval language to uncalibrated."
+          ],
+          "acceptance": [
+            "predict_demand returns intervals with interval_method and calibration_status.",
+            "Model card reports interval coverage.",
+            "If intervals are heuristic, UI badge says uncalibrated."
+          ]
+        },
+        {
+          "id": "P1-06",
+          "title": "Generate new active M5 champion and model card",
+          "priority": "P0",
+          "status": "done",
+          "notes": [
+            "Downloaded the standard M5 files into data/benchmarks/m5_walmart/raw from a public mirror after Kaggle competition auth was unavailable locally.",
+            "Added reproducible subset preparation to backend/scripts/prepare_m5.py and generated data/benchmarks/m5_walmart/subset_20spc with 600 balanced store/category series, 1,147,800 canonical rows, and dataset snapshot dsnap_09e19c9147a57fe5.",
+            "Benchmarked the subset in backend/reports/m5_subset20_benchmark.json and recorded the promotion holdout check in backend/reports/m5_subset20_holdout_eval.json.",
+            "Trained v3 on the M5 subset, promoted it to champion, updated backend/models/champion.json and backend/models/registry.json, and wrote MODEL_CARD.md with explicit benchmark claim boundaries and M5 limitations."
+          ],
+          "files": [
+            "backend/models/champion.json",
+            "backend/models/registry.json",
+            "backend/models/<new_version>/metadata.json",
+            "MODEL_CARD.md"
+          ],
+          "actions": [
+            "Train current LightGBM on the M5/Walmart benchmark.",
+            "Use enough rows and enough time coverage to be credible.",
+            "Include dataset snapshot ID.",
+            "Archive old v1 champion.",
+            "Promote only if baselines and gates pass.",
+            "Label M5 limitations: no live inventory, no PO decisions, no supplier lead-time history, no merchant ROI."
+          ],
+          "acceptance": [
+            "No active champion has rows_trained: 27.",
+            "Active metadata uses lightgbm, not XGBoost/LSTM weights.",
+            "Active dataset ID is m5_walmart or equivalent, not Favorita.",
+            "MODEL_CARD.md exists and includes limitations."
+          ]
+        },
+        {
+          "id": "P1-07",
+          "title": "Add FreshRetailNet stockout/censored-demand track",
+          "priority": "P1",
+          "files": [
+            "backend/data_sources/freshretailnet.py",
+            "backend/ml/latent_demand.py",
+            "backend/ml/stockout_metrics.py",
+            "backend/scripts/benchmark_stockout_censored_demand.py",
+            "backend/tests/test_freshretailnet_adapter.py",
+            "backend/tests/test_stockout_metrics.py",
+            "MODEL_CARD_STOCKOUT_APPENDIX.md"
+          ],
+          "actions": [
+            "Convert FreshRetailNet into canonical ShelfOps records with hourly/daily handling explicitly documented.",
+            "Preserve stockout status, promotions, precipitation, perishability/category fields, and temporal fields.",
+            "Add metrics for stockout-window bias, non-stockout-window error, under-forecast rate during stockouts, and recovered-demand comparison if implemented.",
+            "Add a clearly labeled latent-demand recovery experiment or conservative censored-demand adjustment.",
+            "Keep this as a secondary evidence track, not the active M5 champion unless explicitly selected."
+          ],
+          "acceptance": [
+            "FreshRetailNet benchmark report separates stockout and non-stockout periods.",
+            "Stockout-aware report says the dataset is not U.S.-based and does not prove merchant ROI.",
+            "UI/model evidence can show stockout-aware methodology without blending it into M5 metrics."
+          ],
+          "status": "done",
+          "notes": [
+            "Added backend/data_sources/freshretailnet.py and wired backend/ml/data_contracts.py to load train.parquet + eval.parquet as canonical FreshRetailNet records with stockout, promo, weather, and category fields preserved.",
+            "Added conservative stockout-aware recovery in backend/ml/latent_demand.py and evaluation metrics in backend/ml/stockout_metrics.py, with focused tests for adapter behavior, stockout metrics, dataset readiness, and snapshot hashing of array-like columns.",
+            "Downloaded FreshRetailNet-50K parquet files into data/benchmarks/freshretailnet_50k/raw from Hugging Face and generated backend/reports/freshretailnet_stockout_benchmark.json plus markdown on a deterministic 5000-series benchmark subset.",
+            "Wrote MODEL_CARD_STOCKOUT_APPENDIX.md to keep the FreshRetailNet methodology and claim boundaries separate from the active M5 champion story."
+          ]
+        }
+      ],
+      "goal": "Replace legacy/demo model evidence with a focused M5/Walmart champion, add FreshRetailNet as a secondary stockout-aware evidence track, and document dataset claim boundaries."
+    },
+    {
+      "id": "P2",
+      "name": "Replenishment decision loop",
+      "tasks": [
+        {
+          "id": "P2-01",
+          "title": "Create recommendation service and policy layer",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added recommendation schemas, forecast-window summarization, and a service that generates persisted replenishment recommendations from forecast, inventory, sourcing, and product cost context.",
+            "Recommendations now store forecast model version, policy version, interval method, calibration status, quantity, cost estimate, and risk labels in replenishment_recommendations.",
+            "Verified acceptance with pytest backend/tests/test_recommendation_service.py -q plus regression checks for backend/tests/test_inventory_optimizer.py, backend/tests/test_data_contracts.py, and backend/tests/test_ml_pipeline.py."
+          ],
+          "files": [
+            "backend/recommendations/service.py",
+            "backend/recommendations/schemas.py",
+            "backend/recommendations/outcomes.py",
+            "backend/ml/policy.py",
+            "backend/tests/test_recommendation_service.py"
+          ],
+          "actions": [
+            "Generate recommended quantity from forecast, current inventory, lead time, supplier constraints, and service level.",
+            "Store recommendation with model_version and policy_version.",
+            "Compute no-order stockout risk and order-overstock risk."
+          ],
+          "acceptance": [
+            "Deterministic recommendation fixture passes.",
+            "Recommendation includes model version, horizon, interval method, lead time, quantity, cost, and risk labels."
+          ]
+        },
+        {
+          "id": "P2-02",
+          "title": "Add replenishment API",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added /api/v1/replenishment queue, detail, accept, edit, reject, and impact endpoints and registered the router in backend/api/main.py.",
+            "Accept and edit now create linked purchase_orders and po_decisions, while reject records explicit decision metadata on the recommendation record.",
+            "Verified acceptance with pytest backend/tests/test_replenishment_api.py -q and pytest backend/tests/test_purchase_orders_api.py -q."
+          ],
+          "files": [
+            "backend/api/v1/routers/replenishment.py",
+            "backend/api/main.py",
+            "backend/tests/test_replenishment_api.py"
+          ],
+          "actions": [
+            "Add queue/detail/accept/edit/reject endpoints.",
+            "Record buyer decision with reason codes.",
+            "Link accepted recommendations to purchase orders."
+          ],
+          "acceptance": [
+            "GET /api/v1/replenishment/queue returns buyer-ready cards.",
+            "Accept/edit/reject writes decision history.",
+            "Edited quantity requires reason code."
+          ]
+        },
+        {
+          "id": "P2-03",
+          "title": "Add recommendation outcome computation",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added recommendation_outcomes schema support plus async computation helpers in workers/monitoring.py to close the loop from recommendation to realized demand and inventory outcome.",
+            "Replenishment impact now summarizes closed vs provisional outcomes with explicit measured, estimated, and provisional confidence labels.",
+            "Verified acceptance with pytest backend/tests/test_recommendation_outcomes.py -q and broader regression over replenishment, purchase-order, inventory-policy, data-contract, and ML pipeline tests."
+          ],
+          "files": [
+            "backend/recommendations/outcomes.py",
+            "backend/workers/monitoring.py",
+            "backend/tests/test_recommendation_outcomes.py"
+          ],
+          "actions": [
+            "After horizon closes, compute actual demand, stockout event, overstock event, forecast error, and estimated value.",
+            "Expose impact endpoint."
+          ],
+          "acceptance": [
+            "Fixture can create recommendation, simulate actuals, and compute outcome.",
+            "Impact endpoint reports measured/estimated/provisional labels."
+          ]
+        },
+        {
+          "id": "P2-04",
+          "title": "Separate forecast closeout from recommendation policy impact",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Split replenishment impact into forecast_closeout and recommendation_policy sections so forecast error and decision value are no longer conflated.",
+            "Reworked outcome copy and provenance to treat observed sales as a proxy closeout input, while policy value is computed against a do-nothing baseline using decision quantities.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_recommendation_service.py backend/tests/test_recommendation_outcomes.py backend/tests/test_replenishment_api.py -q."
+          ],
+          "files": [
+            "backend/recommendations/outcomes.py",
+            "backend/workers/monitoring.py",
+            "backend/db/models.py",
+            "backend/alembic/versions/*_recommendation_outcome_policy_fields.py",
+            "backend/tests/test_recommendation_outcomes.py",
+            "frontend/src/pages/PilotImpactPage.tsx",
+            "frontend/src/components/impact/ImpactScorecard.tsx",
+            "frontend/src/components/replenishment/RecommendationDrawer.tsx"
+          ],
+          "actions": [
+            "Split the current outcome logic into two explicit surfaces: forecast closeout metrics and recommendation policy metrics.",
+            "Stop treating observed sales as actual demand without a proxy label, and rename or relabel fields so measured demand is not implied where it is unavailable.",
+            "Replace the current estimated-value calculation with a true policy comparison against a defined baseline such as do-nothing or prior policy behavior.",
+            "Store separate forecast-proxy and recommendation-policy values in the outcome schema, with an Alembic migration if new columns are required.",
+            "Update the Impact page and replenishment drawer copy so forecast accuracy, closeout, and policy value cannot be conflated."
+          ],
+          "acceptance": [
+            "No user-facing recommendation-impact metric is derived only from forecast-vs-sales error without an explicit proxy label.",
+            "Impact API returns separate forecast closeout and recommendation policy sections with provenance.",
+            "pytest backend/tests/test_recommendation_outcomes.py -q covers the separation and passes."
+          ]
+        },
+        {
+          "id": "P2-05",
+          "title": "Productize replenishment queue generation and refresh",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added POST /api/v1/replenishment/generate and reusable queue-generation logic in backend/recommendations/service.py so the buyer queue can be generated from the active app rather than bootstrap-only seeding.",
+            "Defined idempotent behavior for open recommendations and exposed generation counts plus skip reasons through the API.",
+            "Added a dedicated replenishment worker task plus nightly beat fan-out so queue refresh is no longer manual-only in the active runtime.",
+            "Added a Refresh Queue control to the Replenishment page and invalidated queue-dependent frontend state after generation.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_recommendation_service.py backend/tests/test_recommendation_outcomes.py backend/tests/test_replenishment_api.py backend/tests/test_replenishment_worker.py -q and frontend npm run build."
+          ],
+          "files": [
+            "backend/api/v1/routers/replenishment.py",
+            "backend/recommendations/service.py",
+            "backend/scripts/bootstrap_sample_merchant.py",
+            "backend/workers/celery_app.py",
+            "backend/workers/replenishment.py",
+            "backend/workers/inventory_optimizer.py",
+            "backend/tests/test_replenishment_api.py",
+            "backend/tests/test_replenishment_worker.py",
+            "frontend/src/pages/ReplenishmentPage.tsx",
+            "frontend/src/hooks/useShelfOps.ts"
+          ],
+          "actions": [
+            "Add an authenticated queue-generation endpoint that creates or refreshes replenishment recommendations from active inventory, forecast, sourcing, and policy context.",
+            "Extract reusable queue-generation logic out of the sample bootstrap path so the product does not depend on seeded demo behavior.",
+            "Define idempotency rules for open recommendations and expose generation counts plus skip reasons in the API response.",
+            "Add a scheduled refresh path so recommendation generation can run on forecast refresh or a nightly cadence.",
+            "Expose a generate or refresh action in the Replenishment UI and invalidate queue-dependent data after successful generation."
+          ],
+          "acceptance": [
+            "The active app can generate a buyer queue without bootstrap-only scripts.",
+            "Repeated generation is idempotent according to documented open-recommendation rules.",
+            "pytest backend/tests/test_replenishment_api.py -q covers generation and refresh behavior."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P3",
+      "name": "Simulation and impact evidence",
+      "tasks": [
+        {
+          "id": "P3-01",
+          "title": "Build replenishment replay simulator",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added a benchmark replay simulator comparing static, moving-average, seasonal-naive, and LightGBM-backed ShelfOps policy behavior over canonical benchmark transactions.",
+            "Simulation reports now label inventory, PO, lead-time, and cost assumptions as simulated and explicitly state that M5 replay is benchmark evidence, not measured merchant impact.",
+            "Verified with pytest backend/tests/test_replenishment_simulation.py backend/tests/test_data_contracts.py -q and generated backend/reports/replenishment_simulation_m5_subset20.json plus .md from the local M5 subset."
+          ],
+          "files": [
+            "backend/ml/replenishment_simulation.py",
+            "backend/scripts/run_replenishment_simulation.py",
+            "backend/tests/test_replenishment_simulation.py"
+          ],
+          "actions": [
+            "Compare static reorder, moving average, seasonal naive, and ShelfOps model policy over M5 historical demand first.",
+            "Label inventory, PO, lead-time, and cost assumptions as simulated for M5.",
+            "Add FreshRetailNet stockout-aware replay only after the stockout track is implemented.",
+            "Output stockout days, lost-sales proxy, overstock units, overstock dollars, service level, PO count, and combined cost proxy."
+          ],
+          "acceptance": [
+            "Report clearly separates benchmark simulation from measured merchant impact.",
+            "M5 simulation never claims true observed stockouts because M5 lacks live inventory/stockout status.",
+            "FreshRetailNet simulation uses explicit stockout-window labels when available.",
+            "Every metric has provenance: measured, benchmark, simulated, unavailable, or estimated."
+          ]
+        },
+        {
+          "id": "P3-02",
+          "title": "Add simulation API",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added /api/v1/simulations/replenishment to run or retrieve benchmark replay results for frontend/API consumption.",
+            "Simulation responses now include dataset snapshot, model version, policy version, and policy comparison rows instead of requiring direct artifact reads.",
+            "Verified with pytest backend/tests/test_replenishment_simulation.py backend/tests/test_simulations_api.py -q and regression on backend/tests/test_replenishment_api.py backend/tests/test_purchase_orders_api.py -q."
+          ],
+          "files": [
+            "backend/api/v1/routers/simulations.py",
+            "backend/api/main.py",
+            "backend/tests/test_simulations_api.py"
+          ],
+          "actions": [
+            "Run or retrieve replenishment simulation results.",
+            "Return policy comparison table with dataset snapshot and policy/model versions."
+          ],
+          "acceptance": [
+            "API returns simulation summary for frontend.",
+            "Results include dataset snapshot and policy versions."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P4",
+      "name": "Integration hardening",
+      "tasks": [
+        {
+          "id": "P4-01",
+          "title": "Harden Square mapping/onboarding",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added Square mapping preview and mapping confirmation endpoints, plus preview helpers that surface locations, products, variation ids, coverage, and unmapped external ids before sync.",
+            "Square sync now blocks production-style runs until mappings are confirmed, and demo id synthesis is only allowed for demo customers when explicitly enabled.",
+            "Sync health now exposes Square mapping coverage and unmapped ids, and README/CURRENT_STATE explicitly mark Shopify as deferred rather than partially implemented pilot scope.",
+            "Verified with pytest backend/tests/test_square_sync_mapping.py backend/tests/test_integrations_api.py backend/tests/test_contracts.py -q and regression on backend/tests/test_simulations_api.py backend/tests/test_replenishment_api.py -q."
+          ],
+          "files": [
+            "backend/data_sources/square.py",
+            "backend/integrations/square.py",
+            "backend/workers/sync.py",
+            "backend/api/v1/routers/integrations.py",
+            "backend/tests/test_square_onboarding.py"
+          ],
+          "actions": [
+            "Add mapping preview for locations/products.",
+            "Require mapping confirmation before production sync.",
+            "Isolate demo ID synthesis behind demo-only settings.",
+            "Record unmapped external IDs.",
+            "Do not add Shopify in this phase; document it as deferred."
+          ],
+          "acceptance": [
+            "Mapping preview displays Square locations/products/variations before sync.",
+            "Demo ID synthesis is blocked outside demo mode.",
+            "Unmapped IDs appear in data readiness.",
+            "Shopify is documented as deferred, not partially implemented."
+          ]
+        },
+        {
+          "id": "P4-02",
+          "title": "Add webhook event log and replay",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added webhook_event_log schema support and persist-before-processing behavior for Square webhooks, including signature failures, retry attempts, and dead-letter status.",
+            "Added authenticated replay and dead-letter list endpoints so failed webhook deliveries can be retried and inspected through the API.",
+            "Verified with pytest backend/tests/test_webhook_replay.py backend/tests/test_integrations_api.py backend/tests/test_contracts.py -q and regression on backend/tests/test_square_sync_mapping.py -q."
+          ],
+          "files": [
+            "backend/db/models.py",
+            "backend/alembic/versions/*_webhook_event_log.py",
+            "backend/api/v1/routers/integrations.py",
+            "backend/workers/sync.py",
+            "backend/tests/test_webhook_replay.py"
+          ],
+          "actions": [
+            "Persist inbound webhook payloads before processing.",
+            "Add status/retry/dead-letter flow.",
+            "Add replay endpoint or script."
+          ],
+          "acceptance": [
+            "Webhook stored before processing.",
+            "Failed webhook can be replayed.",
+            "Dead-letter events appear in operations API."
+          ]
+        },
+        {
+          "id": "P4-03",
+          "title": "Add CSV onboarding",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added backend/data_sources/csv_onboarding.py with validation, ingestion, and readiness evaluation for stores, products, transactions, and inventory CSVs.",
+            "Added authenticated CSV validate/ingest/readiness endpoints under /api/v1/data.",
+            "CSV ingest now creates or refreshes a first-class csv Integration row and writes CSV Onboarding sync-log entries so Integrations, Operations, and Data Readiness agree on source state.",
+            "Verified with pytest backend/tests/test_csv_onboarding.py -q and pytest backend/tests/test_readiness_state_machine.py backend/tests/test_data_contracts.py backend/tests/test_integrations_api.py -q."
+          ],
+          "files": [
+            "backend/data_sources/csv_onboarding.py",
+            "backend/api/v1/routers/data.py",
+            "backend/db/models.py",
+            "backend/db/migrations/versions/015_add_csv_integration_provider.py",
+            "backend/tests/test_csv_onboarding.py",
+            "backend/tests/test_integrations_api.py"
+          ],
+          "actions": [
+            "Validate products, stores, transactions, and inventory CSVs.",
+            "Return actionable mapping errors.",
+            "Ingest only after validation."
+          ],
+          "acceptance": [
+            "Bad CSV returns actionable errors.",
+            "Good CSV creates canonical records.",
+            "Data readiness updates after ingest."
+          ]
+        },
+        {
+          "id": "P4-04",
+          "title": "Correct Square mapping coverage semantics across readiness surfaces",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Aligned frontend mapping-coverage types and rendering with backend locations_total and catalog_total keys so readiness views stop showing false zero-denominator states.",
+            "Added API regression coverage for the sync-health mapping totals contract.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_integrations_api.py -q."
+          ],
+          "files": [
+            "backend/data_sources/square.py",
+            "backend/api/v1/routers/integrations.py",
+            "frontend/src/components/data/MappingCoverageTable.tsx",
+            "frontend/src/lib/types.ts",
+            "backend/tests/test_integrations_api.py"
+          ],
+          "actions": [
+            "Align backend payload keys and frontend type expectations for Square mapping denominators so total, mapped, and unmapped counts refer to the same objects.",
+            "Audit sync-health and readiness payloads for any remaining key mismatches that can render false zero-coverage states.",
+            "Add a contract assertion that locks the mapping coverage response shape used by the frontend."
+          ],
+          "acceptance": [
+            "Data Readiness renders the same mapping totals returned by the backend.",
+            "No mapping row can show zero seen when totals exist in the API payload.",
+            "pytest backend/tests/test_integrations_api.py -q covers the response contract and passes."
+          ]
+        }
+      ],
+      "goal": "Harden CSV and Square as the only active pilot ingestion paths; defer Shopify until the first pilot path is stable."
+    },
+    {
+      "id": "P5",
+      "name": "Frontend productization",
+      "tasks": [
+        {
+          "id": "P5-01",
+          "title": "Build Replenishment Queue UI",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added a replenishment route with queue filtering, search, detail drawer, and accept/edit/reject decision modal flows.",
+            "Surfaced interval provenance, risk badges, and impact provenance labels directly in the buyer workflow.",
+            "Verified with frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/ReplenishmentPage.tsx",
+            "frontend/src/components/replenishment/ReplenishmentTable.tsx",
+            "frontend/src/components/replenishment/RecommendationDrawer.tsx",
+            "frontend/src/components/replenishment/DecisionModal.tsx",
+            "frontend/src/lib/types.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/App.tsx"
+          ],
+          "actions": [
+            "Add route and navigation item.",
+            "Show recommendation table, detail drawer, and accept/edit/reject modals.",
+            "Display uncertainty, data-quality, and provenance badges."
+          ],
+          "acceptance": [
+            "User can act on a recommendation.",
+            "Edited quantity requires reason code.",
+            "Every risk/impact metric has provenance label."
+          ]
+        },
+        {
+          "id": "P5-02",
+          "title": "Build Data Readiness UI",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added a dedicated data-readiness route that explains trainability state, threshold progress, freshness, and Square mapping coverage.",
+            "Surfaced unmapped IDs and sync SLA breaches as explicit data-quality events instead of hiding them in backend-only responses.",
+            "Verified with frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/DataReadinessPage.tsx",
+            "frontend/src/components/data/DataReadinessSummary.tsx",
+            "frontend/src/components/data/MappingCoverageTable.tsx",
+            "frontend/src/components/data/DataQualityEvents.tsx"
+          ],
+          "actions": [
+            "Show trainability, recommendation eligibility, mapping coverage, and freshness."
+          ],
+          "acceptance": [
+            "Page explains why tenant can/cannot train or generate recommendations.",
+            "Unmapped/stale/missing data is visible."
+          ]
+        },
+        {
+          "id": "P5-03",
+          "title": "Build Pilot Impact UI",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added a pilot-impact route that keeps operational outcome scorecards visually separate from benchmark replay evidence.",
+            "Added provenance badges so measured, estimated, provisional, and simulated metrics stay explicitly labeled in the UI.",
+            "Verified with frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/PilotImpactPage.tsx",
+            "frontend/src/components/impact/ImpactScorecard.tsx",
+            "frontend/src/components/impact/PolicyComparisonTable.tsx",
+            "frontend/src/components/impact/MetricProvenanceBadge.tsx"
+          ],
+          "actions": [
+            "Show forecast and business metrics.",
+            "Separate measured pilot metrics from simulated benchmark metrics."
+          ],
+          "acceptance": [
+            "No metric appears without provenance label.",
+            "Simulation results are visually distinct from real pilot results."
+          ]
+        },
+        {
+          "id": "P5-04",
+          "title": "Upgrade MLOps into Model Evidence UI",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Reworked the ML Ops page into a model-evidence surface centered on the active v3 champion, benchmark comparison, calibration, segment metrics, and claim boundaries.",
+            "Added explicit model-card, calibration, and segment panels backed by the repo's current champion artifacts and runtime effectiveness APIs.",
+            "Verified with frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/MLOpsPage.tsx",
+            "frontend/src/components/mlops/ModelCardPanel.tsx",
+            "frontend/src/components/mlops/CalibrationPanel.tsx",
+            "frontend/src/components/mlops/SegmentMetricsTable.tsx"
+          ],
+          "actions": [
+            "Display champion model card, baseline comparison, calibration, segment metrics, and promotion-gate decision."
+          ],
+          "acceptance": [
+            "Active champion evidence is visible.",
+            "Model limitations are visible."
+          ]
+        },
+        {
+          "id": "P5-05",
+          "title": "Replace hardcoded champion evidence with runtime-backed model evidence",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added /api/v1/ml/models/evidence/active to serve champion evidence from backend artifacts, benchmark reports, and model-card claim boundaries.",
+            "Removed the hardcoded frontend evidence constant and rewired the MLOps hero, model-card, and calibration panels to runtime evidence with explicit unavailable states.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_models_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/lib/modelEvidence.ts",
+            "frontend/src/pages/MLOpsPage.tsx",
+            "frontend/src/components/mlops/ModelCardPanel.tsx",
+            "frontend/src/components/mlops/CalibrationPanel.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "backend/api/v1/routers/models.py",
+            "backend/api/v1/routers/ml_ops.py",
+            "backend/models/champion.json",
+            "backend/models/v3/metadata.json",
+            "backend/tests/test_models_api.py"
+          ],
+          "actions": [
+            "Add a backend evidence endpoint that serves the active champion version, dataset snapshot, benchmark comparison, calibration metadata, provenance, and limitations from runtime artifacts.",
+            "Remove hardcoded evidence constants from the frontend and render the MLOps hero, model card, and calibration panels from backend-delivered state.",
+            "Make any fallback or unavailable state explicit instead of silently preserving stale evidence in source code.",
+            "Add API-contract coverage so evidence panels break loudly if champion metadata and served evidence drift."
+          ],
+          "acceptance": [
+            "MLOps UI no longer depends on hardcoded benchmark rows, dates, or calibration values in frontend source.",
+            "Served model evidence matches backend champion metadata and model-card provenance.",
+            "pytest backend/tests/test_models_api.py -q covers the runtime evidence contract."
+          ]
+        },
+        {
+          "id": "P5-06",
+          "title": "Reset forecast explanation UI to truthful model-driver evidence",
+          "priority": "P1",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Removed the pseudo-random local forecast explanation path and replaced it with artifact-backed global model-driver evidence from backend/models/<version>/feature_importance.json, with active-champion fallback when a forecast version lacks a matching artifact.",
+            "Renamed the active Forecasts page surface away from SHAP and updated the UI copy to state clearly that the panel shows global model drivers rather than a local explanation for an individual forecast.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_forecasts_explain_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "backend/api/v1/routers/forecasts.py",
+            "backend/models/v3/feature_importance.json",
+            "backend/tests/test_forecasts_explain_api.py",
+            "frontend/src/components/forecasts/ModelDriversPanel.tsx",
+            "frontend/src/pages/ForecastsPage.tsx"
+          ],
+          "actions": [
+            "Remove pseudo-random local explanation logic from the active forecast explanation path or quarantine it behind explicit demo-only labeling.",
+            "If true local explanations are not available, replace the surface with artifact-backed model-driver evidence such as global feature importance and clear limitations.",
+            "Rename UI and API contracts away from SHAP unless the implementation is actually SHAP-compatible.",
+            "Keep the explanation surface secondary until it is technically defensible as forecast interpretation."
+          ],
+          "acceptance": [
+            "No active UI calls pseudo-random output SHAP or presents it as authoritative model interpretation.",
+            "Forecast explanation copy clearly states whether evidence is global, local, demo, or unavailable.",
+            "pytest backend/tests/test_forecasts_explain_api.py -q passes against the updated contract."
+          ]
+        },
+        {
+          "id": "P5-07",
+          "title": "Productize CSV onboarding flow in the active app",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added an in-product CSV onboarding workflow on the Data Readiness page with file loading, validation, issue review, and ingest actions backed by the existing data API.",
+            "Wired readiness refresh, integrations invalidation, and ingest feedback so operators can complete pre-pilot setup without manual API calls while keeping the Integrations page source state coherent.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_csv_onboarding.py backend/tests/test_integrations_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/DataReadinessPage.tsx",
+            "frontend/src/components/data/DataReadinessSummary.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/types.ts",
+            "backend/api/v1/routers/data.py"
+          ],
+          "actions": [
+            "Add CSV upload, validation, error review, and ingest actions to the active frontend instead of leaving the onboarding path API-only.",
+            "Expose actionable validation errors and readiness-state changes in the UI so an operator can complete pre-pilot setup without manual API calls.",
+            "Wire query invalidation so readiness, freshness, and recommendation eligibility refresh after ingest."
+          ],
+          "acceptance": [
+            "A user can validate and ingest CSV onboarding files from the active app.",
+            "Validation failures are rendered with actionable field-level guidance.",
+            "Frontend build succeeds after the onboarding flow is added."
+          ]
+        },
+        {
+          "id": "P5-08",
+          "title": "Productize Square mapping review and integration recovery UI",
+          "priority": "P0",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Added Square mapping preview, draft save, and confirmation flows to the Integrations page so operators can review mappings from the active frontend before sync.",
+            "Surfaced dead-letter webhook events and replay controls in the product UI instead of leaving recovery backend-only.",
+            "Verified with DEBUG=false APP_ENV=test PYTHONPATH=backend pytest backend/tests/test_csv_onboarding.py backend/tests/test_integrations_api.py -q and frontend npm run build."
+          ],
+          "files": [
+            "frontend/src/pages/IntegrationsPage.tsx",
+            "frontend/src/pages/OperationsPage.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/api.ts",
+            "frontend/src/lib/types.ts",
+            "backend/api/v1/routers/integrations.py"
+          ],
+          "actions": [
+            "Expose Square mapping preview and confirmation flows in the active app so store, catalog, and variation mappings can be reviewed before sync.",
+            "Surface unmapped external IDs, dead-letter events, and replay controls in the Integrations or Operations UI instead of keeping recovery backend-only.",
+            "Update UI copy so connection status does not imply a fully productized onboarding path until mapping confirmation and recovery flows are available."
+          ],
+          "acceptance": [
+            "An operator can review and confirm Square mappings from the active frontend.",
+            "Webhook dead-letter and replay status are visible from the product surface.",
+            "Frontend build succeeds and no integrations page copy overstates onboarding completeness."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "P6",
+      "name": "Final public packaging",
+      "tasks": [
+        {
+          "id": "P6-01",
+          "title": "Rewrite README and TECHNICAL docs",
+          "status": "done",
+          "completed_at": "2026-04-20",
+          "notes": [
+            "Rewrote README around the replenishment decision loop, evidence boundaries, active data scope, and pilot packaging links.",
+            "Rewrote TECHNICAL.md around the actual runtime architecture and evidence stack instead of the older broad demo narrative.",
+            "Fixed the documented migration/run commands so local setup matches the real repo layout and backend/alembic.ini now resolves correctly from repo root."
+          ],
+          "files": [
+            "README.md",
+            "TECHNICAL.md",
+            "AGENTS.md",
+            "backend/alembic.ini"
+          ],
+          "actions": [
+            "Center product loop and business evidence.",
+            "Move stack details below workflow.",
+            "Link model card, data sources, claims, and pilot playbook."
+          ],
+          "acceptance": [
+            "README answers what decision ShelfOps improves and how it proves value.",
+            "No stale enterprise/demo overclaim."
+          ]
+        },
+        {
+          "id": "P6-02",
+          "title": "Add pilot playbook and case-study template",
+          "status": "done",
+          "completed_at": "2026-04-19",
+          "notes": [
+            "Added PILOT_PLAYBOOK.md defining pilot phases, required data, weekly cadence, success metrics, and evidence labeling rules.",
+            "Added docs/templates/CASE_STUDY_TEMPLATE.md to constrain future public pilot writeups to measured and correctly labeled outcomes."
+          ],
+          "files": [
+            "PILOT_PLAYBOOK.md",
+            "docs/templates/CASE_STUDY_TEMPLATE.md"
+          ],
+          "actions": [
+            "Define 6-8 week pilot process, data requirements, weekly cadence, and success metrics.",
+            "Create future case-study template with before/after or baseline-vs-policy comparison."
+          ],
+          "acceptance": [
+            "A real merchant can understand required data and measured results.",
+            "Template prevents unsupported claims."
+          ]
+        }
+      ]
+    }
+  ],
+  "data_plan": "Focused data plan: active scope is M5/Walmart as the primary public forecasting benchmark, FreshRetailNet-50K as the secondary stockout/censored-demand benchmark, and CSV + Square as the pilot/product validation path. Dominick's is deferred optional. Favorita, Rossmann, Instacart, Complete Journey, UCI Online Retail, and leaked/unauthorized data are out of active scope."
+}

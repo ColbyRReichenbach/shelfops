@@ -1,232 +1,155 @@
-<div align="center">
+# ShelfOps Technical Reference
 
-# ShelfOps — Technical Reference
-**Architecture reference for engineers and technical hiring managers.**
-**For the product story, see [README.md](./README.md).**
+This document explains the engineering shape of ShelfOps. For the product story and evidence boundaries, start with [README.md](./README.md), [CURRENT_STATE.md](./CURRENT_STATE.md), and [CLAIMS.md](./CLAIMS.md).
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x%20async-D71F00)](https://www.sqlalchemy.org/)
-[![Celery](https://img.shields.io/badge/Celery-5-37814A?logo=celery&logoColor=white)](https://docs.celeryq.dev/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![TimescaleDB](https://img.shields.io/badge/TimescaleDB-2-FDB515?logo=timescale&logoColor=black)](https://www.timescale.com/)
-[![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=white)](https://redis.io/)
-[![LightGBM](https://img.shields.io/badge/LightGBM-Forecasting-FF6600)](https://lightgbm.readthedocs.io/)
-[![MLflow](https://img.shields.io/badge/MLflow-Tracking-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
-[![SHAP](https://img.shields.io/badge/SHAP-Explainability-FF6B6B)](https://shap.readthedocs.io/)
-[![Pandera](https://img.shields.io/badge/Pandera-Schema%20Validation-1E90FF)](https://pandera.readthedocs.io/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
-[![CI](https://img.shields.io/badge/CI-release%20matrix%20green-0A9EDC)](https://docs.github.com/actions)
+## Architecture
 
-</div>
+ShelfOps is a multi-tenant retail decision platform built around one operational loop:
 
----
-
-## System Architecture
-
-ShelfOps is an async-first multi-tenant SaaS platform. All heavy work — data ingestion, model training, forecast generation, PO decisions — runs through a Celery worker pool. FastAPI handles real-time queries and webhook processing. The React dashboard surfaces insights to operators.
-
-```
-POS / ERP / Kafka / SFTP / EDI X12
-           │
-  ┌────────▼────────┐
-  │  Integration    │  Celery sync workers (Kafka, SFTP, EDI)
-  │  Ingest Layer   │  IntegrationSyncLog per batch
-  └────────┬────────┘
-           │
-  ┌────────▼────────┐
-  │  PostgreSQL 15  │  Row-level security (tenant isolation)
-  │  + TimescaleDB  │  Hypertable: daily_inventory_snapshot
-  └────┬───────┬────┘
-       │       │
-  ┌────▼───┐ ┌─▼──────────────┐
-  │  ML    │ │  FastAPI REST  │
-  │Pipeline│ │  + WebSocket   │
-  └────┬───┘ └─▼──────────────┘
-       │       │
-  MLflow    React 18 + TypeScript
-  Registry  Recharts dashboard
+```text
+ingest sales / inventory / catalog data
+  -> validate readiness and freshness
+  -> train or serve demand model
+  -> generate replenishment recommendation
+  -> capture buyer decision
+  -> compute later outcome
+  -> feed evidence back into model and policy improvement
 ```
 
----
+Core runtime layers:
+
+- `FastAPI`: authenticated API surface for inventory, forecasting, recommendations, integrations, and reporting
+- `PostgreSQL + Timescale-style schema`: operational and ML state storage
+- `Celery + Redis`: retraining, sync, monitoring, simulation, and scheduled workflows
+- `React + TypeScript`: buyer-facing and evidence-facing product surfaces
 
 ## Stack
 
 | Layer | Technology | Notes |
 |---|---|---|
-| API | FastAPI 0.109 (async) | Auto OpenAPI docs, dependency injection, async request handlers |
-| ORM | SQLAlchemy 2.x async | Fully async query paths; Alembic for schema migrations |
-| Task queue | Celery 5 + Redis | 12 scheduled beat jobs across 3 queues (`ml`, `sync`, `default`) |
-| Time-series | PostgreSQL 15 + TimescaleDB | Hypertable partitioning on `daily_inventory_snapshot` |
-| Cache / broker | Redis 7 | Celery broker, result backend, debounce locks |
-| ML — primary forecaster | LightGBM | Poisson-count demand forecasting with time-series CV |
-| ML — legacy sequence path | TensorFlow/Keras LSTM | Present for backward compatibility; disabled in default serving path |
-| ML lifecycle | MLflow | Experiment tracking, model registry, artifact versioning |
-| Explainability | SHAP | Per-forecast feature importance, surfaced in dashboard and API |
-| Data validation | Pandera | Schema contracts at 3 ingest/processing gates |
-| Frontend | React 18 + TypeScript + Vite + Tailwind CSS + Recharts | |
-| Containerization | Docker Compose | Local dev |
+| API | FastAPI 0.109 | Async request handling, DI, authenticated tenant routing |
+| ORM | SQLAlchemy 2.x async | Tenant-scoped DB sessions |
+| Database | PostgreSQL 15 | Core operational and ML state |
+| Queue | Celery 5 + Redis | Sync, retrain, monitoring, scheduled jobs |
+| Forecasting | LightGBM | Active forecasting architecture |
+| Validation | Pandera | Data-contract gates |
+| Tracking | MLflow | Experiment and artifact tracking |
+| Explainability | SHAP | Forecast explanation artifacts |
+| Frontend | React 18 + TypeScript + Vite + Tailwind | Product UI and evidence UI |
 
----
+## Data And Evidence
 
-## ML Pipeline
+Active scope:
 
-### Model Architecture
+- `M5 / Walmart` as the primary public forecasting benchmark
+- `FreshRetailNet-50K` as the stockout-aware secondary benchmark
+- `CSV onboarding` and `Square` as the pilot/product validation paths
 
-LightGBM-first forecasting with legacy compatibility hooks for older model artifacts:
+Supporting docs:
 
-- **LightGBM** is the active default training and serving path in `backend/ml/train.py`
-- **LSTM** remains disabled in the current runtime path and can be loaded only for legacy artifacts
-- Candidate output still passes through a **promotion gate** before a new model version can enter production
+- [DATA_SOURCES.md](./DATA_SOURCES.md)
+- [MODEL_CARD.md](./MODEL_CARD.md)
+- [MODEL_CARD_STOCKOUT_APPENDIX.md](./MODEL_CARD_STOCKOUT_APPENDIX.md)
 
-### Feature Engineering (`backend/ml/features.py`)
+Important boundary:
 
-Two feature tiers selected automatically based on data depth available per tenant:
+- benchmark data can support forecasting and simulation rigor
+- only real merchant pilot data can support measured business-impact claims
 
-| Tier | Features | Activation |
-|---|---|---|
-| Baseline | 30 features: lags, rolling windows, store signals, day-of-week, feedback-loop inputs | Default |
-| Enriched | 49 features: + promotion flags, vendor metrics, inventory context, weather proxies | When history depth ≥ threshold |
+## Backend Surfaces
 
-`detect_feature_tier()` selects the tier per tenant at training time.
+Primary backend capabilities:
 
-### Model Lifecycle
+- tenant-scoped product, store, inventory, alert, and forecast APIs
+- replenishment recommendation queue/detail/accept/edit/reject endpoints
+- recommendation outcome computation with provenance labels
+- simulation endpoints for benchmark replay
+- CSV validate/ingest/readiness endpoints
+- Square mapping preview, mapping confirmation, webhook log, dead-letter, and replay
+- model lifecycle, experiment, runtime health, and effectiveness endpoints
 
-```
-retrain.py ──► train + backtest ──► arena.py ──► (business gate + DS gate) ──► MLflow registry
-                                                                                       │
-forecast.py ◄──────────────────────────── promoted model ◄─────────────────────────────┘
-     │
-     ▼
-daily_inventory_snapshot  ──►  monitoring.py (accuracy backfill, drift detection)
-                                     │
-                               feedback_loop.py (closed-loop calibration)
-```
+Important files:
 
-**Promotion gate** (`arena.py`) is fail-closed: a candidate model must pass both a business accuracy delta check and a statistical significance test before it replaces the current production model. A gate failure leaves the previous model in place.
+- `backend/api/main.py`
+- `backend/db/models.py`
+- `backend/recommendations/service.py`
+- `backend/api/v1/routers/replenishment.py`
+- `backend/api/v1/routers/data.py`
+- `backend/api/v1/routers/integrations.py`
+- `backend/api/v1/routers/simulations.py`
+- `backend/api/v1/routers/ml_ops.py`
+- `backend/api/v1/routers/models.py`
 
-### Data Validation (Pandera)
+## ML And Policy Layer
 
-Three schema contracts enforced in sequence:
+Active ML direction:
 
-1. **Raw data gate** — schema conformance, type coercion, null rate thresholds
-2. **Feature gate** — range checks, lag consistency, no future leakage
-3. **Prediction gate** — confidence bound validation, business logic constraints (non-negative stock, reasonable reorder quantities)
+- LightGBM-first forecasting
+- time-based evaluation
+- calibrated split-conformal intervals on the active public champion
+- segment reporting and promotion evidence
+- file-backed champion artifacts plus runtime model-state APIs
 
----
+Important files:
 
-## Integration Architecture
+- `backend/ml/train.py`
+- `backend/ml/predict.py`
+- `backend/ml/calibration.py`
+- `backend/ml/evaluation.py`
+- `backend/ml/segments.py`
+- `backend/ml/replenishment_simulation.py`
+- `backend/ml/dataset_snapshots.py`
+- `backend/models/v3/metadata.json`
+- `backend/reports/m5_subset20_benchmark.json`
+- `backend/reports/m5_subset20_holdout_eval.json`
 
-Three ingest pathways, all dispatched by Celery beat via `dispatch_active_tenants` (fan-out to active tenants only):
+## Frontend Product Surfaces
 
-| Pathway | Schedule | Protocol |
-|---|---|---|
-| Kafka / Redpanda | every 5 min | Event stream — POS events, ASN shipment notifications |
-| SFTP batch | every 15 min | File-based bulk sync — products, inventory, transactions |
-| EDI X12 | every 15 min | 846 (inventory advice), 856 (advance ship notice), 810 (invoice) |
+Current product-facing pages:
 
-Each worker:
-1. Queries `Integration` for an active, connected integration of the matching type for the tenant
-2. Skips silently if none found (zero-dependency fan-out)
-3. Runs the sync pipeline, writing records to core domain tables
-4. Appends an `IntegrationSyncLog` row (records processed, status, duration, error details)
-5. Stamps `Integration.last_sync_at`
+- `frontend/src/pages/ReplenishmentPage.tsx`
+- `frontend/src/pages/DataReadinessPage.tsx`
+- `frontend/src/pages/PilotImpactPage.tsx`
+- `frontend/src/pages/MLOpsPage.tsx`
 
----
+These pages are intended to show:
 
-## Multi-Tenancy
+- what to order
+- whether the tenant is ready to trust the system
+- what outcomes have been observed or simulated
+- why the current champion model is credible
 
-Tenant isolation is enforced at the **database layer** via PostgreSQL row-level security (RLS), not just the application layer.
+## Tenant Isolation
 
-- Every authenticated route uses `get_tenant_db` (not `get_db`), which sets `SET LOCAL app.current_tenant = '{customer_id}'` on the session
-- RLS policies on all tenant tables filter all reads and writes to the current tenant automatically
-- `DEV_CUSTOMER_ID` constant is used in all development/test contexts — no hardcoded UUIDs anywhere in the codebase
+Authenticated backend routes should use `get_tenant_db`.
 
----
+The repo relies on tenant-scoped session context rather than trusting the UI to filter data correctly. This is a core design assumption and should not be bypassed by convenience helpers in authenticated routes.
 
-## Celery Workers
-
-12 scheduled jobs across 3 queues:
-
-| Queue | Jobs |
-|---|---|
-| `ml` | `retrain`, `run_forecasts`, `run_monitoring`, `run_feedback_loop`, `update_vendor_metrics`, `track_promotions` |
-| `sync` | `ingest_kafka_events`, `ingest_sftp_batch`, `ingest_edi_batch`, `generate_purchase_orders` |
-| `default` | `generate_reports`, `dispatch_active_tenants` |
-
----
-
-## Running Locally
+## Local Development
 
 ```bash
-# 1. Infrastructure
-docker-compose up db redis
-
-# 2. Database migrations
-PYTHONPATH=backend alembic upgrade head
-
-# 3. API server
-PYTHONPATH=backend uvicorn api.main:app --reload          # :8000
-
-# 4. Worker (separate terminal)
+docker compose up db redis
+(cd backend && PYTHONPATH=. alembic upgrade head)
+PYTHONPATH=backend uvicorn api.main:app --reload
 PYTHONPATH=backend celery -A workers.celery_app worker --loglevel=info
-
-# 5. Frontend
-cd frontend && npm install && npm run dev                  # :5173
+cd frontend && npm install && npm run dev
 ```
 
----
+## Verification
 
-## Test Suite
+Backend:
 
 ```bash
 PYTHONPATH=backend pytest backend/tests/ -v
 ```
 
-Current `main` release matrix is green in GitHub Actions as of March 8, 2026. Key coverage areas:
+Frontend:
 
-| Area | What's tested |
-|---|---|
-| ML pipeline | Retrain, forecast, monitoring, arena promotion gate, feedback loop |
-| Integration ingest | Kafka, SFTP, EDI — deterministic fixture-based tests, skip-if-no-integration |
-| Data validation | Pandera gates at all 3 checkpoints |
-| API | Auth, tenant isolation, all major endpoints |
-| Domain logic | Vendor metrics, promo tracking, reorder optimization, PO workflows |
-| Scripts | Seed scripts, replay simulation, demo runners |
+```bash
+cd frontend && npm run build
+```
 
-Time-series CV split is enforced throughout — no `shuffle=True` anywhere in the ML test paths.
+For task-by-task progress and completion tracking, use:
 
----
-
-## CI Pipeline (GitHub Actions)
-
-| Job | Check |
-|---|---|
-| Frontend Lint | ESLint |
-| Backend Lint | `ruff check` + `ruff format --check` |
-| Backend Tests | Full pytest suite |
-| EDI Fixture E2E | Parse + validate EDI X12 fixtures end-to-end |
-| Postgres Parity | Schema drift detection |
-| Enterprise Seed Validation | Seed scripts and contract profiles |
-| Contract Validation Suite | Data contract schema conformance |
-| Release Gate | All above jobs must pass |
-
----
-
-## Key Files
-
-| File | Purpose |
-|---|---|
-| `backend/api/main.py` | FastAPI entry point, middleware, router registration |
-| `backend/db/models.py` | All 27 SQLAlchemy ORM models |
-| `backend/ml/features.py` | `detect_feature_tier()`, 27/45-feature architecture |
-| `backend/ml/arena.py` | Model promotion gate (business + DS checks) |
-| `backend/inventory/optimizer.py` | Dynamic ROP + EOQ decision engine |
-| `backend/workers/celery_app.py` | Celery app, 12 beat schedule entries, task routes |
-| `backend/workers/retrain.py` | Full retrain → MLflow → promotion pipeline |
-| `backend/workers/forecast.py` | Runtime inference, 2–3 day lookahead |
-| `backend/integrations/edi_adapter.py` | EDI X12 parser (846, 856, 810) |
-| `backend/core/constants.py` | `DEV_CUSTOMER_ID` and shared constants |
-| `docs/engineering/model_readiness.md` | Canonical model-readiness surface for active docs |
+- [`.codex/ROADMAP.md`](./.codex/ROADMAP.md)
+- [`.codex/TASKS.json`](./.codex/TASKS.json)

@@ -8,12 +8,12 @@ python scripts/validate_training_datasets.py
 
 # Validate a tenant contract profile against sample source data
 python scripts/validate_customer_contract.py \
-  --contract ../contracts/demo_smb/smb_csv/v1.yaml \
+  --contract ../contracts/templates/smb_csv_v1.yaml \
   --sample-path tests/fixtures/contracts/sample_smb.csv
 
 # Run SMB onboarding flow (map -> validate -> canonicalize -> train candidate)
 python scripts/run_onboarding_flow.py \
-  --contract ../contracts/demo_smb/smb_csv/v1.yaml \
+  --contract ../contracts/templates/smb_csv_v1.yaml \
   --sample-path tests/fixtures/contracts/sample_smb.csv
 
 # Generate model performance decision log (champion/challenger history)
@@ -24,14 +24,14 @@ Default output:
 
 - `backend/reports/DATASET_VALIDATION_REPORT.md`
 - `backend/reports/MODEL_PERFORMANCE_LOG.md`
-- `backend/reports/contract_validation_report.json`
-- `backend/reports/contract_validation_report.md`
+- `backend/reports/<run>/contract_validation_report.json`
+- `backend/reports/<run>/contract_validation_report.md`
 
 This check validates canonical training-data contract readiness for:
 
-- Favorita
-- Walmart
-- Rossmann
+- M5 Walmart
+- FreshRetailNet
+- Legacy public benchmarks when explicitly supplied
 - Synthetic seed transactions
 
 It is designed for model training/evaluation readiness, not live dashboard catalog population.

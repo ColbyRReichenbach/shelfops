@@ -2,8 +2,8 @@
 Feature Engineering — Two-Phase Demand Forecasting Features.
 
 Phase 1 "Cold Start" (30 features):
-  Trained on Kaggle public data (Favorita, Walmart, Rossmann).
-  Uses only features that real public datasets actually provide.
+  Trained on benchmark-compatible retail datasets and merchant onboarding extracts.
+  Uses only features that common transaction-level retail data can actually provide.
 
 Phase 2 "Production" (49 features):
   Activated after 90+ days of real retailer data flows in via
@@ -38,8 +38,8 @@ from retail.calendar import RetailCalendar
 
 FeatureTier = Literal["cold_start", "production"]
 
-# Phase 1 — Cold Start (Kaggle-trainable)
-# These features can be derived from ANY public retail dataset that has
+# Phase 1 — Cold Start (benchmark-trainable)
+# These features can be derived from public benchmarks or merchant datasets that have
 # (date, store_id, product_id/category, quantity_sold).
 COLD_START_FEATURE_COLS = [
     # Temporal (10) — derived from date column
@@ -68,9 +68,9 @@ COLD_START_FEATURE_COLS = [
     "min_daily_sales_30d",
     # Category (1) — label-encoded from category/family/dept
     "category_encoded",
-    # Promotions (1) — Favorita has onpromotion, Walmart has IsHoliday
+    # Promotions (1) — mapped from whatever promo/holiday signal the source exposes
     "is_promotion_active",
-    # External (3) — Walmart: temperature, fuel; Favorita: oil price
+    # External (3) — optional external context when the source provides it
     "temperature",
     "precipitation",
     "oil_price",
@@ -375,6 +375,137 @@ def _promotion_features(
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# 7. Promo-Lag Features (2) — cold-start compatible
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _promo_lag_features(
+    transactions_df: pd.DataFrame,
+    promotions_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Compute 2 promo-lag features per (store_id, product_id, date):
+      days_since_last_promo: days since most recent promotion ended (365 if none).
+      promo_lift_pct_trailing_30d: demand lift (%) observed during that promo
+        vs 30-day pre-promo baseline. Zero if no prior promo exists.
+
+    Requires promotions_df with columns: store_id, product_id, start_date, end_date.
+    Uses transactions_df to compute observed lift.
+    """
+    empty = pd.DataFrame(
+        columns=["store_id", "product_id", "date", "days_since_last_promo", "promo_lift_pct_trailing_30d"]
+    )
+    if promotions_df is None or promotions_df.empty:
+        return empty
+
+    txn = transactions_df[["store_id", "product_id", "date", "quantity"]].copy()
+    txn["date"] = pd.to_datetime(txn["date"])
+
+    promos = promotions_df[["store_id", "product_id", "start_date", "end_date"]].copy()
+    promos["start_date"] = pd.to_datetime(promos["start_date"])
+    promos["end_date"] = pd.to_datetime(promos["end_date"])
+
+    # Compute observed lift per promo period
+    lifts = []
+    for _, promo in promos.iterrows():
+        sp, pd_id = str(promo["store_id"]), str(promo["product_id"])
+        promo_mask = (
+            (txn["store_id"].astype(str) == sp)
+            & (txn["product_id"].astype(str) == pd_id)
+            & (txn["date"] >= promo["start_date"])
+            & (txn["date"] <= promo["end_date"])
+        )
+        pre_mask = (
+            (txn["store_id"].astype(str) == sp)
+            & (txn["product_id"].astype(str) == pd_id)
+            & (txn["date"] >= promo["start_date"] - timedelta(days=30))
+            & (txn["date"] < promo["start_date"])
+        )
+        promo_qty = float(txn.loc[promo_mask, "quantity"].mean()) if promo_mask.any() else 0.0
+        pre_qty = float(txn.loc[pre_mask, "quantity"].mean()) if pre_mask.any() else max(promo_qty, 1.0)
+        lift = max(0.0, (promo_qty / pre_qty) - 1.0) if pre_qty > 0 else 0.0
+        lifts.append(
+            {
+                "store_id": promo["store_id"],
+                "product_id": promo["product_id"],
+                "end_date": promo["end_date"],
+                "lift_pct": lift,
+            }
+        )
+
+    if not lifts:
+        return empty
+
+    promo_hist = pd.DataFrame(lifts).sort_values("end_date").reset_index(drop=True)
+
+    rows = []
+    for (sp, pd_id), grp in txn.groupby(["store_id", "product_id"]):
+        past = promo_hist[
+            (promo_hist["store_id"].astype(str) == str(sp)) & (promo_hist["product_id"].astype(str) == str(pd_id))
+        ].sort_values("end_date")
+        for dt in sorted(grp["date"].tolist()):
+            eligible = past[past["end_date"] < dt]
+            if eligible.empty:
+                rows.append(
+                    {
+                        "store_id": sp,
+                        "product_id": pd_id,
+                        "date": dt,
+                        "days_since_last_promo": 365,
+                        "promo_lift_pct_trailing_30d": 0.0,
+                    }
+                )
+            else:
+                most_recent = eligible.iloc[-1]
+                rows.append(
+                    {
+                        "store_id": sp,
+                        "product_id": pd_id,
+                        "date": dt,
+                        "days_since_last_promo": int((dt - most_recent["end_date"]).days),
+                        "promo_lift_pct_trailing_30d": float(most_recent["lift_pct"]),
+                    }
+                )
+
+    return pd.DataFrame(rows) if rows else empty
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 8. Vendor Reliability Features (2) — cold-start compatible
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _vendor_reliability_features(receiving_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute 2 vendor reliability features per (store_id, product_id):
+      supplier_on_time_rate_30d: historical fraction of deliveries on time (1.0 default).
+      lead_time_variance: std dev of historical lead times in days (0.0 default).
+
+    Requires receiving_df with columns:
+      store_id, product_id, on_time (bool/int), lead_time_days (numeric)
+
+    Returns one row per (store_id, product_id) for merging into feature DataFrame.
+    """
+    empty = pd.DataFrame(columns=["store_id", "product_id", "supplier_on_time_rate_30d", "lead_time_variance"])
+    if receiving_df is None or receiving_df.empty:
+        return empty
+    required = {"store_id", "product_id", "on_time", "lead_time_days"}
+    if not required.issubset(receiving_df.columns):
+        return empty
+
+    result = (
+        receiving_df.groupby(["store_id", "product_id"])
+        .agg(
+            supplier_on_time_rate_30d=("on_time", lambda x: float(x.astype(float).mean())),
+            lead_time_variance=("lead_time_days", lambda x: float(x.astype(float).std()) if len(x) > 1 else 0.0),
+        )
+        .reset_index()
+        .fillna({"supplier_on_time_rate_30d": 1.0, "lead_time_variance": 0.0})
+    )
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Master Pipeline
 # ──────────────────────────────────────────────────────────────────────────
 
@@ -451,9 +582,25 @@ def create_features(
                 on=["store_id", "product_id"],
                 how="left",
             )
-        features["is_promotion_active"] = features.get("is_promotion_active", 0).fillna(0).astype(int)
+        features["is_promotion_active"] = (
+            features["is_promotion_active"].fillna(0).astype(int) if "is_promotion_active" in features.columns else 0
+        )
     else:
         features["is_promotion_active"] = 0
+
+    # Promo-lag features (cold-start compatible, opt-in via promotions_df)
+    if promotions_df is not None and not promotions_df.empty:
+        promo_lag = _promo_lag_features(transactions_df, promotions_df)
+        if not promo_lag.empty:
+            features = features.merge(
+                promo_lag[["store_id", "product_id", "date", "days_since_last_promo", "promo_lift_pct_trailing_30d"]],
+                on=["store_id", "product_id", "date"],
+                how="left",
+            )
+    if "days_since_last_promo" not in features.columns:
+        features["days_since_last_promo"] = 365
+    if "promo_lift_pct_trailing_30d" not in features.columns:
+        features["promo_lift_pct_trailing_30d"] = 0.0
 
     # External — weather
     if weather_df is not None and not weather_df.empty:

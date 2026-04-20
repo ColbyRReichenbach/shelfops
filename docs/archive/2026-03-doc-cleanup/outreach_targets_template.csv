@@ -1,4 +1,0 @@
-company,segment,contact_name,contact_role,channel,priority,status,last_contact_date,next_step,notes
-Example Retail Tech,retail-tech,Jane Doe,Hiring Manager,LinkedIn,high,not_started,,Send hiring one-pager,
-Example Mid-Market Chain,mid-market retail,John Smith,VP Operations,email,high,not_started,,Send pilot one-pager,
-Example CPG,CPG,Mary Lee,Data Science Manager,email,medium,not_started,,Share 10-minute walkthrough,

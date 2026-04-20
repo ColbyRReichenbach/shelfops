@@ -1,11 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import ModernDashboardLayout from '@/layouts/ModernDashboardLayout'
-import DemoLayout from '@/layouts/DemoLayout'
-import DashboardPage from '@/pages/DashboardPage'
-import AlertsPage from '@/pages/AlertsPage'
+import DataReadinessPage from '@/pages/DataReadinessPage'
 import StoreView from '@/pages/StoreView'
-import DemoPage from '@/pages/DemoPage'
 import ProductDetailPage from '@/pages/ProductDetailPage'
 import ForecastsPage from '@/pages/ForecastsPage'
 import ProductsPage from '@/pages/ProductsPage'
@@ -13,6 +10,8 @@ import IntegrationsPage from '@/pages/IntegrationsPage'
 import InventoryPage from '@/pages/InventoryPage'
 import MLOpsPage from '@/pages/MLOpsPage'
 import OperationsPage from '@/pages/OperationsPage'
+import PilotImpactPage from '@/pages/PilotImpactPage'
+import ReplenishmentPage from '@/pages/ReplenishmentPage'
 import StoreDetailPage from '@/pages/StoreDetailPage'
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -25,8 +24,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (isLoading) {
         return (
-            <div className="flex h-screen items-center justify-center bg-shelf-background">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-shelf-primary border-t-transparent" />
+            <div className="flex h-screen items-center justify-center bg-[#f5f5f7]">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#0071e3] border-t-transparent" />
             </div>
         )
     }
@@ -44,8 +43,9 @@ export default function App() {
         <AuthGuard>
             <Routes>
                 <Route element={<ModernDashboardLayout />}>
-                    <Route index element={<DashboardPage />} />
-                    <Route path="alerts" element={<AlertsPage />} />
+                    <Route index element={<Navigate to="/replenishment" replace />} />
+                    <Route path="alerts" element={<Navigate to="/operations" replace />} />
+                    <Route path="data-readiness" element={<DataReadinessPage />} />
                     <Route path="forecasts" element={<ForecastsPage />} />
 
                     {/* Product Routes */}
@@ -53,15 +53,13 @@ export default function App() {
                     <Route path="products" element={<ProductsPage />} />
 
                     <Route path="inventory" element={<InventoryPage />} />
+                    <Route path="pilot-impact" element={<PilotImpactPage />} />
+                    <Route path="replenishment" element={<ReplenishmentPage />} />
                     <Route path="stores/:storeId" element={<StoreDetailPage />} />
                     <Route path="stores" element={<StoreView />} />
                     <Route path="integrations" element={<IntegrationsPage />} />
                     <Route path="operations" element={<OperationsPage />} />
                     <Route path="ml-ops" element={<MLOpsPage />} />
-                </Route>
-
-                <Route path="demo" element={<DemoLayout />}>
-                    <Route index element={<DemoPage />} />
                 </Route>
 
                 {/* Catch-all redirect */}

@@ -24,11 +24,11 @@ interface ForecastChartProps {
 
 export default function ForecastChart({ data }: ForecastChartProps) {
     return (
-        <div className="card h-[400px] border border-white/40 shadow-sm">
+        <div className="card h-[400px]">
             <div className="flex items-center justify-between mb-6">
                 <div>
-                    <h3 className="text-sm font-semibold text-shelf-primary uppercase tracking-wider">Demand Forecast</h3>
-                    <p className="text-xs text-shelf-foreground/60 mt-1">Historical sales vs. AI prediction</p>
+                    <h3 className="text-lg font-semibold tracking-tight text-[#1d1d1f]">Demand Forecast</h3>
+                    <p className="text-xs text-[#86868b] mt-1">Historical sales vs. AI prediction</p>
                 </div>
             </div>
 
@@ -36,43 +36,44 @@ export default function ForecastChart({ data }: ForecastChartProps) {
                 <AreaChart data={data} margin={{ top: 10, right: 10, bottom: 0, left: -20 }}>
                     <defs>
                         <linearGradient id="forecastGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#3e6d96" stopOpacity={0.15} />
-                            <stop offset="95%" stopColor="#3e6d96" stopOpacity={0} />
+                            <stop offset="5%" stopColor="#0071e3" stopOpacity={0.15} />
+                            <stop offset="95%" stopColor="#0071e3" stopOpacity={0} />
                         </linearGradient>
                         <pattern id="confidencePattern" patternUnits="userSpaceOnUse" width="8" height="8">
-                            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#3e6d96" strokeWidth="1" strokeOpacity={0.1} />
+                            <path d="M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4" stroke="#0071e3" strokeWidth="1" strokeOpacity={0.1} />
                         </pattern>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#000000" strokeOpacity={0.05} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5ea" vertical={false} />
                     <XAxis
                         dataKey="date"
-                        tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }}
+                        tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }}
                         axisLine={false}
                         tickLine={false}
                         dy={10}
                     />
                     <YAxis
-                        tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }}
+                        tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }}
                         axisLine={false}
                         tickLine={false}
                     />
                     <Tooltip
                         contentStyle={{
-                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                            border: '1px solid rgba(255, 255, 255, 0.5)',
-                            borderRadius: '12px',
-                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                            backgroundColor: 'rgba(29,29,31,0.8)',
+                            backdropFilter: 'blur(12px)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '16px',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                             fontSize: '12px',
-                            color: '#4e5274'
+                            color: '#ffffff',
                         }}
-                        itemStyle={{ color: '#4e5274' }}
+                        itemStyle={{ color: '#ffffff' }}
                         formatter={(value: number) => [value.toFixed(0), '']}
-                        labelStyle={{ color: '#3e6d96', fontWeight: 600, marginBottom: '0.5rem' }}
+                        labelStyle={{ color: '#ffffff', fontWeight: 600, marginBottom: '0.5rem' }}
                     />
                     <Legend
                         wrapperStyle={{ paddingTop: '20px' }}
                         iconType="circle"
-                        formatter={(value) => <span className="text-xs font-medium text-shelf-foreground/70">{value}</span>}
+                        formatter={(value) => <span className="text-xs font-medium text-[#86868b]">{value}</span>}
                     />
 
                     {/* Confidence Interval (Bounded Area) */}
@@ -113,7 +114,7 @@ export default function ForecastChart({ data }: ForecastChartProps) {
                     <Area
                         type="monotone"
                         dataKey="forecast"
-                        stroke="#3e6d96"
+                        stroke="#0071e3"
                         strokeWidth={2}
                         fill="url(#forecastGradient)"
                         name="Forecast"
@@ -122,9 +123,9 @@ export default function ForecastChart({ data }: ForecastChartProps) {
                     <Line
                         type="monotone"
                         dataKey="actual"
-                        stroke="#5ba2b6"
+                        stroke="#34c759"
                         strokeWidth={2}
-                        dot={{ r: 4, fill: '#5ba2b6', strokeWidth: 2, stroke: '#fff' }}
+                        dot={{ r: 4, fill: '#34c759', strokeWidth: 2, stroke: '#fff' }}
                         activeDot={{ r: 6, strokeWidth: 0 }}
                         name="Actual Sales"
                         connectNulls

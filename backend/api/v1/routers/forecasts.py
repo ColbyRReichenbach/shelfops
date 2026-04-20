@@ -5,6 +5,7 @@ Forecasts Router — Demand forecast endpoints.
 import json
 import os
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -53,36 +54,64 @@ class AccuracyTrendPoint(BaseModel):
     total_actual_demand: float
 
 
-class SHAPFeature(BaseModel):
+class ModelDriverFeature(BaseModel):
     name: str
-    importance: float  # signed SHAP value (positive = pushes forecast up)
-    friendly_label: str | None = None  # plain-language label for buyer tour
+    importance: float
+    friendly_label: str | None = None
 
 
-class SHAPExplanation(BaseModel):
+class ForecastDriverEvidence(BaseModel):
     forecast_id: UUID
-    features: list[SHAPFeature]
-    base_value: float  # model's average prediction (intercept)
-    predicted_value: float  # actual forecast value
+    forecast_model_version: str
+    artifact_model_version: str | None
+    driver_scope: str
+    evidence_type: str
+    source_artifact: str | None
+    plain_summary: str
+    limitations: list[str]
+    features: list[ModelDriverFeature]
     cached: bool
 
 
-# Friendly label mapping for demo SHAP values
-FRIENDLY_LABELS: dict[str, str] = {
+# Friendly label mapping for model-driver evidence
+FEATURE_LABELS: dict[str, str] = {
     "sales_7d": "Recent 7-day sales",
     "sales_30d": "30-day sales trend",
+    "sales_90d": "90-day sales history",
+    "avg_daily_sales_30d": "Average daily sales over 30 days",
+    "avg_daily_sales_7d": "Average daily sales over 7 days",
+    "sales_trend_30d": "30-day sales momentum",
+    "sales_trend_7d": "7-day sales momentum",
+    "sales_volatility_7d": "Recent demand volatility",
+    "sales_volatility_30d": "30-day demand volatility",
     "month": "Month of year (seasonality)",
     "day_of_week": "Day of week",
+    "day_of_month": "Day of month",
+    "is_weekend": "Weekend timing",
     "is_promotion_active": "Active promotion",
     "promotion_discount_pct": "Promotion discount",
     "temperature": "Weather (temperature)",
+    "precipitation": "Weather (precipitation)",
     "is_holiday": "Holiday effect",
     "week_of_year": "Week of year",
     "stock_velocity": "Inventory depletion rate",
     "days_of_supply": "Days of supply remaining",
+    "days_since_last_sale": "Days since last sale",
     "is_seasonal": "Seasonal product",
     "unit_price": "Unit price",
+    "quarter": "Quarter of year",
+    "is_month_start": "Month start timing",
+    "is_month_end": "Month end timing",
+    "max_daily_sales_30d": "Peak 30-day daily sales",
+    "min_daily_sales_30d": "Lowest 30-day daily sales",
+    "category_encoded": "Category encoding",
+    "rejection_rate_30d": "Buyer rejection rate",
+    "avg_qty_adjustment_pct": "Average quantity adjustment",
+    "forecast_trust_score": "Forecast trust score",
+    "oil_price": "Commodity price proxy",
 }
+
+MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
 
 
 def _normalize_date_value(value: Any) -> date:
@@ -95,50 +124,54 @@ def _normalize_date_value(value: Any) -> date:
     raise ValueError(f"Unsupported date value: {value!r}")
 
 
-def _generate_shap_values(forecast: DemandForecast) -> list[SHAPFeature]:
-    """Generate SHAP feature contributions for a forecast.
+def _load_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
 
-    Uses a deterministic pseudo-random approach seeded by forecast_id
-    to produce stable, realistic-looking SHAP values for the demo.
-    In production, this would call the actual SHAP TreeExplainer.
-    """
-    import hashlib
-    import random
 
-    seed = int(hashlib.md5(str(forecast.forecast_id).encode()).hexdigest(), 16) % (2**32)
-    rng = random.Random(seed)
+def _feature_importance_candidates(model_version: str) -> list[tuple[str | None, Path]]:
+    candidates: list[tuple[str | None, Path]] = []
+    candidates.append((model_version, MODELS_DIR / model_version / "feature_importance.json"))
 
-    base_demand = float(forecast.forecasted_demand)
+    champion = _load_json(MODELS_DIR / "champion.json") or {}
+    champion_version = champion.get("version")
+    if isinstance(champion_version, str) and champion_version != model_version:
+        candidates.append((champion_version, MODELS_DIR / champion_version / "feature_importance.json"))
 
-    # Core features with realistic contribution ranges
-    feature_specs = [
-        ("sales_30d", 0.25, 0.45),
-        ("month", -0.15, 0.38),
-        ("sales_7d", 0.10, 0.30),
-        ("week_of_year", -0.12, 0.20),
-        ("is_seasonal", -0.05, 0.15),
-        ("is_promotion_active", -0.02, 0.29),
-        ("day_of_week", -0.08, 0.08),
-        ("temperature", -0.05, 0.10),
-        ("stock_velocity", -0.10, 0.05),
-        ("is_holiday", -0.03, 0.12),
-    ]
+    return candidates
 
-    features = []
-    for name, low, high in feature_specs:
-        pct = rng.uniform(low, high)
-        importance = round(pct * base_demand, 2)
-        features.append(
-            SHAPFeature(
+
+def _build_driver_summary(features: list[ModelDriverFeature]) -> str:
+    if not features:
+        return "Global model-driver evidence is unavailable for this forecast."
+
+    labels = [feature.friendly_label or feature.name.replace("_", " ") for feature in features[:2]]
+    primary = labels[0] if labels else "feature availability"
+    secondary = labels[1] if len(labels) > 1 else None
+    if secondary:
+        return f"These model-driver weights are global to the active forecast model; {primary} and {secondary} are the strongest overall drivers."
+    return f"These model-driver weights are global to the active forecast model; {primary} is the strongest overall driver."
+
+
+def _load_model_driver_features(model_version: str) -> tuple[str | None, str | None, list[ModelDriverFeature]]:
+    for artifact_version, path in _feature_importance_candidates(model_version):
+        data = _load_json(path)
+        if not isinstance(data, dict):
+            continue
+
+        features = [
+            ModelDriverFeature(
                 name=name,
-                importance=importance,
-                friendly_label=FRIENDLY_LABELS.get(name),
+                importance=float(importance),
+                friendly_label=FEATURE_LABELS.get(name),
             )
-        )
+            for name, importance in sorted(data.items(), key=lambda item: item[1], reverse=True)
+            if float(importance) > 0
+        ]
+        return artifact_version, path.name, features[:12]
 
-    # Sort by absolute importance descending
-    features.sort(key=lambda f: abs(f.importance), reverse=True)
-    return features
+    return None, None, []
 
 
 # ─── Endpoints ──────────────────────────────────────────────────────────────
@@ -151,7 +184,7 @@ async def list_forecasts(
     start_date: date | None = None,
     end_date: date | None = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(500, ge=1, le=2000),
     db: AsyncSession = Depends(get_tenant_db),
 ):
     """List demand forecasts with filters."""
@@ -255,12 +288,12 @@ async def get_accuracy_trend(
     ]
 
 
-@router.get("/{forecast_id}/explain", response_model=SHAPExplanation)
-async def explain_forecast(
+@router.get("/{forecast_id}/drivers", response_model=ForecastDriverEvidence)
+async def get_forecast_drivers(
     forecast_id: UUID,
     db: AsyncSession = Depends(get_tenant_db),
-) -> SHAPExplanation:
-    """Return SHAP feature importance for a specific forecast. Redis-cached."""
+) -> ForecastDriverEvidence:
+    """Return artifact-backed global model-driver evidence for a forecast."""
     # 1. Verify the forecast belongs to this tenant
     stmt = select(DemandForecast).where(DemandForecast.forecast_id == forecast_id)
     result = await db.execute(stmt)
@@ -269,7 +302,7 @@ async def explain_forecast(
         raise HTTPException(status_code=404, detail="Forecast not found")
 
     # 2. Try Redis cache
-    cache_key = f"shap:{forecast_id}"
+    cache_key = f"forecast-drivers:{forecast_id}"
     try:
         import redis as redis_lib
 
@@ -278,19 +311,32 @@ async def explain_forecast(
         if cached_data:
             data = json.loads(cached_data)
             data["cached"] = True
-            return SHAPExplanation(**data)
+            return ForecastDriverEvidence(**data)
     except Exception:
         pass  # Redis unavailable — compute fresh
 
-    # 3. Generate SHAP values (use stored feature importance from model version as proxy)
-    # In production this would call the SHAP explainer; for demo we use feature importance
-    features = _generate_shap_values(forecast)
+    artifact_model_version, source_artifact, features = _load_model_driver_features(forecast.model_version)
+    limitations = [
+        "This panel shows global model-driver importance from a saved artifact, not a local explanation for this individual forecast.",
+        "Feature importance indicates which inputs matter most to the model overall; it does not prove causality for a single SKU or date.",
+    ]
+    if artifact_model_version and artifact_model_version != forecast.model_version:
+        limitations.append(
+            f"No driver artifact was found for forecast model {forecast.model_version}; showing the active champion artifact from {artifact_model_version} instead."
+        )
+    if not features:
+        limitations.append("No feature-importance artifact is currently available for this forecast model.")
 
-    explanation = SHAPExplanation(
+    explanation = ForecastDriverEvidence(
         forecast_id=forecast_id,
+        forecast_model_version=forecast.model_version,
+        artifact_model_version=artifact_model_version,
+        driver_scope="global" if features else "unavailable",
+        evidence_type="artifact" if features else "unavailable",
+        source_artifact=source_artifact,
+        plain_summary=_build_driver_summary(features),
         features=features,
-        base_value=float(forecast.forecasted_demand) * 0.6,  # approximate base
-        predicted_value=float(forecast.forecasted_demand),
+        limitations=limitations,
         cached=False,
     )
 

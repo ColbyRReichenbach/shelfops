@@ -155,18 +155,18 @@ export default function StoreView() {
     }
 
     return (
-        <div className="p-6 lg:p-8 space-y-6">
+        <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-shelf-primary">Store Operations</h1>
-                    <p className="mt-1 text-sm text-shelf-foreground/60">Manage store inventory and health status</p>
+                    <h1 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">Store Operations</h1>
+                    <p className="mt-1 text-sm text-[#86868b]">Manage store inventory and health status</p>
                 </div>
                 <div className="flex gap-3">
                     <button onClick={handleExport} className="btn-secondary gap-2">
                         <Download className="h-4 w-4" />
                         Export
                     </button>
-                    <button onClick={openCreateForm} className="btn-primary gap-2 shadow-lg shadow-shelf-primary/20">
+                    <button onClick={openCreateForm} className="btn-primary gap-2">
                         <Plus className="h-4 w-4" />
                         Add Store
                     </button>
@@ -175,10 +175,10 @@ export default function StoreView() {
 
             {feedback && (
                 <div
-                    className={`rounded-xl border px-4 py-3 text-sm ${
+                    className={`rounded-[12px] px-4 py-3 text-sm ${
                         feedback.tone === 'success'
-                            ? 'border-green-200 bg-green-50 text-green-700'
-                            : 'border-red-200 bg-red-50 text-red-700'
+                            ? 'bg-[#34c759]/10 text-[#34c759]'
+                            : 'bg-[#ff3b30]/10 text-[#ff3b30]'
                     }`}
                 >
                     {feedback.text}
@@ -186,17 +186,17 @@ export default function StoreView() {
             )}
 
             {isFormOpen && (
-                <div className="card border border-white/40 shadow-sm">
+                <div className="card">
                     <div className="mb-4 flex items-start justify-between gap-4">
                         <div>
-                            <h2 className="text-lg font-semibold text-shelf-primary">
+                            <h2 className="text-lg font-semibold text-[#1d1d1f]">
                                 {editingStore ? 'Edit Store' : 'Create Store'}
                             </h2>
-                            <p className="mt-1 text-sm text-shelf-foreground/55">Persist store metadata directly to the live API.</p>
+                            <p className="mt-1 text-sm text-[#86868b]">Persist store metadata directly to the live API.</p>
                         </div>
                         <button
                             onClick={closeForm}
-                            className="rounded-lg p-2 text-shelf-foreground/40 transition-colors hover:bg-shelf-secondary/10 hover:text-shelf-primary"
+                            className="rounded-lg p-2 text-[#86868b] transition-colors hover:bg-[#0071e3]/5 hover:text-[#0071e3]"
                             aria-label="Close store form"
                         >
                             <X className="h-4 w-4" />
@@ -251,16 +251,16 @@ export default function StoreView() {
             )}
 
             {isLoading && (
-                <div className="card border border-white/40 p-12 text-center shadow-sm">
-                    <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-shelf-primary" />
-                    <p className="text-sm text-shelf-foreground/60">Loading stores...</p>
+                <div className="card p-12 text-center">
+                    <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-[#0071e3]" />
+                    <p className="text-sm text-[#86868b]">Loading stores...</p>
                 </div>
             )}
 
             {isError && (
-                <div className="card border border-red-200 bg-red-50/50 p-12 text-center shadow-sm">
-                    <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-500" />
-                    <p className="text-sm text-red-600">Failed to load stores</p>
+                <div className="card p-12 text-center bg-[#ff3b30]/5">
+                    <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[#ff3b30]" />
+                    <p className="text-sm text-[#ff3b30]">Failed to load stores</p>
                 </div>
             )}
 
@@ -286,8 +286,8 @@ function Field({
     children: React.ReactNode
 }) {
     return (
-        <label className="block space-y-1.5">
-            <span className="text-xs font-medium uppercase tracking-wider text-shelf-foreground/55">{label}</span>
+        <label className="block space-y-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-[#86868b]">{label}</span>
             {children}
         </label>
     )

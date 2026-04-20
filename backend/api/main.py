@@ -15,9 +15,22 @@ settings = get_settings()
 logger = structlog.get_logger()
 
 LEGACY_ROUTE_MAP = {
-    "/ml": "/api/v1/ml",
-    "/models": "/api/v1/ml/models",
-    "/anomalies": "/api/v1/ml/anomalies",
+    "/ml": {
+        "canonical_prefix": "/api/v1/ml",
+        "deprecation_notice": "Use /api/v1/ml/* endpoints",
+    },
+    "/models": {
+        "canonical_prefix": "/api/v1/ml/models",
+        "deprecation_notice": "Use /api/v1/ml/models/* endpoints",
+    },
+    "/anomalies": {
+        "canonical_prefix": "/api/v1/ml/anomalies",
+        "deprecation_notice": "Use /api/v1/ml/anomalies/* endpoints",
+    },
+    "/experiments": {
+        "canonical_prefix": "/api/v1/experiments",
+        "deprecation_notice": "Use /api/v1/experiments endpoints",
+    },
 }
 DEPRECATION_SUNSET = "Wed, 30 Jun 2026 00:00:00 GMT"
 
@@ -49,19 +62,21 @@ async def legacy_route_alias_middleware(request: Request, call_next):
     """
     original_path = request.scope.get("path", "")
     rewritten_to: str | None = None
+    deprecation_notice: str | None = None
 
-    for legacy_prefix, canonical_prefix in LEGACY_ROUTE_MAP.items():
+    for legacy_prefix, route_config in LEGACY_ROUTE_MAP.items():
         if original_path == legacy_prefix or original_path.startswith(f"{legacy_prefix}/"):
             suffix = original_path[len(legacy_prefix) :]
-            request.scope["path"] = f"{canonical_prefix}{suffix}"
+            request.scope["path"] = f"{route_config['canonical_prefix']}{suffix}"
             rewritten_to = request.scope["path"]
+            deprecation_notice = route_config["deprecation_notice"]
             break
 
     response = await call_next(request)
     if rewritten_to:
         response.headers["Deprecation"] = "true"
         response.headers["Sunset"] = DEPRECATION_SUNSET
-        response.headers["X-API-Deprecated"] = "Use /api/v1/ml/* endpoints"
+        response.headers["X-API-Deprecated"] = deprecation_notice or "Use canonical /api/v1/* endpoints"
         response.headers["Link"] = f'<{rewritten_to}>; rel="successor-version"'
     return response
 
@@ -70,6 +85,7 @@ async def legacy_route_alias_middleware(request: Request, call_next):
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -80,6 +96,7 @@ from alerts.websocket import router as ws_router
 from api.v1.routers import (
     alerts,
     anomalies,
+    data,
     experiments,
     forecasts,
     integrations,
@@ -90,25 +107,29 @@ from api.v1.routers import (
     outcomes,
     products,
     purchase_orders,
+    replenishment,
     reports,
+    simulations,
     stores,
 )
 
 app.include_router(stores.router)
 app.include_router(products.router)
+app.include_router(data.router)
 app.include_router(forecasts.router)
 app.include_router(alerts.router)
 app.include_router(integrations.router)
 app.include_router(inventory.router)
 app.include_router(purchase_orders.router)
+app.include_router(replenishment.router)
 app.include_router(models.router)
 app.include_router(ml_alerts.router)
 app.include_router(experiments.router)
-app.include_router(experiments.router, prefix="/api/v1")
 app.include_router(anomalies.router)
 app.include_router(outcomes.router)
 app.include_router(ml_ops.router)
 app.include_router(reports.router)
+app.include_router(simulations.router)
 app.include_router(ws_router)
 
 

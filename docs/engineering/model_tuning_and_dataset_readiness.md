@@ -14,10 +14,11 @@
 
 | Dataset family | Status | Notes |
 |---|---|---|
-| Favorita | `implemented` | Canonical contract-ready development dataset. |
-| Walmart | `implemented` | Weekly-format contract-ready dataset path. |
-| Rossmann | `implemented` | Daily-format contract-ready dataset path. |
-| Synthetic seed transactions | `implemented` | Deterministic local validation dataset. |
+| M5 Walmart | `implemented` | Primary public benchmark path for active model evidence. |
+| FreshRetailNet-50K | `implemented` | Secondary stockout-aware benchmark path. |
+| CSV onboarding | `implemented` | Pilot validation path for merchant-shaped onboarding data. |
+| Square exports | `implemented` | Pilot validation path for mapped POS exports. |
+| Legacy public benchmarks | `implemented` | Reference-only loaders remain available when explicitly invoked. |
 
 ## Tuning Policy
 
@@ -51,7 +52,6 @@
 PYTHONPATH=backend python3 backend/scripts/validate_training_datasets.py --help
 PYTHONPATH=backend python3 backend/scripts/run_training.py --help
 PYTHONPATH=backend python3 backend/scripts/benchmark_datasets.py --help
-PYTHONPATH=backend python3 backend/scripts/benchmark_dataset_combos.py --help
 PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py --help
 PYTHONPATH=backend python3 -m pytest backend/tests/test_models_api.py -q
 PYTHONPATH=backend python3 -m pytest backend/tests/test_arena_promotion_gates.py -q

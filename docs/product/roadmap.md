@@ -1,44 +1,39 @@
 # ShelfOps Product Roadmap
 
-- Last verified date: March 9, 2026
+- Last verified date: April 19, 2026
 - Audience: builders, reviewers, stakeholders
-- Scope: demo closure, first SMB pilot readiness, and later-stage productization
-- Source of truth: this roadmap and `docs/product/known_issues.md`
+- Scope: current pilot-productization roadmap aligned to the replenishment-first ShelfOps plan
+- Source of truth: `.codex/ROADMAP.md`, `.codex/TASKS.json`, and `docs/product/known_issues.md`
 
-## Completed: Demo Hardening
+## Completed
 
-1. Truthful demo runtime with anomaly-backed alerts, governed MLOps evidence, and deterministic walkthrough state. `done`
-2. Forecast runtime now serves the trained feature tier when runtime context supports it, with explicit fallback only when required signals are missing. `done`
-3. Two live walkthroughs now close with `Today / Pilot next / Later` instead of overclaiming enterprise readiness. `done`
-4. Alerts-centered anomaly flow is demo-visible in the production app. `done`
-5. Operator observability view exists for the first pilot narrative. `done`
+1. Root truth docs, claims boundary, and active execution tracker now reflect the current ShelfOps direction. `done`
+2. The public benchmark path is reset onto M5 plus a separate FreshRetailNet stockout appendix. `done`
+3. The replenishment decision loop now exists end to end: recommendation generation, buyer decisions, PO linkage, and measured or estimated impact. `done`
+4. CSV onboarding, Square mapping confirmation, webhook replay, and replenishment replay simulation now exist as pilot-readiness infrastructure. `done`
+5. Frontend priority surfaces now center on Replenishment Queue, Data Readiness, Pilot Impact, and Model Evidence. `done`
 
-## Now: Before Demo Sign-Off
+## Now
 
-1. Real Favorita baseline/challenger evidence run and artifact capture.
-2. Full frontend visual review and demo-only polish.
-3. End-to-end rehearsal of both walkthroughs and terminal/API proof.
-4. Final claims-safe sign-off using `docs/demo/DEMO_SIGNOFF_CHECKLIST.md`.
+1. Keep the repo truth surface strict: archive stale collateral, remove dead demo-only code, and avoid unsupported claims.
+2. Harden pilot execution around real merchant onboarding, recommendation review, and operational observability.
+3. Continue replacing legacy benchmark or experiment paths that still assume old demo datasets.
 
-## Next: Before SMB Pilot
+## Next
 
-1. Integration resilience for Square or CSV-first onboarding: retry, replay, and failed-ingest inspection.
-2. Stronger release confidence than local replay alone: repeatable pre-release checks and go/no-go criteria.
-3. Pilot telemetry that can report forecast accuracy trend, alert/action volume, sync incidents, and model lineage without manual DB digging.
-4. Broader operator tooling and reporting depth beyond the current control view.
+1. Expand measured outcome reporting deeper into the product UI.
+2. Broaden release-readiness checks and operator tooling for pilot support.
+3. Tighten experiment workflows around the current benchmark and training stack instead of legacy demo flows.
 
 ## Later
 
-1. Calibrated quantile intervals and richer uncertainty UX.
-2. Cross-tenant transfer learning / pretraining.
-3. Exogenous demand signals.
-4. Native ERP connectors.
-5. Multi-region, HA scheduler, and broader enterprise infrastructure.
-6. Self-serve onboarding and enterprise commercialization.
+1. Additional pilot integrations beyond CSV and Square.
+2. Richer calibrated-interval UX and model evidence presentation.
+3. Commercial packaging and repeatable case-study publication once measured pilot evidence exists.
 
 ## Exit Criteria (First SMB Pilot)
 
-- No open `P0` blockers in `docs/product/known_issues.md`.
-- Operator can manage pilot health from the product surface without DB inspection.
-- Integration ingest failures are observable and recoverable.
-- Pre-release validation is documented and repeatable before each pilot update.
+- No open repo-truth or claim-boundary blockers.
+- A merchant can onboard through CSV or Square and reach trainable readiness without manual DB intervention.
+- Buyers can review, edit, accept, or reject recommendations with auditable provenance.
+- Pilot outcome reporting distinguishes measured, estimated, simulated, provisional, and unavailable metrics.

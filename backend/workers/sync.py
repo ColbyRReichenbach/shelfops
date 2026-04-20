@@ -57,10 +57,19 @@ def _resolve_external_uuid(external_id: Any, mapping: dict[str, uuid.UUID]) -> u
     return _coerce_uuid(external_id)
 
 
-def _should_synthesize_square_demo_mappings(settings: Any, integration_config: dict[str, Any]) -> bool:
+def _should_synthesize_square_demo_mappings(
+    settings: Any,
+    integration_config: dict[str, Any],
+    *,
+    customer_is_demo: bool = False,
+) -> bool:
     global_flag = _coerce_bool(getattr(settings, "square_enable_demo_id_synthesis", False))
     integration_flag = _coerce_bool(integration_config.get("square_synthesize_demo_mappings"))
-    return global_flag or integration_flag
+    return (global_flag or integration_flag) and bool(customer_is_demo)
+
+
+def _square_mapping_confirmed(integration_config: dict[str, Any]) -> bool:
+    return _coerce_bool(integration_config.get("square_mapping_confirmed"))
 
 
 def _synthesize_square_id_map(
@@ -84,6 +93,26 @@ def _synthesize_square_id_map(
     for idx, external_id in enumerate(unmapped_external_ids):
         result[external_id] = internal_uuids[idx % len(internal_uuids)]
     return result
+
+
+def _update_square_mapping_state(
+    integration_config: dict[str, Any],
+    *,
+    mapping_confirmed: bool | None = None,
+    mapping_coverage: dict[str, Any] | None = None,
+    unmapped_location_ids: list[str] | None = None,
+    unmapped_catalog_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    updated = dict(integration_config or {})
+    if mapping_confirmed is not None:
+        updated["square_mapping_confirmed"] = bool(mapping_confirmed)
+    if mapping_coverage is not None:
+        updated["square_mapping_coverage"] = mapping_coverage
+    if unmapped_location_ids is not None:
+        updated["square_unmapped_location_ids"] = sorted(dict.fromkeys(unmapped_location_ids))
+    if unmapped_catalog_ids is not None:
+        updated["square_unmapped_catalog_ids"] = sorted(dict.fromkeys(unmapped_catalog_ids))
+    return updated
 
 
 async def run_edi_sync_pipeline(
@@ -256,7 +285,7 @@ def sync_square_inventory(self, customer_id: str):
 
     async def _sync():
         from core.config import get_settings
-        from db.models import Integration, InventoryLevel, Product, Store
+        from db.models import Customer, Integration, InventoryLevel, Product, Store
         from integrations.square import SquareClient
 
         settings = get_settings()
@@ -291,10 +320,19 @@ def sync_square_inventory(self, customer_id: str):
                     logger.warning("sync.inventory.no_products", customer_id=customer_id)
                     return {"status": "skipped", "reason": "no_products"}
 
+                customer = await db.get(Customer, customer_id)
+                customer_is_demo = bool(customer.is_demo) if customer else False
                 integration_config = integration.config if isinstance(integration.config, dict) else {}
                 location_map = _build_square_id_map(integration_config.get("square_location_to_store"))
                 catalog_map = _build_square_id_map(integration_config.get("square_catalog_to_product"))
-                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(settings, integration_config)
+                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(
+                    settings,
+                    integration_config,
+                    customer_is_demo=customer_is_demo,
+                )
+                if not synthesize_demo_mappings and not _square_mapping_confirmed(integration_config):
+                    logger.warning("sync.inventory.mapping_not_confirmed", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "square_mapping_not_confirmed"}
                 initial_location_map_count = len(location_map)
                 initial_catalog_map_count = len(catalog_map)
 
@@ -383,7 +421,22 @@ def sync_square_inventory(self, customer_id: str):
                 await db.execute(
                     update(Integration)
                     .where(Integration.integration_id == integration.integration_id)
-                    .values(last_sync_at=now, updated_at=now)
+                    .values(
+                        last_sync_at=now,
+                        updated_at=now,
+                        config=_update_square_mapping_state(
+                            integration_config,
+                            mapping_confirmed=integration_config.get("square_mapping_confirmed"),
+                            mapping_coverage={
+                                "locations_total": len(location_map),
+                                "locations_mapped": len(location_map),
+                                "catalog_total": len(catalog_map),
+                                "catalog_mapped": len(catalog_map),
+                            },
+                            unmapped_location_ids=[],
+                            unmapped_catalog_ids=[],
+                        ),
+                    )
                 )
 
                 await db.commit()
@@ -450,7 +503,7 @@ def sync_square_transactions(self, customer_id: str):
 
     async def _sync():
         from core.config import get_settings
-        from db.models import Integration, Product, Store, Transaction
+        from db.models import Customer, Integration, Product, Store, Transaction
         from integrations.square import SquareClient
 
         settings = get_settings()
@@ -484,10 +537,19 @@ def sync_square_transactions(self, customer_id: str):
                     logger.warning("sync.transactions.no_products", customer_id=customer_id)
                     return {"status": "skipped", "reason": "no_products"}
 
+                customer = await db.get(Customer, customer_id)
+                customer_is_demo = bool(customer.is_demo) if customer else False
                 integration_config = integration.config if isinstance(integration.config, dict) else {}
                 location_map = _build_square_id_map(integration_config.get("square_location_to_store"))
                 catalog_map = _build_square_id_map(integration_config.get("square_catalog_to_product"))
-                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(settings, integration_config)
+                synthesize_demo_mappings = _should_synthesize_square_demo_mappings(
+                    settings,
+                    integration_config,
+                    customer_is_demo=customer_is_demo,
+                )
+                if not synthesize_demo_mappings and not _square_mapping_confirmed(integration_config):
+                    logger.warning("sync.transactions.mapping_not_confirmed", customer_id=customer_id)
+                    return {"status": "skipped", "reason": "square_mapping_not_confirmed"}
                 initial_location_map_count = len(location_map)
                 initial_catalog_map_count = len(catalog_map)
 
@@ -503,6 +565,14 @@ def sync_square_transactions(self, customer_id: str):
                         error=str(exc),
                     )
                     raise self.retry(exc=exc)
+
+                try:
+                    catalog_items = await client.get_catalog()
+                    from integrations.square import build_variation_to_parent_map
+
+                    variation_to_parent = build_variation_to_parent_map(catalog_items)
+                except Exception:
+                    variation_to_parent = {}
 
                 if synthesize_demo_mappings:
                     discovered_location_ids = {
@@ -553,7 +623,8 @@ def sync_square_transactions(self, customer_id: str):
                         if external_id in existing_ids:
                             continue
 
-                        catalog_id = item.get("catalog_object_id", "unknown")
+                        raw_catalog_id = item.get("catalog_object_id", "unknown")
+                        catalog_id = variation_to_parent.get(raw_catalog_id, raw_catalog_id)
                         product_uuid = _resolve_external_uuid(catalog_id, catalog_map)
                         if product_uuid is None:
                             skipped_unmapped_product += 1
@@ -588,7 +659,22 @@ def sync_square_transactions(self, customer_id: str):
                 await db.execute(
                     update(Integration)
                     .where(Integration.integration_id == integration.integration_id)
-                    .values(last_sync_at=now, updated_at=now)
+                    .values(
+                        last_sync_at=now,
+                        updated_at=now,
+                        config=_update_square_mapping_state(
+                            integration_config,
+                            mapping_confirmed=integration_config.get("square_mapping_confirmed"),
+                            mapping_coverage={
+                                "locations_total": len(location_map),
+                                "locations_mapped": len(location_map),
+                                "catalog_total": len(catalog_map),
+                                "catalog_mapped": len(catalog_map),
+                            },
+                            unmapped_location_ids=[],
+                            unmapped_catalog_ids=[],
+                        ),
+                    )
                 )
 
                 await db.commit()

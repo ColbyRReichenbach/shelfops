@@ -157,8 +157,8 @@ def _load_csv_data(data_dir: str) -> pd.DataFrame:
     """
     Load training data from CSV files in a directory.
 
-    Supports Kaggle datasets (Favorita, Walmart, Rossmann) and
-    synthetic seed data. Returns a unified DataFrame with columns:
+    Supports canonical benchmark snapshots, merchant onboarding exports,
+    and legacy reference adapters. Returns a unified DataFrame with columns:
     (store_id, product_id, date, quantity, category).
     """
     path = Path(data_dir)
@@ -960,6 +960,15 @@ def retrain_forecast_model(
             except Exception as receiving_exc:  # noqa: BLE001
                 logger.warning("retrain.receiving_features_failed", error=str(receiving_exc), exc_info=True)
 
+        from ml.dataset_snapshots import create_dataset_snapshot, persist_dataset_snapshot
+
+        dataset_snapshot = create_dataset_snapshot(
+            transactions_df,
+            dataset_id=dataset_name,
+            source_type="csv" if contract_path else None,
+        )
+        persist_dataset_snapshot(dataset_snapshot)
+
         # ── Step 2: Feature engineering ──────────────────────────────
         logger.info("retrain.creating_features", rows=len(transactions_df))
         features_df = create_features(
@@ -987,6 +996,7 @@ def retrain_forecast_model(
             standard_model_metadata(
                 model_name=model_name,
                 dataset_id=dataset_name,
+                dataset_snapshot_id=dataset_snapshot["snapshot_id"],
                 forecast_grain=ensemble_result.get("ensemble", {}).get(
                     "forecast_grain",
                     "store-family-day" if dataset_name == "favorita" else "dataset_specific",
@@ -1023,6 +1033,7 @@ def retrain_forecast_model(
             dataset_name=dataset_name,
             promote=promote,
             rows_trained=len(features_df),
+            dataset_snapshot=dataset_snapshot,
         )
         logger.info("retrain.saved", version=ver, promoted=promote)
 
@@ -1047,6 +1058,7 @@ def retrain_forecast_model(
                     standard_model_metadata(
                         model_name=model_name,
                         dataset_id=dataset_name,
+                        dataset_snapshot_id=dataset_snapshot["snapshot_id"],
                         forecast_grain=ensemble_result.get("ensemble", {}).get(
                             "forecast_grain",
                             "store-family-day" if dataset_name == "favorita" else "dataset_specific",

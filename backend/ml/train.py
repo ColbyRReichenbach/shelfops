@@ -30,6 +30,7 @@ import pandas as pd
 import structlog
 from sklearn.model_selection import TimeSeriesSplit
 
+from ml.calibration import calibration_summary, conformal_interval, conformal_residual_quantile
 from ml.experiment import ExperimentTracker, register_model
 from ml.features import (
     COLD_START_FEATURE_COLS,
@@ -63,6 +64,19 @@ def _require_lightgbm() -> Any:
 
 def _is_lightgbm_booster(model: Any) -> bool:
     return lgb is not None and isinstance(model, lgb.Booster)
+
+
+def _shap_sample_size(n_rows: int) -> int:
+    """Keep SHAP generation bounded for large training runs."""
+    if n_rows <= 0:
+        return 0
+    if n_rows >= 250_000:
+        return 50
+    if n_rows >= 50_000:
+        return 100
+    if n_rows >= 10_000:
+        return 250
+    return min(500, n_rows)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -142,6 +156,9 @@ def train_lightgbm(
     # Time-series split: never shuffle
     tscv = TimeSeriesSplit(n_splits=n_splits)
     maes, mapes, wapes, mases, biases = [], [], [], [], []
+    calibration_coverages, calibration_widths = [], []
+    oof_actuals: list[float] = []
+    oof_preds: list[float] = []
 
     for train_idx, val_idx in tscv.split(X):
         X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
@@ -184,6 +201,17 @@ def train_lightgbm(
         wapes.append(compute_wape(y_val_arr, preds))
         mases.append(compute_mase(y_val_arr, preds, seasonality=7))
         biases.append(compute_bias_pct(y_val_arr, preds))
+        oof_actuals.extend(y_val_arr.tolist())
+        oof_preds.extend(preds.tolist())
+
+    residual_quantile = conformal_residual_quantile(np.asarray(oof_actuals), np.asarray(oof_preds), alpha=0.1)
+    if oof_preds:
+        lower, upper = conformal_interval(np.asarray(oof_preds), residual_quantile)
+        interval_summary = calibration_summary(np.asarray(oof_actuals), lower, upper)
+        calibration_coverages.append(interval_summary["coverage"])
+        calibration_widths.append(interval_summary["mean_interval_width"])
+    else:
+        interval_summary = {"coverage": 0.0, "mean_interval_width": 0.0}
 
     # Train final model on all data
     n_rounds = default_params.pop("n_estimators", 500)
@@ -207,6 +235,18 @@ def train_lightgbm(
         "wape": float(np.mean(wapes)),
         "mase": float(np.mean(mases)),
         "bias_pct": float(np.mean(biases)) if biases else 0.0,
+        "coverage": float(np.mean(calibration_coverages))
+        if calibration_coverages
+        else float(interval_summary["coverage"]),
+        "interval_method": "split_conformal",
+        "calibration_status": "calibrated",
+        "interval_coverage": float(np.mean(calibration_coverages))
+        if calibration_coverages
+        else float(interval_summary["coverage"]),
+        "mean_interval_width": float(np.mean(calibration_widths))
+        if calibration_widths
+        else float(interval_summary["mean_interval_width"]),
+        "conformal_residual_quantile": float(residual_quantile),
         "cv_folds": n_splits,
         "model_type": "lightgbm",
         "feature_tier": tier,
@@ -340,6 +380,7 @@ def train_ensemble(
                 "ensemble_wape": lgb_metrics.get("wape", 0),
                 "ensemble_mase": lgb_metrics.get("mase", 0),
                 "ensemble_bias_pct": lgb_metrics.get("bias_pct", 0),
+                "ensemble_coverage": lgb_metrics.get("interval_coverage", 0),
             }
         )
 
@@ -347,9 +388,8 @@ def train_ensemble(
         try:
             from ml.explain import generate_explanations
 
-            X_test = (
-                features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0).values[-1000:]
-            )  # Last 1000 rows as test
+            sample_size = _shap_sample_size(len(features_df))
+            X_test = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0).values[-sample_size:]
 
             ver = version or datetime.now(timezone.utc).strftime("v%Y%m%d")
             # LightGBM SHAP: use predict with pred_contrib
@@ -416,6 +456,10 @@ def train_ensemble(
                 architecture="lightgbm",
                 objective="poisson",
                 tuning_profile="baseline",
+                interval_method=lgb_metrics.get("interval_method"),
+                calibration_status=lgb_metrics.get("calibration_status"),
+                interval_coverage=lgb_metrics.get("interval_coverage"),
+                conformal_residual_quantile=lgb_metrics.get("conformal_residual_quantile"),
             ),
         },
     }
@@ -427,6 +471,7 @@ def save_models(
     dataset_name: str = "unknown",
     promote: bool = False,
     rows_trained: int | None = None,
+    dataset_snapshot: dict | None = None,
 ) -> str:
     """
     Save trained models, metadata (JSON), and register in model registry.
@@ -457,6 +502,12 @@ def save_models(
     model_name = ensemble_result["ensemble"].get("model_name", "demand_forecast")
 
     lgb_metrics = ensemble_result.get("lightgbm", ensemble_result.get("xgboost", {})).get("metrics", {})
+    dataset_snapshot = dataset_snapshot or ensemble_result["ensemble"].get("dataset_snapshot")
+    dataset_snapshot_id = (
+        dataset_snapshot.get("snapshot_id")
+        if dataset_snapshot
+        else ensemble_result["ensemble"].get("dataset_snapshot_id")
+    )
 
     meta = {
         "version": version,
@@ -464,6 +515,8 @@ def save_models(
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "dataset": dataset_name,
         "dataset_id": dataset_name,
+        "dataset_snapshot_id": dataset_snapshot_id,
+        "dataset_snapshot": dataset_snapshot,
         "forecast_grain": ensemble_result["ensemble"].get("forecast_grain", "dataset_specific"),
         "segment_strategy": ensemble_result["ensemble"].get("segment_strategy", "global"),
         "rule_overlay_enabled": ensemble_result["ensemble"].get("rule_overlay_enabled", False),
@@ -475,6 +528,10 @@ def save_models(
         "trigger_source": ensemble_result["ensemble"].get("trigger_source"),
         "change_category": ensemble_result["ensemble"].get("change_category"),
         "lineage_label": ensemble_result["ensemble"].get("lineage_label"),
+        "interval_method": ensemble_result["ensemble"].get("interval_method"),
+        "calibration_status": ensemble_result["ensemble"].get("calibration_status"),
+        "interval_coverage": ensemble_result["ensemble"].get("interval_coverage"),
+        "conformal_residual_quantile": ensemble_result["ensemble"].get("conformal_residual_quantile"),
         "weights": ensemble_result["ensemble"]["weights"],
         "lightgbm_metrics": lgb_metrics,
         "lstm_metrics": ensemble_result["lstm"]["metrics"],
@@ -503,6 +560,7 @@ def save_models(
                 "mase": lgb_metrics.get("mase", 0),
                 "bias_pct": lgb_metrics.get("bias_pct", 0),
                 "dataset_id": dataset_name,
+                "dataset_snapshot_id": dataset_snapshot_id,
                 "forecast_grain": ensemble_result["ensemble"].get("forecast_grain", "dataset_specific"),
                 "segment_strategy": ensemble_result["ensemble"].get("segment_strategy", "global"),
                 "rule_overlay_enabled": ensemble_result["ensemble"].get("rule_overlay_enabled", False),
@@ -514,6 +572,10 @@ def save_models(
                 "trigger_source": ensemble_result["ensemble"].get("trigger_source"),
                 "change_category": ensemble_result["ensemble"].get("change_category"),
                 "lineage_label": ensemble_result["ensemble"].get("lineage_label"),
+                "interval_method": ensemble_result["ensemble"].get("interval_method"),
+                "calibration_status": ensemble_result["ensemble"].get("calibration_status"),
+                "interval_coverage": ensemble_result["ensemble"].get("interval_coverage"),
+                "conformal_residual_quantile": ensemble_result["ensemble"].get("conformal_residual_quantile"),
             },
             promote=promote,
             model_name=model_name,

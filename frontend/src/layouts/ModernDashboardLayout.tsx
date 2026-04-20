@@ -1,133 +1,126 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
-    LayoutDashboard,
     Package,
     Warehouse,
+    ClipboardList,
+    DatabaseZap,
+    LineChart,
     Store,
-    Bell,
     BarChart3,
     Link2,
     LogOut,
-    ChevronLeft,
-    ChevronRight,
     Brain,
     Activity,
+    PanelLeftClose,
+    PanelLeftOpen,
 } from 'lucide-react'
-import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { useAlertSummary } from '@/hooks/useShelfOps'
 
-const navItems = [
-    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-    { to: '/alerts', icon: Bell, label: 'Alerts' },
-    { to: '/forecasts', icon: BarChart3, label: 'Forecasts' },
-    { to: '/products', icon: Package, label: 'Products' },
+const primaryNavItems = [
+    { to: '/replenishment', icon: ClipboardList, label: 'Replenishment' },
+    { to: '/data-readiness', icon: DatabaseZap, label: 'Data Readiness' },
+    { to: '/pilot-impact', icon: LineChart, label: 'Impact' },
+    { to: '/ml-ops', icon: Brain, label: 'Model Performance' },
+]
+
+const secondaryNavItems = [
     { to: '/inventory', icon: Warehouse, label: 'Inventory' },
-    { to: '/stores', icon: Store, label: 'Stores' },
+    { to: '/forecasts', icon: BarChart3, label: 'Forecasts' },
+    { to: '/operations', icon: Activity, label: 'Operations', badgeCount: 'alerts' as const },
     { to: '/integrations', icon: Link2, label: 'Integrations' },
-    { to: '/operations', icon: Activity, label: 'Operations' },
-    { to: '/ml-ops', icon: Brain, label: 'ML Ops' },
+    { to: '/products', icon: Package, label: 'Products' },
+    { to: '/stores', icon: Store, label: 'Stores' },
 ]
 
 export default function ModernDashboardLayout() {
     const { user, logout } = useAuth0()
-    const [isCollapsed, setIsCollapsed] = useState(false)
-    const location = useLocation()
+    const [isCollapsed, setIsCollapsed] = useState(() => {
+        if (typeof window === 'undefined') return false
+        return window.localStorage.getItem('shelfops.sidebar.collapsed') === 'true'
+    })
     const { data: alertSummary } = useAlertSummary()
     const openAlertCount = alertSummary?.open ?? 0
 
-    // Derive current page name from the route path
-    const currentPage = navItems.find(item => {
-        if (item.to === '/') return location.pathname === '/'
-        return location.pathname.startsWith(item.to)
-    })?.label ?? 'Dashboard'
+    useEffect(() => {
+        window.localStorage.setItem('shelfops.sidebar.collapsed', String(isCollapsed))
+    }, [isCollapsed])
 
     return (
-        <div className="flex h-screen overflow-hidden bg-shelf-background text-shelf-foreground font-sans">
+        <div className="flex min-h-screen w-full bg-[#f5f5f7]">
             {/* Sidebar */}
             <aside
-                className={`
-                    relative z-20 flex flex-col border-r border-white/20 bg-white/60 backdrop-blur-2xl transition-all duration-300 ease-in-out
-                    ${isCollapsed ? 'w-20' : 'w-64'}
-                `}
+                className={`sidebar-glass fixed left-0 top-0 z-40 flex h-screen flex-col transition-[width] duration-300 ${
+                    isCollapsed ? 'w-24' : 'w-64'
+                }`}
             >
-                {/* Toggle Button */}
-                <button
-                    onClick={() => setIsCollapsed(!isCollapsed)}
-                    className="absolute -right-3 top-8 flex h-6 w-6 items-center justify-center rounded-full bg-white shadow-md border border-shelf-foreground/10 text-shelf-foreground/60 hover:text-shelf-primary transition-colors hover:scale-110 active:scale-95 z-30"
-                >
-                    {isCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronLeft className="h-3 w-3" />}
-                </button>
-
                 {/* Logo Area */}
-                <div className={`flex items-center gap-3 px-6 py-6 border-b border-shelf-foreground/5 transition-all duration-300 ${isCollapsed ? 'justify-center px-2' : ''}`}>
-                    <ShelfOpsLogo collapsed={isCollapsed} />
+                <div className={`flex items-center gap-3 ${isCollapsed ? 'px-4 py-6 justify-center' : 'p-6'}`}>
+                    <Link
+                        to="/replenishment"
+                        className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}
+                        title="ShelfOps"
+                    >
+                        <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-[#0071e3] to-[#34c759] flex items-center justify-center shadow-sm">
+                            <Package className="w-5 h-5 text-white" />
+                        </div>
+                        {!isCollapsed && (
+                            <span className="font-semibold text-lg tracking-tight text-[#1d1d1f]">ShelfOps</span>
+                        )}
+                    </Link>
+                    <button
+                        type="button"
+                        onClick={() => setIsCollapsed(current => !current)}
+                        className={`rounded-xl p-2 text-[#86868b] transition hover:bg-black/5 hover:text-[#1d1d1f] ${
+                            isCollapsed ? 'absolute bottom-6' : 'ml-auto'
+                        }`}
+                        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
+                        {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                    </button>
                 </div>
 
                 {/* Navigation */}
-                <nav className="flex-1 px-3 py-6 space-y-1 overflow-y-auto">
-                    {navItems.map(({ to, icon: Icon, label }) => (
-                        <NavLink
-                            key={to}
-                            to={to}
-                            end={to === '/'}
-                            className={({ isActive }) =>
-                                `flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 group
-                                ${isActive
-                                    ? 'bg-shelf-primary/10 text-shelf-primary shadow-sm'
-                                    : 'text-shelf-foreground/70 hover:bg-white/50 hover:text-shelf-foreground'
-                                }
-                                ${isCollapsed ? 'justify-center' : ''}`
-                            }
-                            title={isCollapsed ? label : undefined}
-                        >
-                            <div className="relative shrink-0">
-                                <Icon className="h-5 w-5 transition-colors" />
-                                {label === 'Alerts' && openAlertCount > 0 && isCollapsed && (
-                                    <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1">
-                                        {openAlertCount > 9 ? '9+' : openAlertCount}
-                                    </span>
-                                )}
-                            </div>
-
-                            {!isCollapsed && (
-                                <span className="flex-1 truncate transition-opacity duration-300">
-                                    {label}
-                                </span>
-                            )}
-
-                            {!isCollapsed && label === 'Alerts' && openAlertCount > 0 && (
-                                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white px-1.5">
-                                    {openAlertCount > 99 ? '99+' : openAlertCount}
-                                </span>
-                            )}
-                        </NavLink>
-                    ))}
+                <nav className="flex-1 px-3 py-2 space-y-5 overflow-y-auto">
+                    <NavSection
+                        title="Operate"
+                        items={primaryNavItems}
+                        isCollapsed={isCollapsed}
+                        openAlertCount={openAlertCount}
+                    />
+                    <NavSection
+                        title="Insights"
+                        items={secondaryNavItems}
+                        isCollapsed={isCollapsed}
+                        openAlertCount={openAlertCount}
+                    />
                 </nav>
 
                 {/* User Profile */}
-                <div className="border-t border-shelf-foreground/5 p-4">
-                    <div className={`flex items-center gap-3 transition-all duration-300 ${isCollapsed ? 'justify-center flex-col' : ''}`}>
-                        <div className="h-9 w-9 rounded-full bg-shelf-primary/10 flex items-center justify-center text-xs font-bold text-shelf-primary border border-white/50 shadow-sm">
+                <div className="p-4">
+                    <div
+                        className={`bg-white rounded-[16px] shadow-[0_2px_10px_rgba(0,0,0,0.04)] hover-lift ${
+                            isCollapsed ? 'p-3 flex flex-col items-center gap-3' : 'p-4 flex items-center gap-3'
+                        }`}
+                    >
+                        <div className="h-10 w-10 rounded-full bg-[#f5f5f7] flex items-center justify-center text-sm font-semibold text-[#1d1d1f] overflow-hidden">
                             {user?.picture ? (
                                 <img src={user.picture} alt={user.name} className="h-full w-full rounded-full object-cover" />
                             ) : (
                                 user?.name?.charAt(0) ?? 'U'
                             )}
                         </div>
-
                         {!isCollapsed && (
-                            <div className="flex-1 min-w-0 transition-opacity duration-300">
-                                <p className="text-sm font-semibold text-shelf-foreground truncate">{user?.name ?? 'User'}</p>
-                                <p className="text-xs text-shelf-foreground/50 truncate">{user?.email ?? ''}</p>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-[#1d1d1f] truncate">{user?.name ?? 'User'}</p>
+                                <p className="text-xs text-[#86868b] truncate">{user?.email ?? ''}</p>
                             </div>
                         )}
-
                         <button
                             onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-                            className={`p-2 rounded-lg text-shelf-foreground/40 hover:bg-red-50 hover:text-red-500 transition-colors ${isCollapsed ? 'mt-2' : ''}`}
+                            className="p-2 rounded-lg text-[#86868b] hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] transition-colors"
                             title="Log out"
                         >
                             <LogOut className="h-4 w-4" />
@@ -137,23 +130,70 @@ export default function ModernDashboardLayout() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 overflow-y-auto relative z-10">
-                {/* Header/Breadcrumbs mockup */}
-                <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/20 bg-shelf-background/80 px-8 backdrop-blur-md">
-                    <div className="flex items-center gap-2 text-sm text-shelf-foreground/50">
-                        <span>ShelfOps</span>
-                        <span>/</span>
-                        <span className="font-medium text-shelf-foreground">{currentPage}</span>
-                    </div>
-                    <div className="text-xs text-shelf-foreground/40">Production workspace</div>
-                </header>
-
-                <div className="animate-fade-in p-0">
+            <main
+                className={`min-h-screen flex-1 transition-[margin] duration-300 ${
+                    isCollapsed ? 'ml-24' : 'ml-64'
+                }`}
+            >
+                <div className="animate-fade-in">
                     <ErrorBoundary>
                         <Outlet />
                     </ErrorBoundary>
                 </div>
             </main>
+        </div>
+    )
+}
+
+function NavSection({
+    title,
+    items,
+    isCollapsed,
+    openAlertCount,
+}: {
+    title: string
+    items: Array<{ to: string; icon: typeof Package; label: string; badgeCount?: 'alerts' }>
+    isCollapsed: boolean
+    openAlertCount: number
+}) {
+    return (
+        <div className="space-y-2">
+            <p className="px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#86868b]">
+                {isCollapsed ? '' : title}
+            </p>
+            <div className="space-y-1">
+                {items.map(({ to, icon: Icon, label, badgeCount }) => (
+                    <NavLink
+                        key={to}
+                        to={to}
+                        title={label}
+                        className={({ isActive }) =>
+                            `w-full flex items-center rounded-[12px] px-3 py-2.5 text-sm font-medium transition-colors ${
+                                isActive
+                                    ? 'bg-white text-[#0071e3] shadow-[0_2px_10px_rgba(0,0,0,0.04)]'
+                                    : 'text-[#86868b] hover:bg-black/5 hover:text-[#1d1d1f]'
+                            } ${isCollapsed ? 'justify-center gap-0' : 'gap-3'}`
+                        }
+                    >
+                        <div className="relative shrink-0">
+                            <Icon className="h-5 w-5 transition-colors" />
+                            {badgeCount === 'alerts' && openAlertCount > 0 && isCollapsed && (
+                                <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#ff3b30] text-[10px] font-bold text-white px-1">
+                                    {openAlertCount > 9 ? '9+' : openAlertCount}
+                                </span>
+                            )}
+                        </div>
+
+                        {!isCollapsed && <span className="flex-1 truncate">{label}</span>}
+
+                        {badgeCount === 'alerts' && openAlertCount > 0 && !isCollapsed && (
+                            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-[#ff3b30] text-[10px] font-bold text-white px-1.5">
+                                {openAlertCount > 99 ? '99+' : openAlertCount}
+                            </span>
+                        )}
+                    </NavLink>
+                ))}
+            </div>
         </div>
     )
 }

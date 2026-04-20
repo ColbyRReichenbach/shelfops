@@ -22,6 +22,256 @@ from workers.celery_app import celery_app
 logger = structlog.get_logger()
 
 
+async def compute_recommendation_outcomes(
+    db: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    as_of_date=None,
+    recommendation_id: uuid.UUID | None = None,
+):
+    from db.models import InventoryLevel, Product, RecommendationOutcome, ReplenishmentRecommendation, Transaction
+    from recommendations.outcomes import compute_recommendation_outcome
+
+    analysis_date = as_of_date or datetime.utcnow().date()
+    query = select(ReplenishmentRecommendation).where(ReplenishmentRecommendation.customer_id == customer_id)
+    if recommendation_id is not None:
+        query = query.where(ReplenishmentRecommendation.recommendation_id == recommendation_id)
+    result = await db.execute(query.order_by(ReplenishmentRecommendation.created_at.asc()))
+    recommendations = result.scalars().all()
+
+    outcomes = []
+    for recommendation in recommendations:
+        rationale = recommendation.recommendation_rationale or {}
+        start_date_raw = rationale.get("forecast_start_date")
+        end_date_raw = rationale.get("forecast_end_date")
+        if not start_date_raw or not end_date_raw:
+            continue
+
+        horizon_start_date = datetime.fromisoformat(f"{start_date_raw}T00:00:00").date()
+        horizon_end_date = datetime.fromisoformat(f"{end_date_raw}T00:00:00").date()
+        effective_end_date = min(horizon_end_date, analysis_date)
+
+        sales_result = await db.execute(
+            select(func.coalesce(func.sum(func.abs(Transaction.quantity)), 0)).where(
+                Transaction.customer_id == customer_id,
+                Transaction.store_id == recommendation.store_id,
+                Transaction.product_id == recommendation.product_id,
+                Transaction.transaction_type == "sale",
+                func.date(Transaction.timestamp) >= horizon_start_date,
+                func.date(Transaction.timestamp) <= effective_end_date,
+            )
+        )
+        actual_sales_qty = float(sales_result.scalar() or 0.0)
+
+        inventory_result = await db.execute(
+            select(InventoryLevel.quantity_available)
+            .where(
+                InventoryLevel.customer_id == customer_id,
+                InventoryLevel.store_id == recommendation.store_id,
+                InventoryLevel.product_id == recommendation.product_id,
+                func.date(InventoryLevel.timestamp) <= effective_end_date,
+            )
+            .order_by(InventoryLevel.timestamp.desc())
+            .limit(1)
+        )
+        ending_inventory_qty = inventory_result.scalar_one_or_none()
+
+        product = await db.get(Product, recommendation.product_id)
+        outcome_summary = compute_recommendation_outcome(
+            horizon_demand_mean=float(rationale.get("horizon_demand_mean") or 0.0),
+            actual_sales_qty=actual_sales_qty,
+            ending_inventory_qty=ending_inventory_qty,
+            horizon_end_date=horizon_end_date,
+            as_of_date=analysis_date,
+            recommended_quantity=recommendation.recommended_quantity,
+            safety_stock=recommendation.safety_stock,
+            unit_cost=float(product.unit_cost)
+            if product and product.unit_cost is not None
+            else recommendation.estimated_unit_cost,
+            unit_price=float(product.unit_price) if product and product.unit_price is not None else None,
+            holding_cost_per_unit_per_day=(
+                float(product.holding_cost_per_unit_per_day)
+                if product and product.holding_cost_per_unit_per_day is not None
+                else None
+            ),
+        )
+
+        existing_result = await db.execute(
+            select(RecommendationOutcome).where(
+                RecommendationOutcome.recommendation_id == recommendation.recommendation_id
+            )
+        )
+        outcome = existing_result.scalar_one_or_none()
+        if outcome is None:
+            outcome = RecommendationOutcome(
+                recommendation_id=recommendation.recommendation_id,
+                customer_id=recommendation.customer_id,
+                store_id=recommendation.store_id,
+                product_id=recommendation.product_id,
+            )
+            db.add(outcome)
+
+        outcome.horizon_start_date = horizon_start_date
+        outcome.horizon_end_date = horizon_end_date
+        outcome.actual_sales_qty = outcome_summary.actual_sales_qty
+        outcome.actual_demand_qty = outcome_summary.actual_demand_qty
+        outcome.ending_inventory_qty = outcome_summary.ending_inventory_qty
+        outcome.stockout_event = outcome_summary.stockout_event
+        outcome.overstock_event = outcome_summary.overstock_event
+        outcome.forecast_error_abs = outcome_summary.forecast_error_abs
+        outcome.estimated_stockout_value = outcome_summary.estimated_stockout_value
+        outcome.estimated_overstock_cost = outcome_summary.estimated_overstock_cost
+        outcome.net_estimated_value = outcome_summary.net_estimated_value
+        outcome.demand_confidence = outcome_summary.demand_confidence
+        outcome.value_confidence = outcome_summary.value_confidence
+        outcome.status = outcome_summary.status
+        outcome.computed_at = datetime.utcnow()
+        outcomes.append(outcome)
+
+    await db.commit()
+    return outcomes
+
+
+async def summarize_recommendation_impact(
+    db: AsyncSession,
+    *,
+    customer_id: uuid.UUID,
+    as_of_date=None,
+):
+    from db.models import Product, PurchaseOrder, RecommendationOutcome, ReplenishmentRecommendation
+    from recommendations.outcomes import compute_decision_policy_impact
+
+    analysis_date = as_of_date or datetime.utcnow().date()
+    await compute_recommendation_outcomes(db, customer_id=customer_id, as_of_date=analysis_date)
+
+    recommendations_result = await db.execute(
+        select(ReplenishmentRecommendation).where(ReplenishmentRecommendation.customer_id == customer_id)
+    )
+    recommendations = recommendations_result.scalars().all()
+
+    outcomes_result = await db.execute(
+        select(RecommendationOutcome).where(RecommendationOutcome.customer_id == customer_id)
+    )
+    outcomes = outcomes_result.scalars().all()
+    recommendation_by_id = {row.recommendation_id: row for row in recommendations}
+
+    linked_po_ids = [row.linked_po_id for row in recommendations if row.linked_po_id is not None]
+    purchase_order_by_id: dict[uuid.UUID, PurchaseOrder] = {}
+    if linked_po_ids:
+        purchase_orders_result = await db.execute(select(PurchaseOrder).where(PurchaseOrder.po_id.in_(linked_po_ids)))
+        purchase_order_by_id = {row.po_id: row for row in purchase_orders_result.scalars().all()}
+
+    product_ids = list({row.product_id for row in recommendations})
+    product_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        products_result = await db.execute(select(Product).where(Product.product_id.in_(product_ids)))
+        product_by_id = {row.product_id: row for row in products_result.scalars().all()}
+
+    closed_outcomes = [row for row in outcomes if row.status == "closed"]
+    provisional_outcomes = [row for row in outcomes if row.status == "provisional"]
+    accepted_count = sum(1 for row in recommendations if row.status == "accepted")
+    edited_count = sum(1 for row in recommendations if row.status == "edited")
+    rejected_count = sum(1 for row in recommendations if row.status == "rejected")
+
+    average_forecast_error = (
+        round(sum(row.forecast_error_abs for row in closed_outcomes) / len(closed_outcomes), 4)
+        if closed_outcomes
+        else None
+    )
+
+    policy_summaries = []
+    for outcome in closed_outcomes:
+        recommendation = recommendation_by_id.get(outcome.recommendation_id)
+        if recommendation is None or recommendation.status not in {"accepted", "edited", "rejected"}:
+            continue
+
+        product = product_by_id.get(recommendation.product_id)
+        linked_po = (
+            purchase_order_by_id.get(recommendation.linked_po_id) if recommendation.linked_po_id is not None else None
+        )
+        decision_quantity = 0
+        if recommendation.status == "accepted":
+            decision_quantity = int(
+                linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
+            )
+        elif recommendation.status == "edited":
+            decision_quantity = int(
+                linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
+            )
+
+        policy_summaries.append(
+            compute_decision_policy_impact(
+                inventory_position=recommendation.inventory_position,
+                decision_quantity=decision_quantity,
+                actual_sales_qty=outcome.actual_sales_qty,
+                unit_cost=(
+                    float(product.unit_cost)
+                    if product and product.unit_cost is not None
+                    else recommendation.estimated_unit_cost
+                ),
+                unit_price=float(product.unit_price) if product and product.unit_price is not None else None,
+                holding_cost_per_unit_per_day=(
+                    float(product.holding_cost_per_unit_per_day)
+                    if product and product.holding_cost_per_unit_per_day is not None
+                    else None
+                ),
+            )
+        )
+
+    valued_policy_summaries = [row for row in policy_summaries if row.net_policy_value is not None]
+    policy_net_value = (
+        round(sum(float(row.net_policy_value or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    avoided_stockout_value = (
+        round(sum(float(row.avoided_stockout_value or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    incremental_overstock_cost = (
+        round(sum(float(row.incremental_overstock_cost or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    policy_confidence = (
+        "estimated" if valued_policy_summaries else ("provisional" if policy_summaries else "unavailable")
+    )
+
+    return {
+        "as_of_date": analysis_date.isoformat(),
+        "total_recommendations": len(recommendations),
+        "accepted_count": accepted_count,
+        "edited_count": edited_count,
+        "rejected_count": rejected_count,
+        "closed_outcomes": len(closed_outcomes),
+        "closed_outcomes_confidence": "measured" if closed_outcomes else "provisional",
+        "provisional_outcomes": len(provisional_outcomes),
+        "provisional_outcomes_confidence": "provisional",
+        "forecast_closeout": {
+            "measurement_basis": "forecast_vs_observed_sales_proxy_with_inventory_closeout",
+            "average_forecast_error_abs": average_forecast_error,
+            "average_forecast_error_abs_confidence": "measured" if closed_outcomes else "provisional",
+            "stockout_events": sum(1 for row in closed_outcomes if row.stockout_event),
+            "stockout_events_confidence": "measured" if closed_outcomes else "provisional",
+            "overstock_events": sum(1 for row in closed_outcomes if row.overstock_event),
+            "overstock_events_confidence": "measured" if closed_outcomes else "provisional",
+        },
+        "recommendation_policy": {
+            "measurement_basis": "observed_sales_proxy_vs_do_nothing_inventory_position_baseline",
+            "decision_quantity_basis": "accepted_or_edited_po_quantity_else_zero",
+            "evaluated_decisions": len(policy_summaries),
+            "evaluated_decisions_confidence": "estimated" if policy_summaries else "provisional",
+            "net_policy_value": policy_net_value,
+            "net_policy_value_confidence": policy_confidence,
+            "avoided_stockout_value": avoided_stockout_value,
+            "avoided_stockout_value_confidence": policy_confidence,
+            "incremental_overstock_cost": incremental_overstock_cost,
+            "incremental_overstock_cost_confidence": policy_confidence,
+        },
+    }
+
+
 @celery_app.task(
     name="workers.monitoring.detect_model_drift",
     bind=True,

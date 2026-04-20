@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -68,6 +70,31 @@ async def test_models_health_uses_real_drift_and_data_signals(client, seeded_db,
     assert triggers["new_data_available"] is True
     assert triggers["new_data_rows_since_last_retrain"] >= 1
     assert payload["recent_retraining_events"][0]["trigger_type"] == "scheduled"
+    assert payload["models_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_active_model_evidence_reads_champion_artifacts(client):
+    response = await client.get("/api/v1/ml/models/evidence/active")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "v3"
+    assert payload["dataset_id"] == "m5_walmart"
+    assert payload["dataset_snapshot_id"] == "dsnap_09e19c9147a57fe5"
+    assert payload["architecture"] == "lightgbm"
+    assert payload["interval_method"] == "split_conformal"
+    assert payload["benchmark_rows"][0]["label"] == "Active model holdout"
+    assert payload["claim_boundary"] == "This is benchmark evidence, not pilot evidence."
+
+
+def test_active_champion_metadata_has_no_legacy_lstm_fields():
+    metadata_path = Path("backend/models/v3/metadata.json")
+    payload = json.loads(metadata_path.read_text())
+
+    assert "weights" not in payload
+    assert "lstm_metrics" not in payload
+    assert "ensemble_mae" not in payload
 
 
 @pytest.mark.asyncio
