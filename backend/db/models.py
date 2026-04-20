@@ -1350,7 +1350,9 @@ class ReplenishmentRecommendation(Base):
     __table_args__ = (
         Index("ix_recommendations_customer_status", "customer_id", "status", "created_at"),
         Index("ix_recommendations_store_product", "store_id", "product_id", "created_at"),
-        CheckConstraint("status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"),
+        CheckConstraint(
+            "status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"
+        ),
         CheckConstraint("recommended_quantity >= 0", name="ck_recommendation_qty_non_negative"),
         CheckConstraint("service_level >= 0 AND service_level <= 1", name="ck_recommendation_service_level_range"),
         CheckConstraint(

@@ -16,6 +16,7 @@ from db.models import (
     ForecastAccuracy,
     Integration,
     IntegrationSyncLog,
+    InventoryLevel,
     MLAlert,
     ModelExperiment,
     ModelRetrainingLog,
@@ -25,15 +26,14 @@ from db.models import (
     Product,
     PromotionResult,
     PurchaseOrder,
-    RecommendationOutcome,
-    ReplenishmentRecommendation,
     ReceivingDiscrepancy,
+    RecommendationOutcome,
     ReorderHistory,
     ReorderPoint,
+    ReplenishmentRecommendation,
     Store,
     Supplier,
     Transaction,
-    InventoryLevel,
 )
 
 PRODUCTION_CUSTOMER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")

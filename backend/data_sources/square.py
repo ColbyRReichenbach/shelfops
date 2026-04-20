@@ -44,7 +44,9 @@ def build_square_mapping_preview(
             continue
         item_id = str(item.get("id", ""))
         item_data = item.get("item_data", {})
-        variation_ids = [str(variation.get("id")) for variation in item_data.get("variations", []) if variation.get("id")]
+        variation_ids = [
+            str(variation.get("id")) for variation in item_data.get("variations", []) if variation.get("id")
+        ]
         mapped_product_id = catalog_map.get(item_id)
         if not mapped_product_id:
             for variation_id in variation_ids:

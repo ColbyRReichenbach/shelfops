@@ -107,12 +107,17 @@ async def test_replenishment_impact_reports_confidence_labels(client, test_db):
     assert payload["accepted_count"] == 1
     assert payload["closed_outcomes"] == 1
     assert payload["closed_outcomes_confidence"] == "measured"
-    assert payload["forecast_closeout"]["measurement_basis"] == "forecast_vs_observed_sales_proxy_with_inventory_closeout"
+    assert (
+        payload["forecast_closeout"]["measurement_basis"] == "forecast_vs_observed_sales_proxy_with_inventory_closeout"
+    )
     assert payload["forecast_closeout"]["average_forecast_error_abs"] == 4.0
     assert payload["forecast_closeout"]["average_forecast_error_abs_confidence"] == "measured"
     assert payload["forecast_closeout"]["stockout_events"] == 1
     assert payload["forecast_closeout"]["stockout_events_confidence"] == "measured"
-    assert payload["recommendation_policy"]["measurement_basis"] == "observed_sales_proxy_vs_do_nothing_inventory_position_baseline"
+    assert (
+        payload["recommendation_policy"]["measurement_basis"]
+        == "observed_sales_proxy_vs_do_nothing_inventory_position_baseline"
+    )
     assert payload["recommendation_policy"]["decision_quantity_basis"] == "accepted_or_edited_po_quantity_else_zero"
     assert payload["recommendation_policy"]["evaluated_decisions"] == 1
     assert payload["recommendation_policy"]["net_policy_value_confidence"] == "estimated"

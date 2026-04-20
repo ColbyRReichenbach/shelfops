@@ -48,9 +48,7 @@ async def seeded_forecasts_explain(test_db, seeded_db):
 
 
 @pytest.mark.asyncio
-async def test_forecast_drivers_return_artifact_backed_response(
-    client: AsyncClient, seeded_forecasts_explain
-):
+async def test_forecast_drivers_return_artifact_backed_response(client: AsyncClient, seeded_forecasts_explain):
     """Valid forecast_id returns global model-driver evidence."""
     forecast = seeded_forecasts_explain["forecasts"][0]
 
@@ -105,9 +103,7 @@ async def test_forecast_drivers_have_friendly_labels(client: AsyncClient, seeded
 
 
 @pytest.mark.asyncio
-async def test_forecast_drivers_fall_back_to_champion_artifact(
-    client: AsyncClient, seeded_forecasts_explain
-):
+async def test_forecast_drivers_fall_back_to_champion_artifact(client: AsyncClient, seeded_forecasts_explain):
     """Forecast model versions without local artifacts use the active champion artifact."""
     forecast = seeded_forecasts_explain["forecasts"][0]
 
@@ -121,9 +117,7 @@ async def test_forecast_drivers_fall_back_to_champion_artifact(
 
 
 @pytest.mark.asyncio
-async def test_forecast_drivers_same_artifact_yields_same_features(
-    client: AsyncClient, seeded_forecasts_explain
-):
+async def test_forecast_drivers_same_artifact_yields_same_features(client: AsyncClient, seeded_forecasts_explain):
     """Forecasts that use the same artifact return the same global model-driver list."""
     forecasts = seeded_forecasts_explain["forecasts"]
     response1 = await client.get(f"/api/v1/forecasts/{forecasts[0].forecast_id}/drivers")

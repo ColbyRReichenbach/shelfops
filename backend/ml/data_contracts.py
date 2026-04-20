@@ -190,7 +190,9 @@ def inspect_dataset_readiness(data_dir: str | Path) -> DatasetReadiness:
         return DatasetReadiness(
             dataset_id="m5_walmart",
             status="ready" if not missing_fields else "invalid",
-            message="M5/Walmart dataset ready for canonicalization." if not missing_fields else "M5 sales file is missing required identifier fields.",
+            message="M5/Walmart dataset ready for canonicalization."
+            if not missing_fields
+            else "M5 sales file is missing required identifier fields.",
             forecast_grain="store_id x item_id x date",
             required_files=m5_required + [sales_file],
             missing_files=[],
@@ -460,7 +462,9 @@ def load_canonical_transactions(data_dir: str) -> pd.DataFrame:
     if (
         (path / "calendar.csv").exists()
         and (path / "sell_prices.csv").exists()
-        and any((path / candidate).exists() for candidate in ["sales_train_validation.csv", "sales_train_evaluation.csv"])
+        and any(
+            (path / candidate).exists() for candidate in ["sales_train_validation.csv", "sales_train_evaluation.csv"]
+        )
     ):
         return _load_m5(path)
 

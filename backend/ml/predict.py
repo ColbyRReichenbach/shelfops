@@ -18,8 +18,8 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from ml.features import FEATURE_COLS, get_feature_cols
 from ml.calibration import conformal_interval
+from ml.features import FEATURE_COLS, get_feature_cols
 from ml.train import ENSEMBLE_WEIGHTS, MODEL_DIR, TARGET_COL
 
 logger = structlog.get_logger()

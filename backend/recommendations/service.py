@@ -83,9 +83,15 @@ class RecommendationService:
             product_id=product_id,
             quantity=expected_order_qty,
         )
-        lead_time_days, lead_time_variance, source_type, source_id, source_name, min_order_qty, cost_per_order = (
-            await self._resolve_supply_context(product=product, sourcing=sourcing)
-        )
+        (
+            lead_time_days,
+            lead_time_variance,
+            source_type,
+            source_id,
+            source_name,
+            min_order_qty,
+            cost_per_order,
+        ) = await self._resolve_supply_context(product=product, sourcing=sourcing)
         forecast_summary = summarize_forecast_window(forecasts, lead_time_days=round_lead_time_days(lead_time_days))
 
         store = await self.db.get(Store, store_id)
@@ -277,9 +283,7 @@ class RecommendationService:
         for pair in candidate_pairs:
             pair_key = (pair.store_id, pair.product_id)
             if pair_key in open_pairs:
-                skipped_reasons["open_recommendation_exists"] = (
-                    skipped_reasons.get("open_recommendation_exists", 0) + 1
-                )
+                skipped_reasons["open_recommendation_exists"] = skipped_reasons.get("open_recommendation_exists", 0) + 1
                 continue
 
             try:
@@ -350,7 +354,9 @@ class RecommendationService:
         )
         record.status = "accepted"
         record.linked_po_id = purchase_order.po_id
-        self._append_decision_metadata(record, decision_type="accepted", actor=actor, reason_code=reason_code, notes=notes)
+        self._append_decision_metadata(
+            record, decision_type="accepted", actor=actor, reason_code=reason_code, notes=notes
+        )
         await self.db.commit()
         await self.db.refresh(record)
         return self._to_response_from_record(record)
@@ -383,7 +389,9 @@ class RecommendationService:
         )
         record.status = "edited"
         record.linked_po_id = purchase_order.po_id
-        self._append_decision_metadata(record, decision_type="edited", actor=actor, reason_code=reason_code, notes=notes)
+        self._append_decision_metadata(
+            record, decision_type="edited", actor=actor, reason_code=reason_code, notes=notes
+        )
         await self.db.commit()
         await self.db.refresh(record)
         return self._to_response_from_record(record)
@@ -399,7 +407,9 @@ class RecommendationService:
     ) -> RecommendationResponse:
         record = await self._require_open_recommendation(customer_id=customer_id, recommendation_id=recommendation_id)
         record.status = "rejected"
-        self._append_decision_metadata(record, decision_type="rejected", actor=actor, reason_code=reason_code, notes=notes)
+        self._append_decision_metadata(
+            record, decision_type="rejected", actor=actor, reason_code=reason_code, notes=notes
+        )
         await self.db.commit()
         await self.db.refresh(record)
         return self._to_response_from_record(record)

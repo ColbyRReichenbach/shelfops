@@ -74,7 +74,12 @@ async def test_sync_health_contract_is_enveloped(client, seeded_db, test_db):
             status="connected",
             config={
                 "square_mapping_confirmed": False,
-                "square_mapping_coverage": {"locations_total": 2, "locations_mapped": 1, "catalog_total": 3, "catalog_mapped": 2},
+                "square_mapping_coverage": {
+                    "locations_total": 2,
+                    "locations_mapped": 1,
+                    "catalog_total": 3,
+                    "catalog_mapped": 2,
+                },
                 "square_unmapped_location_ids": ["loc-2"],
                 "square_unmapped_catalog_ids": ["item-3"],
             },

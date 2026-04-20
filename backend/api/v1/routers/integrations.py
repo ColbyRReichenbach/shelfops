@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.deps import get_current_user, get_db, get_tenant_db
 from core.config import get_settings
 from core.security import encrypt
-from db.models import Integration, IntegrationSyncLog, WebhookEventLog
 from data_sources.square import build_square_mapping_preview
+from db.models import Integration, IntegrationSyncLog, WebhookEventLog
 from integrations.sla_policy import resolve_sla_hours
 from workers.sync import _build_square_id_map, _square_mapping_confirmed, _update_square_mapping_state
 
@@ -358,7 +358,8 @@ async def get_square_mapping_preview(
         raise HTTPException(status_code=404, detail="Square integration not found")
 
     valid_store_ids = {
-        str(row.store_id) for row in (await db.execute(select(Store.store_id).where(Store.customer_id == customer_id))).all()
+        str(row.store_id)
+        for row in (await db.execute(select(Store.store_id).where(Store.customer_id == customer_id))).all()
     }
     valid_product_ids = {
         str(row.product_id)
@@ -366,8 +367,14 @@ async def get_square_mapping_preview(
     }
 
     integration_config = integration.config if isinstance(integration.config, dict) else {}
-    location_map = {key: str(value) for key, value in _build_square_id_map(integration_config.get("square_location_to_store")).items()}
-    catalog_map = {key: str(value) for key, value in _build_square_id_map(integration_config.get("square_catalog_to_product")).items()}
+    location_map = {
+        key: str(value)
+        for key, value in _build_square_id_map(integration_config.get("square_location_to_store")).items()
+    }
+    catalog_map = {
+        key: str(value)
+        for key, value in _build_square_id_map(integration_config.get("square_catalog_to_product")).items()
+    }
 
     client = SquareClient(integration.access_token_encrypted)
     locations = await client.get_locations()
@@ -513,11 +520,11 @@ async def get_sync_health(
     }
 
     sources = []
-    integration_rows = (
-        await db.execute(select(Integration).where(Integration.status == "connected"))
-    ).scalars().all()
+    integration_rows = (await db.execute(select(Integration).where(Integration.status == "connected"))).scalars().all()
     square_configs = {
-        f"{row.provider.title()} POS" if row.provider == "square" else row.provider: (row.config if isinstance(row.config, dict) else {})
+        f"{row.provider.title()} POS" if row.provider == "square" else row.provider: (
+            row.config if isinstance(row.config, dict) else {}
+        )
         for row in integration_rows
     }
     for row in latest_syncs:

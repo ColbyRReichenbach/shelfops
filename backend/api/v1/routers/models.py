@@ -108,10 +108,7 @@ def _build_benchmark_rows(
             }
         )
 
-    return [
-        row for row in rows
-        if row.get("wape") is not None and row.get("mase") is not None
-    ]
+    return [row for row in rows if row.get("wape") is not None and row.get("mase") is not None]
 
 
 def _active_model_evidence_payload() -> dict[str, Any]:
@@ -137,7 +134,9 @@ def _active_model_evidence_payload() -> dict[str, Any]:
     segment_coverage = benchmark_entry.get("results", [{}])[0].get("segment_coverage", {}) if benchmark_entry else {}
 
     claim_boundary_bullets = _extract_model_card_bullets("Claim Boundaries")
-    claim_boundary = claim_boundary_bullets[0] if claim_boundary_bullets else "This is benchmark evidence, not pilot evidence."
+    claim_boundary = (
+        claim_boundary_bullets[0] if claim_boundary_bullets else "This is benchmark evidence, not pilot evidence."
+    )
     limitations = claim_boundary_bullets[1:] or [
         "Live business results also depend on inventory position, vendor lead times, and operating policy.",
         "Use the Impact page to review live outcomes and scenario comparisons alongside model quality.",

@@ -74,13 +74,9 @@ async def test_good_csv_creates_canonical_records_and_updates_readiness(client, 
     product_count = await test_db.scalar(select(func.count(Product.product_id)))
     txn_count = await test_db.scalar(select(func.count(Transaction.transaction_id)))
     inv_count = await test_db.scalar(select(func.count(InventoryLevel.id)))
-    csv_integration = (
-        await test_db.execute(select(Integration).where(Integration.provider == "csv"))
-    ).scalar_one()
+    csv_integration = (await test_db.execute(select(Integration).where(Integration.provider == "csv"))).scalar_one()
     sync_log_count = await test_db.scalar(
-        select(func.count(IntegrationSyncLog.sync_id)).where(
-            IntegrationSyncLog.integration_name == "CSV Onboarding"
-        )
+        select(func.count(IntegrationSyncLog.sync_id)).where(IntegrationSyncLog.integration_name == "CSV Onboarding")
     )
     readiness = (await test_db.execute(select(TenantMLReadiness))).scalar_one()
 

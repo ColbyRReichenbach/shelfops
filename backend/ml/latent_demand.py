@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-
 SERIES_KEYS = ["store_id", "product_id"]
 ACTIVE_HOURS_COUNT = 17
 
@@ -29,7 +28,9 @@ def add_conservative_latent_demand(
     work = work.sort_values(SERIES_KEYS + ["date"], kind="mergesort").reset_index(drop=True)
 
     quantity = pd.to_numeric(work[actual_col], errors="coerce").fillna(0.0)
-    stockout_hours = pd.to_numeric(work[stockout_hours_col], errors="coerce").fillna(0.0).clip(lower=0, upper=ACTIVE_HOURS_COUNT)
+    stockout_hours = (
+        pd.to_numeric(work[stockout_hours_col], errors="coerce").fillna(0.0).clip(lower=0, upper=ACTIVE_HOURS_COUNT)
+    )
     available_hours = (ACTIVE_HOURS_COUNT - stockout_hours).clip(lower=1.0)
 
     observed_rate = quantity / available_hours
@@ -50,12 +51,16 @@ def add_conservative_latent_demand(
     if split_col and split_col in work.columns:
         reference_frame = reference_frame.loc[reference_frame[split_col].astype(str) == "train"].copy()
     series_reference = (
-        reference_frame.groupby(SERIES_KEYS, dropna=False)["_reference_hourly_rate"].median().rename("_series_reference_rate")
+        reference_frame.groupby(SERIES_KEYS, dropna=False)["_reference_hourly_rate"]
+        .median()
+        .rename("_series_reference_rate")
         if not reference_frame.empty
         else pd.Series(dtype="float64", name="_series_reference_rate")
     )
     category_reference = (
-        reference_frame.groupby("category", dropna=False)["_reference_hourly_rate"].median().rename("_category_reference_rate")
+        reference_frame.groupby("category", dropna=False)["_reference_hourly_rate"]
+        .median()
+        .rename("_category_reference_rate")
         if not reference_frame.empty
         else pd.Series(dtype="float64", name="_category_reference_rate")
     )

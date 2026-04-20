@@ -47,11 +47,13 @@ def _sorted_snapshot_frame(transactions_df: pd.DataFrame) -> pd.DataFrame:
     return frame[cols].reset_index(drop=True)
 
 
-def compute_dataset_snapshot_hash(transactions_df: pd.DataFrame, *, schema_version: str = SNAPSHOT_SCHEMA_VERSION) -> str:
+def compute_dataset_snapshot_hash(
+    transactions_df: pd.DataFrame, *, schema_version: str = SNAPSHOT_SCHEMA_VERSION
+) -> str:
     frame = _sorted_snapshot_frame(transactions_df)
     digest = hashlib.sha256()
-    digest.update(f"schema_version={schema_version}\n".encode("utf-8"))
-    digest.update(f"columns={','.join(frame.columns)}\n".encode("utf-8"))
+    digest.update(f"schema_version={schema_version}\n".encode())
+    digest.update(f"columns={','.join(frame.columns)}\n".encode())
     for row in frame.itertuples(index=False, name=None):
         digest.update(("|".join(_stringify_value(value) for value in row) + "\n").encode("utf-8"))
     return digest.hexdigest()
@@ -133,7 +135,9 @@ def create_dataset_snapshot(
     profile = _resolve_snapshot_profile(dataset_id, source_type=source_type)
     content_hash = compute_dataset_snapshot_hash(transactions_df, schema_version=schema_version)
     snapshot_id = f"dsnap_{content_hash[:16]}"
-    dates = pd.to_datetime(transactions_df["date"], errors="coerce") if "date" in transactions_df.columns else pd.Series()
+    dates = (
+        pd.to_datetime(transactions_df["date"], errors="coerce") if "date" in transactions_df.columns else pd.Series()
+    )
 
     return {
         "snapshot_id": snapshot_id,

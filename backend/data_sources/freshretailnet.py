@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pandas as pd
 
-
 ACTIVE_HOURS_START = 6
 ACTIVE_HOURS_END = 22
 ACTIVE_HOURS_COUNT = ACTIVE_HOURS_END - ACTIVE_HOURS_START + 1

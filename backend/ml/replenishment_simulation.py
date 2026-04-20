@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 DEFAULT_DATA_DIR = "data/benchmarks/m5_walmart/subset_20spc"
 DEFAULT_OUTPUT_JSON = "backend/reports/replenishment_simulation_m5.json"
 DEFAULT_OUTPUT_MD = "backend/reports/replenishment_simulation_m5.md"
@@ -202,7 +201,9 @@ def _simulate_policy(
             daily_forecast = max(0.0, float(getattr(row, forecast_col) or 0.0))
             safety_stock_units = daily_forecast * config.safety_stock_days
             reorder_point = daily_forecast * config.lead_time_days + safety_stock_units
-            target_position = daily_forecast * (config.lead_time_days + config.order_up_to_days + config.safety_stock_days)
+            target_position = daily_forecast * (
+                config.lead_time_days + config.order_up_to_days + config.safety_stock_days
+            )
             inventory_position = on_hand + on_order
 
             excess_units = max(0.0, on_hand - safety_stock_units)

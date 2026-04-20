@@ -94,20 +94,74 @@ def test_load_canonical_transactions_supports_m5_directory(tmp_path: Path):
 def test_subset_m5_series_balances_store_category_groups():
     sales = pd.DataFrame(
         [
-            {"id": "A1", "item_id": "ITEM_A1", "dept_id": "D1", "cat_id": "FOODS", "store_id": "CA_1", "state_id": "CA", "d_1": 1},
-            {"id": "A2", "item_id": "ITEM_A2", "dept_id": "D1", "cat_id": "FOODS", "store_id": "CA_1", "state_id": "CA", "d_1": 2},
-            {"id": "A3", "item_id": "ITEM_A3", "dept_id": "D1", "cat_id": "FOODS", "store_id": "CA_1", "state_id": "CA", "d_1": 3},
-            {"id": "B1", "item_id": "ITEM_B1", "dept_id": "D2", "cat_id": "HOBBIES", "store_id": "CA_1", "state_id": "CA", "d_1": 4},
-            {"id": "B2", "item_id": "ITEM_B2", "dept_id": "D2", "cat_id": "HOBBIES", "store_id": "CA_1", "state_id": "CA", "d_1": 5},
-            {"id": "C1", "item_id": "ITEM_C1", "dept_id": "D1", "cat_id": "FOODS", "store_id": "TX_1", "state_id": "TX", "d_1": 6},
-            {"id": "C2", "item_id": "ITEM_C2", "dept_id": "D1", "cat_id": "FOODS", "store_id": "TX_1", "state_id": "TX", "d_1": 7},
+            {
+                "id": "A1",
+                "item_id": "ITEM_A1",
+                "dept_id": "D1",
+                "cat_id": "FOODS",
+                "store_id": "CA_1",
+                "state_id": "CA",
+                "d_1": 1,
+            },
+            {
+                "id": "A2",
+                "item_id": "ITEM_A2",
+                "dept_id": "D1",
+                "cat_id": "FOODS",
+                "store_id": "CA_1",
+                "state_id": "CA",
+                "d_1": 2,
+            },
+            {
+                "id": "A3",
+                "item_id": "ITEM_A3",
+                "dept_id": "D1",
+                "cat_id": "FOODS",
+                "store_id": "CA_1",
+                "state_id": "CA",
+                "d_1": 3,
+            },
+            {
+                "id": "B1",
+                "item_id": "ITEM_B1",
+                "dept_id": "D2",
+                "cat_id": "HOBBIES",
+                "store_id": "CA_1",
+                "state_id": "CA",
+                "d_1": 4,
+            },
+            {
+                "id": "B2",
+                "item_id": "ITEM_B2",
+                "dept_id": "D2",
+                "cat_id": "HOBBIES",
+                "store_id": "CA_1",
+                "state_id": "CA",
+                "d_1": 5,
+            },
+            {
+                "id": "C1",
+                "item_id": "ITEM_C1",
+                "dept_id": "D1",
+                "cat_id": "FOODS",
+                "store_id": "TX_1",
+                "state_id": "TX",
+                "d_1": 6,
+            },
+            {
+                "id": "C2",
+                "item_id": "ITEM_C2",
+                "dept_id": "D1",
+                "cat_id": "FOODS",
+                "store_id": "TX_1",
+                "state_id": "TX",
+                "d_1": 7,
+            },
         ]
     )
 
     subset = subset_m5_series(sales, series_per_store_category=2, random_state=7)
-    counts = (
-        subset.groupby(["store_id", "cat_id"]).size().to_dict()
-    )
+    counts = subset.groupby(["store_id", "cat_id"]).size().to_dict()
 
     assert counts[("CA_1", "FOODS")] == 2
     assert counts[("CA_1", "HOBBIES")] == 2

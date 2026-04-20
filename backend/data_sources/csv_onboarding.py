@@ -25,7 +25,17 @@ CSV_REQUIRED_FIELDS = {
 
 CSV_OPTIONAL_FIELDS = {
     "stores": {"address", "city", "state", "zip_code", "lat", "lon", "timezone"},
-    "products": {"category", "subcategory", "brand", "unit_cost", "unit_price", "weight", "shelf_life_days", "is_seasonal", "is_perishable"},
+    "products": {
+        "category",
+        "subcategory",
+        "brand",
+        "unit_cost",
+        "unit_price",
+        "weight",
+        "shelf_life_days",
+        "is_seasonal",
+        "is_perishable",
+    },
     "transactions": {"unit_price", "transaction_type", "discount_amount", "external_id"},
     "inventory": {"quantity_on_order", "quantity_reserved", "quantity_available", "source"},
 }
@@ -96,7 +106,9 @@ async def validate_csv_batch(
         existing_skus |= {str(sku).strip() for sku in parsed["products"]["sku"].dropna().tolist()}
 
     if "transactions" in parsed:
-        issues.extend(_validate_reference_rows(parsed["transactions"], "transactions", existing_store_names, existing_skus))
+        issues.extend(
+            _validate_reference_rows(parsed["transactions"], "transactions", existing_store_names, existing_skus)
+        )
         issues.extend(_validate_datetime_rows(parsed["transactions"], "date", "transactions"))
         issues.extend(_validate_numeric_rows(parsed["transactions"], "quantity", "transactions"))
     if "inventory" in parsed:
@@ -380,7 +392,9 @@ async def _upsert_stores(db: AsyncSession, customer_id: uuid.UUID, frame: pd.Dat
     return mapping
 
 
-async def _upsert_products(db: AsyncSession, customer_id: uuid.UUID, frame: pd.DataFrame | None) -> dict[str, uuid.UUID]:
+async def _upsert_products(
+    db: AsyncSession, customer_id: uuid.UUID, frame: pd.DataFrame | None
+) -> dict[str, uuid.UUID]:
     result = await db.execute(select(Product).where(Product.customer_id == customer_id))
     existing = {product.sku: product for product in result.scalars().all()}
     mapping = {sku: product.product_id for sku, product in existing.items()}

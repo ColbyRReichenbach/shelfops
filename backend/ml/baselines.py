@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pandas as pd
 
-
 SERIES_KEYS = ["store_id", "product_id"]
 
 
@@ -40,9 +39,8 @@ def seasonal_naive_forecast(train_df: pd.DataFrame, test_df: pd.DataFrame, *, se
 
 def moving_average_forecast(train_df: pd.DataFrame, test_df: pd.DataFrame, *, window: int = 7) -> pd.Series:
     combined = pd.concat([train_df, test_df], ignore_index=True)
-    rolling = (
-        combined.groupby(SERIES_KEYS)["quantity"]
-        .transform(lambda s: s.shift(1).rolling(window, min_periods=1).mean())
+    rolling = combined.groupby(SERIES_KEYS)["quantity"].transform(
+        lambda s: s.shift(1).rolling(window, min_periods=1).mean()
     )
     series_mean = train_df.groupby(SERIES_KEYS)["quantity"].mean().rename("series_mean")
     test = test_df.copy()

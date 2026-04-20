@@ -1,7 +1,8 @@
+import json
+
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-import json
 
 from ml.train import save_models
 

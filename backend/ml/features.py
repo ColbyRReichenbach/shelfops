@@ -424,12 +424,14 @@ def _promo_lag_features(
         promo_qty = float(txn.loc[promo_mask, "quantity"].mean()) if promo_mask.any() else 0.0
         pre_qty = float(txn.loc[pre_mask, "quantity"].mean()) if pre_mask.any() else max(promo_qty, 1.0)
         lift = max(0.0, (promo_qty / pre_qty) - 1.0) if pre_qty > 0 else 0.0
-        lifts.append({
-            "store_id": promo["store_id"],
-            "product_id": promo["product_id"],
-            "end_date": promo["end_date"],
-            "lift_pct": lift,
-        })
+        lifts.append(
+            {
+                "store_id": promo["store_id"],
+                "product_id": promo["product_id"],
+                "end_date": promo["end_date"],
+                "lift_pct": lift,
+            }
+        )
 
     if not lifts:
         return empty
@@ -439,24 +441,31 @@ def _promo_lag_features(
     rows = []
     for (sp, pd_id), grp in txn.groupby(["store_id", "product_id"]):
         past = promo_hist[
-            (promo_hist["store_id"].astype(str) == str(sp))
-            & (promo_hist["product_id"].astype(str) == str(pd_id))
+            (promo_hist["store_id"].astype(str) == str(sp)) & (promo_hist["product_id"].astype(str) == str(pd_id))
         ].sort_values("end_date")
         for dt in sorted(grp["date"].tolist()):
             eligible = past[past["end_date"] < dt]
             if eligible.empty:
-                rows.append({
-                    "store_id": sp, "product_id": pd_id, "date": dt,
-                    "days_since_last_promo": 365,
-                    "promo_lift_pct_trailing_30d": 0.0,
-                })
+                rows.append(
+                    {
+                        "store_id": sp,
+                        "product_id": pd_id,
+                        "date": dt,
+                        "days_since_last_promo": 365,
+                        "promo_lift_pct_trailing_30d": 0.0,
+                    }
+                )
             else:
                 most_recent = eligible.iloc[-1]
-                rows.append({
-                    "store_id": sp, "product_id": pd_id, "date": dt,
-                    "days_since_last_promo": int((dt - most_recent["end_date"]).days),
-                    "promo_lift_pct_trailing_30d": float(most_recent["lift_pct"]),
-                })
+                rows.append(
+                    {
+                        "store_id": sp,
+                        "product_id": pd_id,
+                        "date": dt,
+                        "days_since_last_promo": int((dt - most_recent["end_date"]).days),
+                        "promo_lift_pct_trailing_30d": float(most_recent["lift_pct"]),
+                    }
+                )
 
     return pd.DataFrame(rows) if rows else empty
 
@@ -574,9 +583,7 @@ def create_features(
                 how="left",
             )
         features["is_promotion_active"] = (
-            features["is_promotion_active"].fillna(0).astype(int)
-            if "is_promotion_active" in features.columns
-            else 0
+            features["is_promotion_active"].fillna(0).astype(int) if "is_promotion_active" in features.columns else 0
         )
     else:
         features["is_promotion_active"] = 0

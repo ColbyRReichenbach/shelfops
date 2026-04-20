@@ -497,11 +497,13 @@ async def complete_experiment(
 
     # Update experiment
     exp.status = "completed"
-    exp.results = _normalize_experiment_results({
-        **existing_results,
-        "lineage_metadata": lineage_metadata,
-        "decision_payload": decision_payload,
-    })
+    exp.results = _normalize_experiment_results(
+        {
+            **existing_results,
+            "lineage_metadata": lineage_metadata,
+            "decision_payload": decision_payload,
+        }
+    )
     exp.decision_rationale = request.decision_rationale
     exp.completed_at = datetime.utcnow()
 
@@ -795,6 +797,7 @@ async def interpret_experiment(
 
     try:
         import anthropic as _anthropic
+
         client = _anthropic.Anthropic(api_key=api_key) if api_key else _anthropic.Anthropic()
     except Exception:
         raise HTTPException(status_code=503, detail="Anthropic client unavailable — check ANTHROPIC_API_KEY.")
@@ -811,7 +814,9 @@ async def interpret_experiment(
             "experimental_mase",
         )
     ):
-        raise HTTPException(status_code=400, detail="Experiment results are incomplete — run or complete the evaluation first.")
+        raise HTTPException(
+            status_code=400, detail="Experiment results are incomplete — run or complete the evaluation first."
+        )
     promo = results.get("promotion_comparison") or {}
     gate_checks = promo.get("gate_checks") or {}
     passed = [k for k, v in gate_checks.items() if v]

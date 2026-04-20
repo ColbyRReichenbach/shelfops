@@ -11,8 +11,8 @@ from pathlib import Path
 # Add backend to path when executed as a script.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from ml.features import create_features
 from ml.dataset_snapshots import create_dataset_snapshot, persist_dataset_snapshot
+from ml.features import create_features
 from ml.train import save_models, train_ensemble
 from workers.retrain import _load_profiled_data, _next_version
 

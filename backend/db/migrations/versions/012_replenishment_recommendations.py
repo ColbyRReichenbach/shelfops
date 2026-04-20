@@ -48,13 +48,24 @@ def upgrade() -> None:
         sa.Column("calibration_status", sa.String(length=50), nullable=True),
         sa.Column("no_order_stockout_risk", sa.String(length=20), nullable=False),
         sa.Column("order_overstock_risk", sa.String(length=20), nullable=False),
-        sa.Column("recommendation_rationale", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'{}'::jsonb")),
+        sa.Column(
+            "recommendation_rationale",
+            postgresql.JSONB(astext_type=sa.Text()),
+            nullable=False,
+            server_default=sa.text("'{}'::jsonb"),
+        ),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
-        sa.CheckConstraint("status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"),
+        sa.CheckConstraint(
+            "status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"
+        ),
         sa.CheckConstraint("recommended_quantity >= 0", name="ck_recommendation_qty_non_negative"),
         sa.CheckConstraint("service_level >= 0 AND service_level <= 1", name="ck_recommendation_service_level_range"),
-        sa.CheckConstraint("no_order_stockout_risk IN ('low', 'medium', 'high')", name="ck_recommendation_stockout_risk"),
-        sa.CheckConstraint("order_overstock_risk IN ('low', 'medium', 'high')", name="ck_recommendation_overstock_risk"),
+        sa.CheckConstraint(
+            "no_order_stockout_risk IN ('low', 'medium', 'high')", name="ck_recommendation_stockout_risk"
+        ),
+        sa.CheckConstraint(
+            "order_overstock_risk IN ('low', 'medium', 'high')", name="ck_recommendation_overstock_risk"
+        ),
     )
     op.create_index(
         "ix_recommendations_customer_status",

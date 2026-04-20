@@ -3,8 +3,8 @@ import uuid
 from workers.sync import (
     _build_square_id_map,
     _resolve_external_uuid,
-    _square_mapping_confirmed,
     _should_synthesize_square_demo_mappings,
+    _square_mapping_confirmed,
     _synthesize_square_id_map,
 )
 
@@ -34,12 +34,18 @@ def test_should_synthesize_square_demo_mappings_honors_global_or_integration_fla
         square_enable_demo_id_synthesis = False
 
     assert _should_synthesize_square_demo_mappings(_Settings(), {}, customer_is_demo=False) is False
-    assert _should_synthesize_square_demo_mappings(
-        _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=False
-    ) is False
-    assert _should_synthesize_square_demo_mappings(
-        _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=True
-    ) is True
+    assert (
+        _should_synthesize_square_demo_mappings(
+            _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=False
+        )
+        is False
+    )
+    assert (
+        _should_synthesize_square_demo_mappings(
+            _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=True
+        )
+        is True
+    )
 
     _Settings.square_enable_demo_id_synthesis = True
     assert _should_synthesize_square_demo_mappings(_Settings(), {}, customer_is_demo=False) is False

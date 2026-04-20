@@ -21,8 +21,8 @@ from db.models import (
     ModelRetrainingLog,
     ModelVersion,
     Product,
-    ReorderPoint,
     RecommendationOutcome,
+    ReorderPoint,
     ReplenishmentRecommendation,
     Store,
     Supplier,
@@ -256,15 +256,19 @@ async def _ensure_supplier(db: AsyncSession, *, customer_id) -> Supplier:
 
 async def _apply_store_and_product_defaults(db: AsyncSession, *, customer_id, supplier: Supplier) -> None:
     stores = (
-        await db.execute(select(Store).where(Store.customer_id == customer_id).order_by(Store.name.asc()))
-    ).scalars().all()
+        (await db.execute(select(Store).where(Store.customer_id == customer_id).order_by(Store.name.asc())))
+        .scalars()
+        .all()
+    )
     for idx, store in enumerate(stores):
         store.cluster_tier = 0 if idx == 0 else 1
         store.status = "active"
 
     products = (
-        await db.execute(select(Product).where(Product.customer_id == customer_id).order_by(Product.sku.asc()))
-    ).scalars().all()
+        (await db.execute(select(Product).where(Product.customer_id == customer_id).order_by(Product.sku.asc())))
+        .scalars()
+        .all()
+    )
     for idx, product in enumerate(products):
         product.supplier_id = supplier.supplier_id
         product.holding_cost_per_unit_per_day = round(float(product.unit_cost or 1.0) * 0.0025, 4)
@@ -337,7 +341,9 @@ async def _seed_forecasts_and_accuracy(db: AsyncSession, *, customer_id, model_v
 
         for offset in range(30):
             forecast_date = today + timedelta(days=offset)
-            day_multiplier = 1.12 if forecast_date.weekday() in {4, 5} else 0.94 if forecast_date.weekday() == 1 else 1.0
+            day_multiplier = (
+                1.12 if forecast_date.weekday() in {4, 5} else 0.94 if forecast_date.weekday() == 1 else 1.0
+            )
             demand = round(avg_daily * day_multiplier, 2)
             spread = max(1.0, std_daily * 1.35)
             db.add(
@@ -355,10 +361,11 @@ async def _seed_forecasts_and_accuracy(db: AsyncSession, *, customer_id, model_v
             )
             forecast_rows += 1
 
-        recent_actuals = daily_sales[
-            (daily_sales["store_id"] == store_id)
-            & (daily_sales["product_id"] == product_id)
-        ].sort_values("sales_date").tail(30)
+        recent_actuals = (
+            daily_sales[(daily_sales["store_id"] == store_id) & (daily_sales["product_id"] == product_id)]
+            .sort_values("sales_date")
+            .tail(30)
+        )
         for idx, row in enumerate(recent_actuals.itertuples(index=False)):
             actual = float(row.quantity)
             adjustment = 0.94 + ((idx % 5) * 0.025)
@@ -425,12 +432,16 @@ async def _seed_reorder_points_and_inventory(db: AsyncSession, *, customer_id) -
     daily_sales = await _load_daily_sales(db, customer_id=customer_id)
     summary = _velocity_summary(daily_sales)
     inventory_rows = (
-        await db.execute(
-            select(InventoryLevel)
-            .where(InventoryLevel.customer_id == customer_id)
-            .order_by(InventoryLevel.timestamp.desc())
+        (
+            await db.execute(
+                select(InventoryLevel)
+                .where(InventoryLevel.customer_id == customer_id)
+                .order_by(InventoryLevel.timestamp.desc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     latest_inventory: dict[tuple[Any, Any], InventoryLevel] = {}
     for row in inventory_rows:
         latest_inventory.setdefault((row.store_id, row.product_id), row)
@@ -512,14 +523,18 @@ async def _seed_recommendations(
     await db.execute(delete(ReplenishmentRecommendation).where(ReplenishmentRecommendation.customer_id == customer_id))
 
     stores = (
-        await db.execute(select(Store).where(Store.customer_id == customer_id).order_by(Store.name.asc()))
-    ).scalars().all()
+        (await db.execute(select(Store).where(Store.customer_id == customer_id).order_by(Store.name.asc())))
+        .scalars()
+        .all()
+    )
     products = (
-        await db.execute(select(Product).where(Product.customer_id == customer_id).order_by(Product.sku.asc()))
-    ).scalars().all()
+        (await db.execute(select(Product).where(Product.customer_id == customer_id).order_by(Product.sku.asc())))
+        .scalars()
+        .all()
+    )
     reorder_rows = (
-        await db.execute(select(ReorderPoint).where(ReorderPoint.customer_id == customer_id))
-    ).scalars().all()
+        (await db.execute(select(ReorderPoint).where(ReorderPoint.customer_id == customer_id))).scalars().all()
+    )
     reorder_map = {(row.store_id, row.product_id): row for row in reorder_rows}
     daily_sales = await _load_daily_sales(db, customer_id=customer_id)
     velocity = _velocity_summary(daily_sales)
@@ -585,7 +600,9 @@ async def _seed_recommendations(
                     "horizon_demand_lower": round(horizon_mean * 0.84, 2),
                     "horizon_demand_upper": round(horizon_mean * 1.18, 2),
                     "lead_time_demand_mean": round(stats["avg_daily"] * (rp.lead_time_days or 4), 2),
-                    "lead_time_demand_upper": round((stats["avg_daily"] + stats["std_daily"]) * (rp.lead_time_days or 4), 2),
+                    "lead_time_demand_upper": round(
+                        (stats["avg_daily"] + stats["std_daily"]) * (rp.lead_time_days or 4), 2
+                    ),
                     "interval_coverage": 0.9,
                     "forecast_row_count": 7,
                     "min_order_qty": 12,

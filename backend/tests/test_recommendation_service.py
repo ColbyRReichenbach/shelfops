@@ -177,9 +177,7 @@ async def test_create_recommendation_persists_deterministic_fixture(test_db):
 @pytest.mark.asyncio
 async def test_create_recommendation_requires_forecasts(test_db):
     store, product, _supplier = await _seed_recommendation_fixture(test_db)
-    await test_db.execute(
-        ReplenishmentRecommendation.__table__.delete()
-    )
+    await test_db.execute(ReplenishmentRecommendation.__table__.delete())
     await test_db.execute(DemandForecast.__table__.delete())
     await test_db.commit()
 

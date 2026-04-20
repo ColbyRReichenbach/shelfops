@@ -19,7 +19,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from ml.metrics_contract import compute_forecast_metrics
 from ml.baselines import (
     category_store_average_forecast,
     intermittent_demand_forecast,
@@ -28,6 +27,7 @@ from ml.baselines import (
     prepare_series_frame,
     seasonal_naive_forecast,
 )
+from ml.metrics_contract import compute_forecast_metrics
 
 DATASET_DIRS = {
     "m5_walmart": "data/benchmarks/m5_walmart",
@@ -144,7 +144,9 @@ def _segment_coverage(raw: pd.DataFrame) -> dict[str, int]:
     }
 
 
-def _result_row(model_name: str, dataset_id: str, raw: pd.DataFrame, train_df: pd.DataFrame, test_df: pd.DataFrame, preds: pd.Series) -> dict:
+def _result_row(
+    model_name: str, dataset_id: str, raw: pd.DataFrame, train_df: pd.DataFrame, test_df: pd.DataFrame, preds: pd.Series
+) -> dict:
     metrics = _safe_metrics(dataset_id, test_df["quantity"].astype(float), preds.astype(float))
     return {
         "model_name": model_name,
@@ -193,8 +195,17 @@ def benchmark_dataset(dataset_id: str, data_dir: str, max_rows: int) -> dict:
         _result_row("naive", dataset_id, raw, train_df, test_df, naive_forecast(train_df, test_df)),
         _result_row("seasonal_naive", dataset_id, raw, train_df, test_df, seasonal_naive_forecast(train_df, test_df)),
         _result_row("moving_average_7", dataset_id, raw, train_df, test_df, moving_average_forecast(train_df, test_df)),
-        _result_row("category_store_average", dataset_id, raw, train_df, test_df, category_store_average_forecast(train_df, test_df)),
-        _result_row("intermittent_demand", dataset_id, raw, train_df, test_df, intermittent_demand_forecast(train_df, test_df)),
+        _result_row(
+            "category_store_average",
+            dataset_id,
+            raw,
+            train_df,
+            test_df,
+            category_store_average_forecast(train_df, test_df),
+        ),
+        _result_row(
+            "intermittent_demand", dataset_id, raw, train_df, test_df, intermittent_demand_forecast(train_df, test_df)
+        ),
         _result_row("lightgbm", dataset_id, raw, train_df, test_df, _run_lightgbm(train_df, test_df)),
     ]
     return {

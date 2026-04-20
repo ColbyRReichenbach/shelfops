@@ -11,7 +11,6 @@ from httpx import AsyncClient
 
 from tests.conftest import CUSTOMER_ID
 
-
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 
@@ -490,9 +489,7 @@ class TestStockoutRisk:
         row = next(r for r in data if r["product_id"] == str(pid))
         assert row["risk_level"] == "medium"
 
-    async def test_no_risk_when_inventory_exceeds_demand(
-        self, client: AsyncClient, reports_db, test_db
-    ):
+    async def test_no_risk_when_inventory_exceeds_demand(self, client: AsyncClient, reports_db, test_db):
         """quantity_available ≥ total_demand → NOT in results."""
         from db.models import DemandForecast, InventoryLevel
 
@@ -538,9 +535,7 @@ class TestStockoutRisk:
         resp = await client.get("/api/v1/reports/stockout-risk?horizon_days=100")
         assert resp.status_code == 422
 
-    async def test_days_until_stockout_calculation(
-        self, client: AsyncClient, reports_db, test_db
-    ):
+    async def test_days_until_stockout_calculation(self, client: AsyncClient, reports_db, test_db):
         """days_until_stockout = floor(qty / daily_rate)."""
         from db.models import DemandForecast, InventoryLevel
 
@@ -719,9 +714,7 @@ class TestVendorScorecard:
         assert row["on_time_rate"] == pytest.approx(0.5, abs=0.01)
         assert row["total_pos"] == 2
 
-    async def test_suggested_po_no_received_metrics(
-        self, client: AsyncClient, reports_db, test_db
-    ):
+    async def test_suggested_po_no_received_metrics(self, client: AsyncClient, reports_db, test_db):
         """Supplier with only suggested POs → null metrics but total_pos counted."""
         from db.models import PurchaseOrder
 

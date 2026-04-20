@@ -238,7 +238,9 @@ def main():
     print("=" * 60)
     print("✅ Done! Next steps:")
     print("  1. If you are working on legacy/reference data, run the downstream seed or contract flow you need.")
-    print("  2. For the active roadmap, use DATA_SOURCES.md and the .codex tasks instead of relying on these Kaggle defaults.")
+    print(
+        "  2. For the active roadmap, use DATA_SOURCES.md and the .codex tasks instead of relying on these Kaggle defaults."
+    )
     print("=" * 60)
 
 

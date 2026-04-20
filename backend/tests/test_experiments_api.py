@@ -377,7 +377,10 @@ async def test_run_experiment_executes_cycle_and_persists_arena_breakdown(client
                     "segments": ["high_velocity", "mid_velocity", "low_velocity"],
                 },
             },
-            "comparison": {"promoted": False, "reason": "failed_gates:lost_sales_qty_gate,opportunity_cost_stockout_gate"},
+            "comparison": {
+                "promoted": False,
+                "reason": "failed_gates:lost_sales_qty_gate,opportunity_cost_stockout_gate",
+            },
             "experiment": {
                 "experiment_name": "segmented_family_trial",
                 "hypothesis": "Family velocity segmentation should reduce stockout cost.",

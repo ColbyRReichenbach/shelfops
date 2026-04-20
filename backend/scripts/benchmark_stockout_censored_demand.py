@@ -21,7 +21,6 @@ from ml.latent_demand import add_conservative_latent_demand
 from ml.metrics_contract import compute_forecast_metrics
 from ml.stockout_metrics import evaluate_stockout_windows
 
-
 DEFAULT_DATA_DIR = "data/benchmarks/freshretailnet_50k/raw"
 
 
@@ -44,14 +43,18 @@ def _build_result_row(name: str, test_df, preds, *, estimated_recovered_target) 
     }
 
 
-def _sample_series(splits: dict[str, pd.DataFrame], *, max_series: int | None, random_seed: int) -> dict[str, pd.DataFrame]:
+def _sample_series(
+    splits: dict[str, pd.DataFrame], *, max_series: int | None, random_seed: int
+) -> dict[str, pd.DataFrame]:
     if not max_series or max_series <= 0:
         return splits
 
     train = splits["train"].copy()
     series_cols = ["store_id", "product_id"]
     stratify_col = "first_category_id" if "first_category_id" in train.columns else None
-    unique_series = train[series_cols + ([stratify_col] if stratify_col else [])].drop_duplicates().reset_index(drop=True)
+    unique_series = (
+        train[series_cols + ([stratify_col] if stratify_col else [])].drop_duplicates().reset_index(drop=True)
+    )
 
     if len(unique_series) <= max_series:
         return splits
@@ -109,7 +112,9 @@ def render_markdown(report: dict) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Benchmark FreshRetailNet stockout-aware baselines")
-    parser.add_argument("--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Directory with train.parquet and eval.parquet")
+    parser.add_argument(
+        "--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Directory with train.parquet and eval.parquet"
+    )
     parser.add_argument(
         "--output-json",
         type=str,
@@ -122,7 +127,9 @@ def main() -> int:
         default="backend/reports/freshretailnet_stockout_benchmark.md",
         help="Output Markdown path",
     )
-    parser.add_argument("--max-series", type=int, default=5000, help="Optional deterministic series cap for reproducible benchmarking")
+    parser.add_argument(
+        "--max-series", type=int, default=5000, help="Optional deterministic series cap for reproducible benchmarking"
+    )
     parser.add_argument("--random-seed", type=int, default=42, help="Random seed for series sampling")
     args = parser.parse_args()
 
@@ -150,7 +157,9 @@ def main() -> int:
 
     estimated_recovered_target = eval_df["latent_demand_quantity"]
     results = [
-        _build_result_row("naive_observed", eval_df, observed_naive, estimated_recovered_target=estimated_recovered_target),
+        _build_result_row(
+            "naive_observed", eval_df, observed_naive, estimated_recovered_target=estimated_recovered_target
+        ),
         _build_result_row(
             "moving_average_7_observed",
             eval_df,

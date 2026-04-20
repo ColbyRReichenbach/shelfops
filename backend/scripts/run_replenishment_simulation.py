@@ -14,7 +14,9 @@ from ml.replenishment_simulation import (
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run replenishment replay simulation on benchmark data")
-    parser.add_argument("--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Directory with canonical benchmark transactions")
+    parser.add_argument(
+        "--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Directory with canonical benchmark transactions"
+    )
     parser.add_argument("--dataset-id", type=str, default="m5_walmart", help="Dataset id label for the report")
     parser.add_argument("--replay-days", type=int, default=28, help="Number of trailing replay days")
     parser.add_argument("--warmup-days", type=int, default=56, help="Minimum history days before replay")

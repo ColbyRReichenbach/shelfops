@@ -85,7 +85,9 @@ async def compute_recommendation_outcomes(
             as_of_date=analysis_date,
             recommended_quantity=recommendation.recommended_quantity,
             safety_stock=recommendation.safety_stock,
-            unit_cost=float(product.unit_cost) if product and product.unit_cost is not None else recommendation.estimated_unit_cost,
+            unit_cost=float(product.unit_cost)
+            if product and product.unit_cost is not None
+            else recommendation.estimated_unit_cost,
             unit_price=float(product.unit_price) if product and product.unit_price is not None else None,
             holding_cost_per_unit_per_day=(
                 float(product.holding_cost_per_unit_per_day)
@@ -156,19 +158,13 @@ async def summarize_recommendation_impact(
     linked_po_ids = [row.linked_po_id for row in recommendations if row.linked_po_id is not None]
     purchase_order_by_id: dict[uuid.UUID, PurchaseOrder] = {}
     if linked_po_ids:
-        purchase_orders_result = await db.execute(
-            select(PurchaseOrder).where(PurchaseOrder.po_id.in_(linked_po_ids))
-        )
-        purchase_order_by_id = {
-            row.po_id: row for row in purchase_orders_result.scalars().all()
-        }
+        purchase_orders_result = await db.execute(select(PurchaseOrder).where(PurchaseOrder.po_id.in_(linked_po_ids)))
+        purchase_order_by_id = {row.po_id: row for row in purchase_orders_result.scalars().all()}
 
     product_ids = list({row.product_id for row in recommendations})
     product_by_id: dict[uuid.UUID, Product] = {}
     if product_ids:
-        products_result = await db.execute(
-            select(Product).where(Product.product_id.in_(product_ids))
-        )
+        products_result = await db.execute(select(Product).where(Product.product_id.in_(product_ids)))
         product_by_id = {row.product_id: row for row in products_result.scalars().all()}
 
     closed_outcomes = [row for row in outcomes if row.status == "closed"]
@@ -191,15 +187,17 @@ async def summarize_recommendation_impact(
 
         product = product_by_id.get(recommendation.product_id)
         linked_po = (
-            purchase_order_by_id.get(recommendation.linked_po_id)
-            if recommendation.linked_po_id is not None
-            else None
+            purchase_order_by_id.get(recommendation.linked_po_id) if recommendation.linked_po_id is not None else None
         )
         decision_quantity = 0
         if recommendation.status == "accepted":
-            decision_quantity = int(linked_po.quantity if linked_po is not None else recommendation.recommended_quantity)
+            decision_quantity = int(
+                linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
+            )
         elif recommendation.status == "edited":
-            decision_quantity = int(linked_po.quantity if linked_po is not None else recommendation.recommended_quantity)
+            decision_quantity = int(
+                linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
+            )
 
         policy_summaries.append(
             compute_decision_policy_impact(
@@ -237,9 +235,7 @@ async def summarize_recommendation_impact(
         else None
     )
     policy_confidence = (
-        "estimated"
-        if valued_policy_summaries
-        else ("provisional" if policy_summaries else "unavailable")
+        "estimated" if valued_policy_summaries else ("provisional" if policy_summaries else "unavailable")
     )
 
     return {

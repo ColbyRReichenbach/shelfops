@@ -235,10 +235,14 @@ def train_lightgbm(
         "wape": float(np.mean(wapes)),
         "mase": float(np.mean(mases)),
         "bias_pct": float(np.mean(biases)) if biases else 0.0,
-        "coverage": float(np.mean(calibration_coverages)) if calibration_coverages else float(interval_summary["coverage"]),
+        "coverage": float(np.mean(calibration_coverages))
+        if calibration_coverages
+        else float(interval_summary["coverage"]),
         "interval_method": "split_conformal",
         "calibration_status": "calibrated",
-        "interval_coverage": float(np.mean(calibration_coverages)) if calibration_coverages else float(interval_summary["coverage"]),
+        "interval_coverage": float(np.mean(calibration_coverages))
+        if calibration_coverages
+        else float(interval_summary["coverage"]),
         "mean_interval_width": float(np.mean(calibration_widths))
         if calibration_widths
         else float(interval_summary["mean_interval_width"]),
@@ -385,9 +389,7 @@ def train_ensemble(
             from ml.explain import generate_explanations
 
             sample_size = _shap_sample_size(len(features_df))
-            X_test = (
-                features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0).values[-sample_size:]
-            )
+            X_test = features_df[[c for c in feature_cols if c in features_df.columns]].fillna(0).values[-sample_size:]
 
             ver = version or datetime.now(timezone.utc).strftime("v%Y%m%d")
             # LightGBM SHAP: use predict with pred_contrib
