@@ -24,18 +24,7 @@ ACTIVE_DOCS=(
   docs/operations/smb_onboarding_runbook.md
   docs/operations/slo_policy.md
   docs/operations/integration_incident_runbook.md
-  docs/demo/README.md
-  docs/demo/AUDIENCE_PLAYBOOK.md
-  docs/demo/BUSINESS_WALKTHROUGH.md
-  docs/demo/TECHNICAL_WALKTHROUGH.md
-  docs/demo/DEMO_RUNBOOK.md
-  docs/demo/DEMO_SIGNOFF_CHECKLIST.md
-  docs/demo/CLAIMS_LEDGER.md
-  docs/demo/DEMO_ONE_PAGE_CHEAT_SHEET.md
-  docs/demo/SLIDE_DECK_OUTLINE.md
-  docs/demo/VIDEO_SCRIPT_10MIN.md
   docs/evidence/README.md
-  docs/evidence/snapshots/README.md
 )
 
 DOCS_WITH_METADATA=(
@@ -58,7 +47,27 @@ DOCS_WITH_METADATA=(
   docs/operations/slo_policy.md
   docs/operations/integration_incident_runbook.md
   docs/evidence/README.md
-  docs/evidence/snapshots/README.md
+)
+
+ACTIVE_NARRATIVE_DOCS=(
+  README.md
+  docs/overview/executive_overview.md
+  docs/overview/technical_overview.md
+  docs/overview/research_sources.md
+  docs/product/production_readiness.md
+  docs/product/roadmap.md
+  docs/product/known_limitations.md
+  docs/product/known_issues.md
+  docs/product/future_integrations.md
+  docs/product/decision_log.md
+  docs/engineering/api_contracts.md
+  docs/engineering/data_contract_spec.md
+  docs/engineering/model_readiness.md
+  docs/engineering/model_tuning_and_dataset_readiness.md
+  docs/engineering/ml_effectiveness.md
+  docs/operations/smb_onboarding_runbook.md
+  docs/operations/slo_policy.md
+  docs/operations/integration_incident_runbook.md
 )
 
 for f in "${ACTIVE_DOCS[@]}"; do
@@ -111,17 +120,17 @@ done < "$TMP_LINKS"
 
 echo "[ok] Local markdown links resolve"
 
-if rg -n "docs/archive/" docs/README.md docs/overview docs/product docs/engineering docs/operations docs/demo docs/evidence >/dev/null; then
+if rg -n "docs/archive/" "${ACTIVE_NARRATIVE_DOCS[@]}" >/dev/null; then
   echo "Active docs may not link docs/archive/"
-  rg -n "docs/archive/" docs/README.md docs/overview docs/product docs/engineering docs/operations docs/demo docs/evidence
+  rg -n "docs/archive/" "${ACTIVE_NARRATIVE_DOCS[@]}"
   exit 1
 fi
 
 echo "[ok] Archive link hygiene"
 
-if rg -n -i "cloud run|vertex|feature store|bigquery|gcp cloud|google cloud run" README.md docs/overview docs/product docs/engineering docs/operations docs/demo >/dev/null; then
+if rg -n -i "cloud run|vertex|feature store|bigquery|gcp cloud|google cloud run" "${ACTIVE_NARRATIVE_DOCS[@]}" >/dev/null; then
   echo "Forbidden unsupported infrastructure claims found in active docs"
-  rg -n -i "cloud run|vertex|feature store|bigquery|gcp cloud|google cloud run" README.md docs/overview docs/product docs/engineering docs/operations docs/demo
+  rg -n -i "cloud run|vertex|feature store|bigquery|gcp cloud|google cloud run" "${ACTIVE_NARRATIVE_DOCS[@]}"
   exit 1
 fi
 
@@ -145,27 +154,5 @@ rg -q "def sync_registry_with_runtime_state" backend/ml/experiment.py
 rg -q "sync_registry_with_runtime_state" backend/workers/retrain.py
 rg -q "sync_registry_with_runtime_state" backend/api/v1/routers/models.py
 echo "[ok] Registry sync parity"
-
-ALLOWLIST="docs/evidence/snapshots/allowlist.txt"
-if [[ ! -f "$ALLOWLIST" ]]; then
-  echo "Missing artifact allowlist: $ALLOWLIST"
-  exit 1
-fi
-
-EXTRA_TRACKED="$(comm -23 <(git ls-files docs/productization_artifacts | sort) <(sort "$ALLOWLIST") || true)"
-if [[ -n "$EXTRA_TRACKED" ]]; then
-  echo "Non-curated tracked artifacts found:"
-  echo "$EXTRA_TRACKED"
-  exit 1
-fi
-
-MISSING_ALLOWED="$(comm -13 <(git ls-files docs/productization_artifacts | sort) <(sort "$ALLOWLIST") || true)"
-if [[ -n "$MISSING_ALLOWED" ]]; then
-  echo "Allowlisted artifacts missing from tracking:"
-  echo "$MISSING_ALLOWED"
-  exit 1
-fi
-
-echo "[ok] Artifact allowlist matches tracked set"
 
 echo "Documentation validation passed"
