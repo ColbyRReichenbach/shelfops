@@ -25,6 +25,19 @@ class TestFeatureTierDetection:
         )
         assert detect_feature_tier(df) == "cold_start"
 
+
+class TestTrainingRuntimeGuards:
+    """Test runtime guardrails in training helpers."""
+
+    def test_shap_sample_size_caps_large_training_runs(self):
+        from ml.train import _shap_sample_size
+
+        assert _shap_sample_size(0) == 0
+        assert _shap_sample_size(5_000) == 500
+        assert _shap_sample_size(20_000) == 250
+        assert _shap_sample_size(100_000) == 100
+        assert _shap_sample_size(1_147_800) == 50
+
     def test_production_detected_with_all_signals(self):
         from ml.features import detect_feature_tier
 

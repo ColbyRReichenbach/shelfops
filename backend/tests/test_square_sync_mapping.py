@@ -3,6 +3,7 @@ import uuid
 from workers.sync import (
     _build_square_id_map,
     _resolve_external_uuid,
+    _square_mapping_confirmed,
     _should_synthesize_square_demo_mappings,
     _synthesize_square_id_map,
 )
@@ -32,11 +33,17 @@ def test_should_synthesize_square_demo_mappings_honors_global_or_integration_fla
     class _Settings:
         square_enable_demo_id_synthesis = False
 
-    assert _should_synthesize_square_demo_mappings(_Settings(), {}) is False
-    assert _should_synthesize_square_demo_mappings(_Settings(), {"square_synthesize_demo_mappings": True}) is True
+    assert _should_synthesize_square_demo_mappings(_Settings(), {}, customer_is_demo=False) is False
+    assert _should_synthesize_square_demo_mappings(
+        _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=False
+    ) is False
+    assert _should_synthesize_square_demo_mappings(
+        _Settings(), {"square_synthesize_demo_mappings": True}, customer_is_demo=True
+    ) is True
 
     _Settings.square_enable_demo_id_synthesis = True
-    assert _should_synthesize_square_demo_mappings(_Settings(), {}) is True
+    assert _should_synthesize_square_demo_mappings(_Settings(), {}, customer_is_demo=False) is False
+    assert _should_synthesize_square_demo_mappings(_Settings(), {}, customer_is_demo=True) is True
 
 
 def test_synthesize_square_id_map_assigns_deterministically_and_keeps_existing():
@@ -52,3 +59,8 @@ def test_synthesize_square_id_map_assigns_deterministically_and_keeps_existing()
     assert mapped["loc_a"] == uuid.UUID("00000000-0000-0000-0000-000000000021")
     assert mapped["loc_b"] == uuid.UUID("00000000-0000-0000-0000-000000000021")
     assert mapped["loc_c"] == uuid.UUID("00000000-0000-0000-0000-000000000022")
+
+
+def test_square_mapping_confirmed_reads_bool_flag():
+    assert _square_mapping_confirmed({}) is False
+    assert _square_mapping_confirmed({"square_mapping_confirmed": True}) is True

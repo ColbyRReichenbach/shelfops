@@ -23,7 +23,7 @@ async def test_propose_experiment_accepts_extended_taxonomy(client, seeded_db, t
     await test_db.commit()
 
     response = await client.post(
-        "/experiments",
+        "/api/v1/experiments",
         json={
             "experiment_name": "favorita_feature_set_promo_interactions",
             "hypothesis": "Promo interactions will reduce overstock on promoted families.",
@@ -86,7 +86,7 @@ async def test_complete_experiment_rollback_promotes_baseline(client, seeded_db,
     await test_db.commit()
 
     response = await client.post(
-        f"/experiments/{experiment.experiment_id}/complete",
+        f"/api/v1/experiments/{experiment.experiment_id}/complete",
         json={
             "decision": "rollback",
             "decision_rationale": "Experimental model regressed badly in production shadow.",
@@ -137,7 +137,7 @@ async def test_list_experiments_filters_by_model_name(client, seeded_db, test_db
     )
     await test_db.commit()
 
-    response = await client.get("/experiments?model_name=demand_forecast")
+    response = await client.get("/api/v1/experiments?model_name=demand_forecast")
     assert response.status_code == 200
     payload = response.json()
 
@@ -148,7 +148,7 @@ async def test_list_experiments_filters_by_model_name(client, seeded_db, test_db
 
 @pytest.mark.asyncio
 async def test_list_experiments_invalid_type_returns_400(client):
-    response = await client.get("/experiments?experiment_type=definitely_not_valid")
+    response = await client.get("/api/v1/experiments?experiment_type=definitely_not_valid")
     assert response.status_code == 400
     assert "Unsupported experiment_type" in response.json()["detail"]
 
@@ -172,8 +172,8 @@ async def test_api_v1_experiments_alias_matches_canonical_route(client, seeded_d
     )
     await test_db.commit()
 
-    canonical = await client.get("/experiments?limit=10")
-    alias = await client.get("/api/v1/experiments?limit=10")
+    canonical = await client.get("/api/v1/experiments?limit=10")
+    alias = await client.get("/experiments?limit=10")
 
     assert canonical.status_code == 200
     assert alias.status_code == 200
@@ -199,7 +199,7 @@ async def test_approve_experiment_uses_authenticated_actor(client, seeded_db, te
     await test_db.commit()
 
     response = await client.patch(
-        f"/experiments/{experiment.experiment_id}/approve",
+        f"/api/v1/experiments/{experiment.experiment_id}/approve",
         json={"approved_by": "spoofed@shelfops.com", "rationale": "ship it"},
     )
     assert response.status_code == 200
@@ -228,7 +228,7 @@ async def test_reject_experiment_enforces_state_and_records_actor(client, seeded
     await test_db.commit()
 
     response = await client.patch(
-        f"/experiments/{experiment.experiment_id}/reject",
+        f"/api/v1/experiments/{experiment.experiment_id}/reject",
         json={"rejected_by": "spoofed@shelfops.com", "rationale": "too late"},
     )
     assert response.status_code == 400
@@ -254,7 +254,7 @@ async def test_complete_experiment_requires_reviewable_state(client, seeded_db, 
     await test_db.commit()
 
     response = await client.post(
-        f"/experiments/{experiment.experiment_id}/complete",
+        f"/api/v1/experiments/{experiment.experiment_id}/complete",
         json={
             "decision": "reject",
             "decision_rationale": "not ready",
@@ -263,3 +263,123 @@ async def test_complete_experiment_requires_reviewable_state(client, seeded_db, 
     )
     assert response.status_code == 400
     assert "Cannot complete experiment in status: proposed" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_run_experiment_executes_cycle_and_persists_arena_breakdown(client, seeded_db, test_db, monkeypatch):
+    from db.models import ModelExperiment, ModelVersion
+
+    customer_id = seeded_db["customer_id"]
+    champion_metrics = {
+        "mae": 10.0,
+        "mape": 0.2,
+        "wape": 0.18,
+        "mase": 0.31,
+        "bias_pct": 0.01,
+        "coverage": 0.9,
+        "stockout_miss_rate": 0.05,
+        "overstock_rate": 0.2,
+        "overstock_dollars": 1000.0,
+        "overstock_dollars_confidence": "estimated",
+        "lost_sales_qty": 120.0,
+        "opportunity_cost_stockout": 800.0,
+        "opportunity_cost_stockout_confidence": "estimated",
+        "opportunity_cost_overstock": 150.0,
+        "opportunity_cost_overstock_confidence": "estimated",
+    }
+    test_db.add(
+        ModelVersion(
+            customer_id=customer_id,
+            model_name="demand_forecast",
+            version="vchamp",
+            status="champion",
+            metrics=champion_metrics,
+            smoke_test_passed=True,
+            promoted_at=datetime.utcnow(),
+        )
+    )
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="segmented_family_trial",
+        hypothesis="Family velocity segmentation should reduce stockout cost.",
+        experiment_type="segmentation",
+        model_name="demand_forecast",
+        status="proposed",
+        proposed_by="test@shelfops.com",
+        results={
+            "lineage_metadata": {
+                "dataset_id": "favorita",
+                "segment_strategy": "family_velocity_terciles_with_global_fallback",
+                "feature_set_id": "favorita_family_segmented_v1",
+            }
+        },
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    def fake_cycle(**_: object) -> dict:
+        return {
+            "generated_at": datetime.utcnow().isoformat(),
+            "data_dir": "data/kaggle/favorita",
+            "rows_used": 50000,
+            "holdout_days": 14,
+            "business_basis_note": "Estimated costs for demo only.",
+            "baseline": {
+                "version": "vchamp",
+                "holdout_metrics": champion_metrics,
+                "lineage_metadata": {"feature_tier": "cold_start"},
+            },
+            "challenger": {
+                "version": "e1234567890",
+                "holdout_metrics": {
+                    **champion_metrics,
+                    "wape": 0.179,
+                    "mase": 0.305,
+                    "overstock_dollars": 980.0,
+                    "lost_sales_qty": 121.0,
+                    "opportunity_cost_stockout": 810.0,
+                },
+                "lineage_metadata": {
+                    "feature_tier": "cold_start",
+                    "feature_set_id": "favorita_family_segmented_v1",
+                    "segment_strategy": "family_velocity_terciles_with_global_fallback",
+                    "dataset_id": "favorita",
+                },
+                "segment_summary": {
+                    "strategy": "family_velocity_terciles",
+                    "segments": ["high_velocity", "mid_velocity", "low_velocity"],
+                },
+            },
+            "comparison": {"promoted": False, "reason": "failed_gates:lost_sales_qty_gate,opportunity_cost_stockout_gate"},
+            "experiment": {
+                "experiment_name": "segmented_family_trial",
+                "hypothesis": "Family velocity segmentation should reduce stockout cost.",
+                "experiment_type": "segmentation",
+                "model_name": "demand_forecast",
+                "baseline_version": "vchamp",
+                "experimental_version": "e1234567890",
+                "decision": "continue_shadow_review",
+                "decision_rationale": "failed_gates:lost_sales_qty_gate,opportunity_cost_stockout_gate",
+                "lineage_metadata": {
+                    "feature_set_id": "favorita_family_segmented_v1",
+                    "segment_strategy": "family_velocity_terciles_with_global_fallback",
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "scripts.run_legacy_favorita_experiment_cycle.run_legacy_favorita_experiment_cycle",
+        fake_cycle,
+    )
+
+    response = await client.post(f"/api/v1/experiments/{experiment.experiment_id}/run", json={})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["experiment_status"] == "shadow_testing"
+    assert payload["comparison"]["promoted"] is False
+
+    await test_db.refresh(experiment)
+    assert experiment.status == "shadow_testing"
+    assert experiment.approved_by == "test@shelfops.com"
+    assert experiment.experimental_version is not None
+    assert (experiment.results or {}).get("arena_breakdown", {}).get("reason") == payload["comparison"]["reason"]

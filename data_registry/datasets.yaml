@@ -1,0 +1,89 @@
+datasets:
+  - id: m5_walmart
+    name: M5 / Walmart
+    category: benchmark
+    status: active
+    geography: US
+    role: primary_public_benchmark
+    grain: store_product_day
+    allowed_claims:
+      - benchmark forecasting accuracy
+      - baseline comparison
+      - segment metrics
+      - uncertainty evaluation
+      - reproducible dataset snapshots
+    disallowed_claims:
+      - real merchant ROI
+      - purchase-order outcomes
+      - supplier lead-time proof
+      - live inventory accuracy
+
+  - id: freshretailnet_50k
+    name: FreshRetailNet-50K
+    category: benchmark
+    status: active
+    geography: non_us_mixed
+    role: secondary_stockout_benchmark
+    grain: hourly_or_daily_retail_records
+    allowed_claims:
+      - stockout-aware evaluation
+      - censored-demand methodology
+      - perishable/promo/weather-aware analysis
+    disallowed_claims:
+      - US merchant ROI
+      - complete merchant replenishment workflow proof
+
+  - id: csv_onboarding
+    name: CSV onboarding
+    category: pilot_validation
+    status: active
+    geography: tenant_defined
+    role: merchant_ingestion_path
+    grain: tenant_defined_canonicalized_records
+    allowed_claims:
+      - merchant onboarding readiness
+      - mapping and validation coverage
+      - canonicalization support
+    disallowed_claims:
+      - benchmark performance
+      - measured impact without merchant outcomes
+
+  - id: square
+    name: Square connector
+    category: pilot_validation
+    status: active
+    geography: tenant_defined
+    role: merchant_connector_path
+    grain: connector_event_and_sync_records
+    allowed_claims:
+      - OAuth and webhook surface
+      - sync and mapping readiness
+      - pilot connector path
+    disallowed_claims:
+      - measured merchant impact without pilot outcomes
+      - benchmark forecasting evidence
+
+  - id: dominicks_finer_foods
+    name: Dominick's Finer Foods
+    category: optional_benchmark
+    status: deferred
+    geography: US
+    role: price_promo_margin_backup
+    grain: store_upc_week
+    allowed_claims:
+      - future optional backup evidence
+    disallowed_claims:
+      - current active benchmark story
+
+  - id: favorita_legacy
+    name: Favorita
+    category: legacy_reference
+    status: legacy
+    geography: Ecuador
+    role: historical_reference_only
+    allowed_claims:
+      - legacy reference context
+    disallowed_claims:
+      - active champion dataset
+      - active public benchmark path
+      - measured merchant impact

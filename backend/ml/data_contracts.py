@@ -3,6 +3,12 @@ Canonical training-data contracts for multi-dataset forecasting.
 
 This module normalizes public datasets and synthetic seed data into one
 transaction-level schema used by feature engineering and retraining.
+
+Current roadmap note:
+The active benchmark path is being reset toward M5/Walmart and
+FreshRetailNet. The Favorita, weekly Walmart, and Rossmann loaders below are
+transitional legacy/reference adapters retained while that migration is in
+progress.
 """
 
 from __future__ import annotations
@@ -14,6 +20,9 @@ from pathlib import Path
 
 import pandas as pd
 import structlog
+
+from data_sources.freshretailnet import load_freshretailnet_directory
+from data_sources.m5 import load_m5_directory
 
 logger = structlog.get_logger()
 
@@ -105,7 +114,8 @@ def _finalize_contract(
         if col not in out.columns:
             out[col] = 0
 
-    out = out[CANONICAL_BASE_COLS]
+    extra_cols = [col for col in out.columns if col not in CANONICAL_BASE_COLS]
+    out = out[CANONICAL_BASE_COLS + extra_cols]
     logger.info(
         "data_contract.ready",
         dataset_id=dataset_id,
@@ -119,6 +129,7 @@ def _finalize_contract(
 
 
 def _load_favorita(data_dir: Path) -> pd.DataFrame:
+    """Legacy/reference adapter for the older Favorita benchmark path."""
     train = _read_csv(data_dir / "train.csv")
     mapped = train.rename(
         columns={
@@ -143,6 +154,49 @@ def inspect_dataset_readiness(data_dir: str | Path) -> DatasetReadiness:
     favorita_markers = {"holidays_events.csv", "oil.csv", "test.csv"}
     favorita_required = ["train.csv", "holidays_events.csv"]
     favorita_fields = ["date", "store_nbr", "family", "sales", "onpromotion"]
+    m5_required = ["calendar.csv", "sell_prices.csv"]
+    m5_sales_candidates = ["sales_train_validation.csv", "sales_train_evaluation.csv"]
+    freshretailnet_required = ["train.parquet", "eval.parquet"]
+
+    if all((path / name).exists() for name in freshretailnet_required):
+        return DatasetReadiness(
+            dataset_id="freshretailnet_50k",
+            status="ready",
+            message="FreshRetailNet-50K dataset ready for stockout-aware canonicalization.",
+            forecast_grain="store_id x product_id x date with hourly stockout context",
+            required_files=freshretailnet_required,
+            missing_files=[],
+            required_fields=[
+                "store_id",
+                "product_id",
+                "dt",
+                "sale_amount",
+                "hours_sale",
+                "stock_hour6_22_cnt",
+                "hours_stock_status",
+            ],
+            missing_fields=[],
+        )
+
+    if (
+        (path / "calendar.csv").exists()
+        and (path / "sell_prices.csv").exists()
+        and any((path / candidate).exists() for candidate in m5_sales_candidates)
+    ):
+        sales_file = next(candidate for candidate in m5_sales_candidates if (path / candidate).exists())
+        header = pd.read_csv(path / sales_file, nrows=0)
+        required_fields = ["item_id", "dept_id", "cat_id", "store_id", "state_id"]
+        missing_fields = [field for field in required_fields if field not in header.columns]
+        return DatasetReadiness(
+            dataset_id="m5_walmart",
+            status="ready" if not missing_fields else "invalid",
+            message="M5/Walmart dataset ready for canonicalization." if not missing_fields else "M5 sales file is missing required identifier fields.",
+            forecast_grain="store_id x item_id x date",
+            required_files=m5_required + [sales_file],
+            missing_files=[],
+            required_fields=required_fields,
+            missing_fields=missing_fields,
+        )
 
     looks_like_favorita = (
         "favorita" in path.name.lower()
@@ -241,6 +295,7 @@ def inspect_dataset_readiness(data_dir: str | Path) -> DatasetReadiness:
 
 
 def _load_walmart(data_dir: Path) -> pd.DataFrame:
+    """Legacy weekly Walmart adapter retained until the M5 path lands."""
     train = _read_csv(data_dir / "train.csv")
     mapped = train.rename(
         columns={
@@ -261,7 +316,13 @@ def _load_walmart(data_dir: Path) -> pd.DataFrame:
     return _finalize_contract(mapped, dataset_id="walmart", country_code="US", frequency="weekly")
 
 
+def _load_m5(data_dir: Path) -> pd.DataFrame:
+    mapped = load_m5_directory(data_dir)
+    return _finalize_contract(mapped, dataset_id="m5_walmart", country_code="US", frequency="daily")
+
+
 def _load_rossmann(data_dir: Path) -> pd.DataFrame:
+    """Legacy Rossmann adapter retained for historical experiments only."""
     train = _read_csv(data_dir / "train.csv")
     mapped = train.rename(
         columns={
@@ -372,6 +433,16 @@ def load_canonical_transactions(data_dir: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Data directory not found: {data_dir}")
 
+    canonical_csv = path / "canonical_transactions.csv"
+    if canonical_csv.exists():
+        canonical_df = _read_csv(canonical_csv)
+        return _finalize_contract(
+            canonical_df,
+            dataset_id=str(canonical_df.get("dataset_id", pd.Series(["generic"])).iloc[0]),
+            country_code=str(canonical_df.get("country_code", pd.Series(["unknown"])).iloc[0]),
+            frequency=str(canonical_df.get("frequency", pd.Series(["unknown"])).iloc[0]),
+        )
+
     readiness = inspect_dataset_readiness(path)
     if readiness.dataset_id == "favorita" and readiness.status in {"blocked", "invalid"}:
         raise FileNotFoundError(
@@ -381,6 +452,17 @@ def load_canonical_transactions(data_dir: str) -> pd.DataFrame:
 
     if (path / "train.csv").exists() and (path / "holidays_events.csv").exists():
         return _load_favorita(path)
+
+    if (path / "train.parquet").exists() and (path / "eval.parquet").exists():
+        splits = load_freshretailnet_directory(path)
+        return pd.concat([splits["train"], splits["eval"]], ignore_index=True)
+
+    if (
+        (path / "calendar.csv").exists()
+        and (path / "sell_prices.csv").exists()
+        and any((path / candidate).exists() for candidate in ["sales_train_validation.csv", "sales_train_evaluation.csv"])
+    ):
+        return _load_m5(path)
 
     if (path / "train.csv").exists() and (path / "features.csv").exists():
         return _load_walmart(path)

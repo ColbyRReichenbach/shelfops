@@ -61,8 +61,25 @@ async def test_ml_backtests_contract_returns_forecast_fields(client, seeded_db, 
 @pytest.mark.asyncio
 async def test_sync_health_contract_is_enveloped(client, seeded_db, test_db):
     """Sync health endpoint should return envelope + sources array."""
-    from db.models import IntegrationSyncLog
+    from core.security import encrypt
+    from db.models import Integration, IntegrationSyncLog
 
+    test_db.add(
+        Integration(
+            customer_id=seeded_db["customer_id"],
+            provider="square",
+            access_token_encrypted=encrypt("test-access-token"),
+            refresh_token_encrypted=encrypt("test-refresh-token"),
+            merchant_id="MERCHANT123",
+            status="connected",
+            config={
+                "square_mapping_confirmed": False,
+                "square_mapping_coverage": {"locations_total": 2, "locations_mapped": 1, "catalog_total": 3, "catalog_mapped": 2},
+                "square_unmapped_location_ids": ["loc-2"],
+                "square_unmapped_catalog_ids": ["item-3"],
+            },
+        )
+    )
     test_db.add(
         IntegrationSyncLog(
             customer_id=seeded_db["customer_id"],
@@ -93,6 +110,9 @@ async def test_sync_health_contract_is_enveloped(client, seeded_db, test_db):
     assert "syncs_24h" in source
     assert "failures_24h" in source
     assert "sla_status" in source
+    assert source["mapping_confirmed"] is False
+    assert source["unmapped_location_ids"] == ["loc-2"]
+    assert source["unmapped_catalog_ids"] == ["item-3"]
 
 
 @pytest.mark.asyncio

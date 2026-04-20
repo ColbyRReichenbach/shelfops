@@ -19,6 +19,7 @@ Endpoints:
 
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Literal
 
 import structlog
@@ -33,7 +34,7 @@ from ml.lineage import EXPERIMENT_TYPE_CHOICES, normalize_experiment_type
 
 logger = structlog.get_logger()
 
-router = APIRouter(prefix="/experiments", tags=["experiments"])
+router = APIRouter(prefix="/api/v1/experiments", tags=["experiments"])
 
 
 # ── Request/Response Models ─────────────────────────────────────────────────
@@ -68,6 +69,13 @@ class CompleteExperimentRequest(BaseModel):
     rollback_version: str | None = None
 
 
+class RunExperimentRequest(BaseModel):
+    data_dir: str = "data/benchmarks/m5_walmart"
+    holdout_days: int = Field(default=14, ge=7, le=60)
+    max_rows: int = Field(default=50_000, ge=10_000, le=250_000)
+    max_challengers: int = Field(default=0, ge=0, le=10)
+
+
 def _resolve_customer_id(user: dict) -> uuid.UUID:
     raw = user.get("customer_id")
     if not raw:
@@ -83,6 +91,16 @@ def _resolve_actor(user: dict) -> str:
     if not actor:
         raise HTTPException(status_code=401, detail="No authenticated actor available")
     return str(actor)
+
+
+def _experiment_artifact_paths(experiment_id: uuid.UUID) -> tuple[str, str, str]:
+    base = Path("backend/reports/experiments") / str(experiment_id)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    return (
+        str(base.with_suffix(".partition.json")),
+        str(base.with_suffix(".report.json")),
+        str(base.with_suffix(".report.md")),
+    )
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -139,6 +157,7 @@ async def list_experiments(
             "baseline_version": exp.baseline_version,
             "experimental_version": exp.experimental_version,
             "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
+            "results": exp.results,
             "decision_rationale": exp.decision_rationale,
             "created_at": exp.created_at.isoformat(),
             "approved_at": exp.approved_at.isoformat() if exp.approved_at else None,
@@ -506,6 +525,278 @@ async def complete_experiment(
         "completed_at": exp.completed_at.isoformat(),
         "results": exp.results,
     }
+
+
+@router.post("/{experiment_id}/run")
+async def run_experiment(
+    experiment_id: str,
+    request: RunExperimentRequest,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    """
+    Run a bounded experiment cycle from the logged hypothesis.
+
+    This is intended for bounded analyst workflow iteration:
+      1. Use the logged hypothesis metadata as run configuration
+      2. Auto-approve if still proposed
+      3. Execute the offline legacy benchmark cycle
+      4. Register the candidate in the arena
+      5. Persist gate-by-gate pass/fail and resulting status
+    """
+    customer_id = _resolve_customer_id(user)
+    actor = _resolve_actor(user)
+    experiment_uuid = uuid.UUID(experiment_id)
+
+    exp_result = await db.execute(
+        select(ModelExperiment).where(
+            ModelExperiment.experiment_id == experiment_uuid,
+            ModelExperiment.customer_id == customer_id,
+        )
+    )
+    exp = exp_result.scalar_one_or_none()
+
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if exp.status not in {"proposed", "approved"}:
+        raise HTTPException(status_code=400, detail=f"Cannot run experiment in status: {exp.status}")
+    if exp.experimental_version:
+        raise HTTPException(
+            status_code=400, detail="Experiment already has an experimental version. Create a new hypothesis to rerun."
+        )
+
+    if exp.status == "proposed":
+        exp.status = "approved"
+        exp.approved_by = actor
+        exp.approved_at = datetime.utcnow()
+    exp.status = "in_progress"
+    await db.commit()
+
+    from ml.arena import evaluate_for_promotion, get_champion_model, register_model_version
+    from scripts.run_legacy_favorita_experiment_cycle import run_legacy_favorita_experiment_cycle
+
+    champion = await get_champion_model(db, customer_id, exp.model_name)
+    if champion and not exp.baseline_version:
+        exp.baseline_version = champion["version"]
+        await db.commit()
+
+    candidate_version = f"e{experiment_uuid.hex[:10]}"
+    partition_manifest, output_json, output_md = _experiment_artifact_paths(experiment_uuid)
+
+    lineage_metadata = dict((exp.results or {}).get("lineage_metadata") or {})
+    report = run_legacy_favorita_experiment_cycle(
+        data_dir=request.data_dir,
+        holdout_days=request.holdout_days,
+        max_rows=request.max_rows,
+        max_challengers=request.max_challengers,
+        partition_manifest=partition_manifest,
+        output_json=output_json,
+        output_md=output_md,
+        experiment_context={
+            "experiment_name": exp.experiment_name,
+            "hypothesis": exp.hypothesis,
+            "experiment_type": exp.experiment_type,
+            "model_name": exp.model_name,
+            "lineage_metadata": lineage_metadata,
+            "baseline_version": exp.baseline_version,
+            "experimental_version": candidate_version,
+        },
+        champion_version=exp.baseline_version or None,
+        challenger_version=candidate_version,
+    )
+
+    challenger_metrics = {
+        **dict(report["challenger"]["holdout_metrics"]),
+        **dict(report["challenger"]["lineage_metadata"]),
+        "feature_tier": report["challenger"]["lineage_metadata"].get("feature_tier", "cold_start"),
+        "tier": report["challenger"]["lineage_metadata"].get("feature_tier", "cold_start"),
+        "estimated_business_basis": True,
+        "business_basis_note": report.get("business_basis_note"),
+        "segment_summary": report["challenger"].get("segment_summary"),
+        "report_artifact": output_json,
+    }
+
+    await register_model_version(
+        db=db,
+        customer_id=customer_id,
+        model_name=exp.model_name,
+        version=candidate_version,
+        metrics=challenger_metrics,
+        status="candidate",
+        smoke_test_passed=True,
+    )
+    comparison = await evaluate_for_promotion(
+        db=db,
+        customer_id=customer_id,
+        model_name=exp.model_name,
+        candidate_version=candidate_version,
+        candidate_metrics=challenger_metrics,
+    )
+
+    existing_results = dict(exp.results or {})
+    existing_results["lineage_metadata"] = report["challenger"]["lineage_metadata"]
+    existing_results["run_report"] = report
+    existing_results["arena_breakdown"] = comparison
+    existing_results["execution"] = {
+        "ran_by": actor,
+        "ran_at": datetime.now(timezone.utc).isoformat(),
+        "data_dir": request.data_dir,
+        "holdout_days": request.holdout_days,
+        "max_rows": request.max_rows,
+        "max_challengers": request.max_challengers,
+        "artifact_json": output_json,
+        "artifact_md": output_md,
+    }
+
+    exp.experimental_version = candidate_version
+    exp.results = existing_results
+    exp.decision_rationale = str(comparison["reason"])
+    if comparison["promoted"]:
+        exp.status = "completed"
+        exp.completed_at = datetime.utcnow()
+    else:
+        exp.status = "shadow_testing"
+        exp.completed_at = None
+
+    await db.commit()
+
+    logger.info(
+        "experiment.run_completed",
+        experiment_id=experiment_id,
+        model_name=exp.model_name,
+        promoted=comparison["promoted"],
+        candidate_version=candidate_version,
+        actor=actor,
+    )
+
+    return {
+        "status": "success",
+        "experiment_id": experiment_id,
+        "experiment_status": exp.status,
+        "baseline_version": exp.baseline_version,
+        "experimental_version": candidate_version,
+        "comparison": comparison,
+        "report": report,
+    }
+
+
+@router.post("/{experiment_id}/interpret")
+async def interpret_experiment(
+    experiment_id: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    """
+    Use Claude to interpret Arena evaluation results for a completed experiment.
+
+    Returns a 3-part interpretation:
+      - results_summary: what happened in plain language
+      - why_it_worked: mechanistic explanation of feature contributions
+      - next_hypothesis: concrete next experiment to run
+
+    The interpretation is cached in exp.results["llm_interpretation"] to avoid
+    redundant API calls on re-fetch.
+    """
+    from core.config import get_settings
+
+    customer_id = _resolve_customer_id(user)
+
+    exp_result = await db.execute(
+        select(ModelExperiment).where(
+            ModelExperiment.experiment_id == uuid.UUID(experiment_id),
+            ModelExperiment.customer_id == customer_id,
+        )
+    )
+    exp = exp_result.scalar_one_or_none()
+
+    if not exp:
+        raise HTTPException(status_code=404, detail="Experiment not found")
+    if not exp.results:
+        raise HTTPException(status_code=400, detail="Experiment has no results yet — run the evaluation first.")
+
+    # Return cached interpretation if available
+    cached = (exp.results or {}).get("llm_interpretation")
+    if cached:
+        return {"experiment_id": experiment_id, "cached": True, **cached}
+
+    settings = get_settings()
+    api_key = settings.anthropic_api_key or None  # SDK reads ANTHROPIC_API_KEY from env if None
+
+    try:
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=api_key) if api_key else _anthropic.Anthropic()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Anthropic client unavailable — check ANTHROPIC_API_KEY.")
+
+    results = exp.results or {}
+    promo = results.get("promotion_comparison") or {}
+    gate_checks = promo.get("gate_checks") or {}
+    passed = [k for k, v in gate_checks.items() if v]
+    failed = [k for k, v in gate_checks.items() if not v]
+    lineage = results.get("lineage_metadata") or {}
+
+    def _fmt(v: object) -> str:
+        if v is None:
+            return "N/A"
+        if isinstance(v, float):
+            return f"{v:.4f}"
+        return str(v)
+
+    prompt = f"""You are a senior ML engineer at a retail inventory intelligence platform.
+
+Experiment: {exp.experiment_name}
+Hypothesis: {exp.hypothesis}
+Model: {exp.model_name}
+Feature set: {lineage.get("feature_set_id", "N/A")}
+Dataset: {lineage.get("dataset_id", "N/A")}
+
+Baseline ({exp.baseline_version or "champion"}) metrics:
+  MAE={_fmt(results.get("baseline_mae"))}  WAPE={_fmt(results.get("baseline_wape"))}  MASE={_fmt(results.get("baseline_mase"))}
+
+Challenger ({exp.experimental_version or "candidate"}) metrics:
+  MAE={_fmt(results.get("experimental_mae"))}  WAPE={_fmt(results.get("experimental_wape"))}  MASE={_fmt(results.get("experimental_mase"))}
+
+Overstock dollars delta: {_fmt(results.get("overstock_dollars_delta"))}
+Opportunity cost (stockout) delta: {_fmt(results.get("opportunity_cost_stockout_delta"))}
+Arena decision: {"PROMOTED" if results.get("overall_business_safe") else "SHADOW ONLY"}
+Gates passed ({len(passed)}): {", ".join(passed) if passed else "none"}
+Gates failed ({len(failed)}): {", ".join(failed) if failed else "none"}
+Decision rationale: {exp.decision_rationale or promo.get("reason") or "N/A"}
+
+Respond with exactly three sections separated by "---":
+1. RESULTS SUMMARY (2-3 sentences): What the numbers show, whether the hypothesis was confirmed.
+2. WHY IT WORKED (2-3 sentences): Mechanistic explanation — what the new features capture and why that improves accuracy for this retailer.
+3. NEXT HYPOTHESIS (1-2 sentences): The single most promising follow-up experiment to run next, stated as a testable hypothesis.
+
+Be specific, use the actual metric values, and keep each section concise."""
+
+    try:
+        message = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text if message.content else ""
+    except Exception as exc:
+        logger.error("experiment.interpret.failed", experiment_id=experiment_id, error=str(exc))
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
+
+    # Parse the three sections
+    parts = [p.strip() for p in raw.split("---") if p.strip()]
+    interpretation = {
+        "results_summary": parts[0] if len(parts) > 0 else raw,
+        "why_it_worked": parts[1] if len(parts) > 1 else "",
+        "next_hypothesis": parts[2] if len(parts) > 2 else "",
+        "model": "claude-haiku-4-5-20251001",
+    }
+
+    # Cache in experiment results
+    exp.results = {**results, "llm_interpretation": interpretation}
+    await db.commit()
+
+    logger.info("experiment.interpreted", experiment_id=experiment_id, model=interpretation["model"])
+
+    return {"experiment_id": experiment_id, "cached": False, **interpretation}
 
 
 @router.get("/{experiment_id}/results")

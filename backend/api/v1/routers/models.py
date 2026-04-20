@@ -195,7 +195,9 @@ async def get_model_health(
     recent_drift_alerts = int(drift_result.scalar() or 0)
 
     if last_retrain and last_retrain.started_at:
-        tx_cutoff = last_retrain.started_at
+        # Strip tzinfo for comparison with naive timestamp columns
+        ts = last_retrain.started_at
+        tx_cutoff = ts.replace(tzinfo=None) if ts.tzinfo else ts
     else:
         tx_cutoff = datetime.utcnow() - timedelta(hours=24)
     new_data_result = await db.execute(
@@ -384,7 +386,7 @@ async def promote_model(
             approved_by=actor,
             results={"reason": reason, "actor": actor, "manual": True, "rollback": original_status == "archived"},
             decision_rationale=reason,
-            completed_at=datetime.utcnow(),
+            completed_at=datetime.now(timezone.utc),
         )
     )
     await db.commit()

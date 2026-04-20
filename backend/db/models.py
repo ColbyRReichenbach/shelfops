@@ -120,6 +120,7 @@ class Customer(Base):
     email = Column(String(255), nullable=False, unique=True)
     plan = Column(String(50), nullable=False, default="starter")
     status = Column(String(20), nullable=False, default="active")
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1035,6 +1036,35 @@ class ModelVersion(Base):
     )
 
 
+class DatasetSnapshot(Base):
+    """Canonical dataset snapshot metadata for benchmark and pilot training runs."""
+
+    __tablename__ = "dataset_snapshots"
+
+    snapshot_id = Column(String(32), primary_key=True)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True)
+    dataset_id = Column(String(100), nullable=False)
+    source_type = Column(String(50), nullable=False)
+    row_count = Column(Integer, nullable=False)
+    store_count = Column(Integer, nullable=False)
+    product_count = Column(Integer, nullable=False)
+    date_min = Column(Date, nullable=True)
+    date_max = Column(Date, nullable=True)
+    content_hash = Column(String(64), nullable=False, unique=True)
+    schema_version = Column(String(20), nullable=False)
+    frequency = Column(String(30), nullable=False)
+    forecast_grain = Column(String(80), nullable=False)
+    geography = Column(String(50), nullable=False)
+    implementation_status = Column(String(50), nullable=False)
+    claim_boundaries_ref = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_dataset_snapshots_dataset_id", "dataset_id"),
+        Index("ix_dataset_snapshots_customer", "customer_id"),
+    )
+
+
 # ─── 29. Backtest Results (Continuous Validation) ─────────────────────────
 
 
@@ -1276,4 +1306,138 @@ class IntegrationSyncLog(Base):
     __table_args__ = (
         Index("ix_sync_log_customer_type", "customer_id", "integration_type"),
         Index("ix_sync_log_started_at", "started_at"),
+    )
+
+
+# ─── 36. Replenishment Recommendations ────────────────────────────────────
+
+
+class ReplenishmentRecommendation(Base):
+    """Stored buyer-facing replenishment recommendation with model/policy provenance."""
+
+    __tablename__ = "replenishment_recommendations"
+
+    recommendation_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.supplier_id"), nullable=True)
+    linked_po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.po_id"), nullable=True)
+    status = Column(String(20), nullable=False, default="open")
+    forecast_model_version = Column(String(50), nullable=False)
+    policy_version = Column(String(50), nullable=False)
+    horizon_days = Column(Integer, nullable=False)
+    recommended_quantity = Column(Integer, nullable=False)
+    quantity_available = Column(Integer, nullable=False)
+    quantity_on_order = Column(Integer, nullable=False, default=0)
+    inventory_position = Column(Integer, nullable=False)
+    reorder_point = Column(Integer, nullable=False)
+    safety_stock = Column(Integer, nullable=False)
+    economic_order_qty = Column(Integer, nullable=False)
+    lead_time_days = Column(Integer, nullable=False)
+    service_level = Column(Float, nullable=False)
+    estimated_unit_cost = Column(Float, nullable=True)
+    estimated_total_cost = Column(Float, nullable=True)
+    source_type = Column(String(20), nullable=True)
+    source_id = Column(UUID(as_uuid=True), nullable=True)
+    interval_method = Column(String(50), nullable=True)
+    calibration_status = Column(String(50), nullable=True)
+    no_order_stockout_risk = Column(String(20), nullable=False)
+    order_overstock_risk = Column(String(20), nullable=False)
+    recommendation_rationale = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_recommendations_customer_status", "customer_id", "status", "created_at"),
+        Index("ix_recommendations_store_product", "store_id", "product_id", "created_at"),
+        CheckConstraint("status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"),
+        CheckConstraint("recommended_quantity >= 0", name="ck_recommendation_qty_non_negative"),
+        CheckConstraint("service_level >= 0 AND service_level <= 1", name="ck_recommendation_service_level_range"),
+        CheckConstraint(
+            "no_order_stockout_risk IN ('low', 'medium', 'high')",
+            name="ck_recommendation_stockout_risk",
+        ),
+        CheckConstraint(
+            "order_overstock_risk IN ('low', 'medium', 'high')",
+            name="ck_recommendation_overstock_risk",
+        ),
+    )
+
+
+class RecommendationOutcome(Base):
+    """Closed-loop realized outcome for a replenishment recommendation."""
+
+    __tablename__ = "recommendation_outcomes"
+
+    outcome_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recommendation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("replenishment_recommendations.recommendation_id"),
+        nullable=False,
+        unique=True,
+    )
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    horizon_start_date = Column(Date, nullable=False)
+    horizon_end_date = Column(Date, nullable=False)
+    actual_sales_qty = Column(Float, nullable=False)
+    actual_demand_qty = Column(Float, nullable=False)
+    ending_inventory_qty = Column(Integer, nullable=True)
+    stockout_event = Column(Boolean, nullable=False, default=False)
+    overstock_event = Column(Boolean, nullable=False, default=False)
+    forecast_error_abs = Column(Float, nullable=False)
+    estimated_stockout_value = Column(Float, nullable=True)
+    estimated_overstock_cost = Column(Float, nullable=True)
+    net_estimated_value = Column(Float, nullable=True)
+    demand_confidence = Column(String(20), nullable=False, default="measured")
+    value_confidence = Column(String(20), nullable=False, default="estimated")
+    status = Column(String(20), nullable=False, default="closed")
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_recommendation_outcomes_customer", "customer_id", "computed_at"),
+        Index("ix_recommendation_outcomes_store_product", "store_id", "product_id", "computed_at"),
+        CheckConstraint("actual_sales_qty >= 0", name="ck_recommendation_outcome_sales_non_negative"),
+        CheckConstraint("actual_demand_qty >= 0", name="ck_recommendation_outcome_demand_non_negative"),
+        CheckConstraint("forecast_error_abs >= 0", name="ck_recommendation_outcome_error_non_negative"),
+        CheckConstraint(
+            "demand_confidence IN ('measured', 'estimated', 'provisional', 'unavailable')",
+            name="ck_recommendation_outcome_demand_confidence",
+        ),
+        CheckConstraint(
+            "value_confidence IN ('measured', 'estimated', 'provisional', 'unavailable')",
+            name="ck_recommendation_outcome_value_confidence",
+        ),
+        CheckConstraint("status IN ('closed', 'provisional')", name="ck_recommendation_outcome_status"),
+    )
+
+
+class WebhookEventLog(Base):
+    """Persist inbound webhook deliveries before processing and replay."""
+
+    __tablename__ = "webhook_event_log"
+
+    webhook_event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True)
+    integration_id = Column(UUID(as_uuid=True), ForeignKey("integrations.integration_id"), nullable=True)
+    provider = Column(String(50), nullable=False)
+    merchant_id = Column(String(255), nullable=True)
+    event_type = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default="received")
+    delivery_attempts = Column(Integer, nullable=False, default=0)
+    payload = Column(JSONB_TYPE, nullable=False)
+    headers = Column(JSONB_TYPE, nullable=True)
+    last_error = Column(Text, nullable=True)
+    received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_webhook_event_log_provider_status", "provider", "status", "received_at"),
+        Index("ix_webhook_event_log_customer", "customer_id", "received_at"),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'failed', 'replayed', 'dead_letter', 'invalid_signature')",
+            name="ck_webhook_event_log_status",
+        ),
+        CheckConstraint("delivery_attempts >= 0", name="ck_webhook_event_log_attempts_non_negative"),
     )

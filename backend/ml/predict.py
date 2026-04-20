@@ -19,12 +19,31 @@ import pandas as pd
 import structlog
 
 from ml.features import FEATURE_COLS, get_feature_cols
+from ml.calibration import conformal_interval
 from ml.train import ENSEMBLE_WEIGHTS, MODEL_DIR, TARGET_COL
 
 logger = structlog.get_logger()
 
 # Confidence interval z-scores
 Z_SCORES = {0.80: 1.28, 0.85: 1.44, 0.90: 1.645, 0.95: 1.96}
+
+
+def _resolve_interval_configuration(models: dict[str, Any], confidence_level: float) -> dict[str, Any]:
+    metadata = models.get("metadata", {}) or {}
+    if "conformal_residual_quantile" in metadata:
+        return {
+            "interval_method": metadata.get("interval_method", "split_conformal"),
+            "calibration_status": metadata.get("calibration_status", "calibrated"),
+            "coverage": metadata.get("interval_coverage"),
+            "residual_quantile": float(metadata["conformal_residual_quantile"]),
+        }
+    return {
+        "interval_method": metadata.get("interval_method", "heuristic_band"),
+        "calibration_status": metadata.get("calibration_status", "uncalibrated"),
+        "coverage": metadata.get("interval_coverage"),
+        "residual_quantile": None,
+        "confidence_level": confidence_level,
+    }
 
 
 def load_models(version: str) -> dict[str, Any]:
@@ -145,17 +164,24 @@ def predict_demand(
     ensemble_preds = lgb_weight * xgb_preds + lstm_weight * lstm_preds
     ensemble_preds = np.maximum(ensemble_preds, 0)
 
-    # Heuristic prediction intervals. These are directional bands, not calibrated quantiles.
-    residual_std = np.std(xgb_preds - lstm_preds) if models.get("lstm") else np.std(xgb_preds) * 0.2
-    z = Z_SCORES.get(confidence_level, 1.645)
-    lower = np.maximum(ensemble_preds - z * residual_std, 0)
-    upper = ensemble_preds + z * residual_std
+    interval_config = _resolve_interval_configuration(models, confidence_level)
+    if interval_config["residual_quantile"] is not None:
+        lower, upper = conformal_interval(ensemble_preds, interval_config["residual_quantile"])
+    else:
+        # Heuristic prediction intervals. These are directional bands, not calibrated quantiles.
+        residual_std = np.std(xgb_preds - lstm_preds) if models.get("lstm") else np.std(xgb_preds) * 0.2
+        z = Z_SCORES.get(confidence_level, 1.645)
+        lower = np.maximum(ensemble_preds - z * residual_std, 0)
+        upper = ensemble_preds + z * residual_std
 
     result = features_df[["store_id", "product_id", "date"]].copy()
     result["forecasted_demand"] = np.round(ensemble_preds, 1)
     result["lower_bound"] = np.round(lower, 1)
     result["upper_bound"] = np.round(upper, 1)
     result["confidence"] = confidence_level
+    result["interval_method"] = interval_config["interval_method"]
+    result["calibration_status"] = interval_config["calibration_status"]
+    result["interval_coverage"] = interval_config["coverage"]
 
     return result
 
