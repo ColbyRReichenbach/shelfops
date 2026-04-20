@@ -1,4 +1,6 @@
+import sys
 from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -266,6 +268,29 @@ async def test_complete_experiment_requires_reviewable_state(client, seeded_db, 
 
 
 @pytest.mark.asyncio
+async def test_run_experiment_requires_approval(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="approval_required_test",
+        hypothesis="Proposed experiments should require explicit approval before running.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="proposed",
+        proposed_by="test@shelfops.com",
+        results={"lineage_metadata": {"dataset_id": "m5_walmart"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.post(f"/api/v1/experiments/{experiment.experiment_id}/run", json={})
+    assert response.status_code == 400
+    assert "Cannot run experiment in status: proposed" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_run_experiment_executes_cycle_and_persists_arena_breakdown(client, seeded_db, test_db, monkeypatch):
     from db.models import ModelExperiment, ModelVersion
 
@@ -304,8 +329,10 @@ async def test_run_experiment_executes_cycle_and_persists_arena_breakdown(client
         hypothesis="Family velocity segmentation should reduce stockout cost.",
         experiment_type="segmentation",
         model_name="demand_forecast",
-        status="proposed",
+        status="approved",
         proposed_by="test@shelfops.com",
+        approved_by="reviewer@shelfops.com",
+        approved_at=datetime.utcnow(),
         results={
             "lineage_metadata": {
                 "dataset_id": "favorita",
@@ -380,6 +407,98 @@ async def test_run_experiment_executes_cycle_and_persists_arena_breakdown(client
 
     await test_db.refresh(experiment)
     assert experiment.status == "shadow_testing"
-    assert experiment.approved_by == "test@shelfops.com"
+    assert experiment.approved_by == "reviewer@shelfops.com"
     assert experiment.experimental_version is not None
     assert (experiment.results or {}).get("arena_breakdown", {}).get("reason") == payload["comparison"]["reason"]
+    assert (experiment.results or {}).get("promotion_comparison", {}).get("reason") == payload["comparison"]["reason"]
+    assert (experiment.results or {}).get("baseline_wape") == pytest.approx(champion_metrics["wape"])
+    assert (experiment.results or {}).get("experimental_wape") == pytest.approx(0.179)
+
+
+@pytest.mark.asyncio
+async def test_list_experiments_normalizes_nested_run_results(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="normalized_results_test",
+        hypothesis="Nested run results should be flattened for the ledger view.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="completed",
+        proposed_by="test@shelfops.com",
+        baseline_version="vbase",
+        experimental_version="ecandidate",
+        results={
+            "lineage_metadata": {"dataset_id": "m5_walmart"},
+            "run_report": {
+                "baseline": {"holdout_metrics": {"mae": 10.0, "wape": 0.2, "mase": 0.4}},
+                "challenger": {"holdout_metrics": {"mae": 9.4, "wape": 0.18, "mase": 0.37}},
+            },
+            "arena_breakdown": {"promoted": False, "reason": "shadow_only", "gate_checks": {"mae_gate": True}},
+        },
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.get("/api/v1/experiments?status=completed")
+    assert response.status_code == 200
+    payload = response.json()
+    row = next(item for item in payload if item["experiment_id"] == str(experiment.experiment_id))
+    assert row["results"]["baseline_wape"] == pytest.approx(0.2)
+    assert row["results"]["experimental_wape"] == pytest.approx(0.18)
+    assert row["results"]["promotion_comparison"]["reason"] == "shadow_only"
+
+
+@pytest.mark.asyncio
+async def test_interpret_experiment_uses_normalized_run_results_and_caches(client, seeded_db, test_db, monkeypatch):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="interpretation_contract_test",
+        hypothesis="Interpretation should read canonical nested run results.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="completed",
+        proposed_by="test@shelfops.com",
+        baseline_version="vbase",
+        experimental_version="ecandidate",
+        decision_rationale="shadow_only",
+        results={
+            "lineage_metadata": {"dataset_id": "m5_walmart", "feature_set_id": "m5_candidate_v2"},
+            "run_report": {
+                "baseline": {"holdout_metrics": {"mae": 10.0, "wape": 0.2, "mase": 0.4}},
+                "challenger": {"holdout_metrics": {"mae": 9.2, "wape": 0.18, "mase": 0.36}},
+            },
+            "arena_breakdown": {"promoted": False, "reason": "shadow_only", "gate_checks": {"mae_gate": True}},
+        },
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    class _FakeMessages:
+        @staticmethod
+        def create(**_: object):
+            return SimpleNamespace(content=[SimpleNamespace(text="Summary section---Why section---Next section")])
+
+    class _FakeAnthropicClient:
+        def __init__(self, api_key=None):
+            self.messages = _FakeMessages()
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=_FakeAnthropicClient))
+
+    response = await client.post(f"/api/v1/experiments/{experiment.experiment_id}/interpret", json={})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cached"] is False
+    assert payload["results_summary"] == "Summary section"
+
+    await test_db.refresh(experiment)
+    assert (experiment.results or {}).get("llm_interpretation", {}).get("why_it_worked") == "Why section"
+
+    cached_response = await client.post(f"/api/v1/experiments/{experiment.experiment_id}/interpret", json={})
+    assert cached_response.status_code == 200
+    assert cached_response.json()["cached"] is True

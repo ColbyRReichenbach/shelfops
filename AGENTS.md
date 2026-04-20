@@ -74,7 +74,7 @@ PYTHONPATH=backend uvicorn api.main:app --reload
 PYTHONPATH=backend pytest backend/tests/ -v
 cd frontend && npm run dev
 docker compose up db redis
-PYTHONPATH=backend alembic upgrade head
+(cd backend && PYTHONPATH=. alembic upgrade head)
 ```
 
 ## Execution Protocol

@@ -2,6 +2,8 @@
 
 This playbook defines how ShelfOps should run a measured 6 to 8 week pilot with a real merchant. It is intentionally stricter than a demo script.
 
+For pre-pilot local walkthrough readiness, use [PRE_PILOT_CHECKLIST.md](./PRE_PILOT_CHECKLIST.md).
+
 ## Pilot Goal
 
 Prove that ShelfOps can improve replenishment decisions for a real merchant by combining:

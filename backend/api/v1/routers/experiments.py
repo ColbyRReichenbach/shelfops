@@ -103,6 +103,81 @@ def _experiment_artifact_paths(experiment_id: uuid.UUID) -> tuple[str, str, str]
     )
 
 
+def _coerce_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _metric_delta(
+    baseline_metrics: dict[str, Any],
+    challenger_metrics: dict[str, Any],
+    metric_name: str,
+) -> float | None:
+    baseline = _coerce_float(baseline_metrics.get(metric_name))
+    challenger = _coerce_float(challenger_metrics.get(metric_name))
+    if baseline is None or challenger is None:
+        return None
+    return round(challenger - baseline, 4)
+
+
+def _normalize_experiment_results(results: dict[str, Any] | None) -> dict[str, Any]:
+    payload = dict(results or {})
+    run_report = dict(payload.get("run_report") or {})
+    arena_breakdown = dict(payload.get("arena_breakdown") or payload.get("promotion_comparison") or {})
+
+    baseline_metrics = dict((run_report.get("baseline") or {}).get("holdout_metrics") or {})
+    challenger_metrics = dict((run_report.get("challenger") or {}).get("holdout_metrics") or {})
+    challenger_lineage = dict((run_report.get("challenger") or {}).get("lineage_metadata") or {})
+    baseline_lineage = dict((run_report.get("baseline") or {}).get("lineage_metadata") or {})
+
+    lineage_metadata = dict(payload.get("lineage_metadata") or challenger_lineage or baseline_lineage)
+
+    normalized = {
+        **payload,
+        "lineage_metadata": lineage_metadata,
+        "promotion_comparison": payload.get("promotion_comparison") or arena_breakdown or None,
+    }
+
+    for source_key, target_key in (
+        ("mae", "baseline_mae"),
+        ("wape", "baseline_wape"),
+        ("mase", "baseline_mase"),
+    ):
+        normalized[target_key] = payload.get(target_key)
+        if normalized[target_key] is None:
+            normalized[target_key] = _coerce_float(baseline_metrics.get(source_key))
+
+    for source_key, target_key in (
+        ("mae", "experimental_mae"),
+        ("wape", "experimental_wape"),
+        ("mase", "experimental_mase"),
+    ):
+        normalized[target_key] = payload.get(target_key)
+        if normalized[target_key] is None:
+            normalized[target_key] = _coerce_float(challenger_metrics.get(source_key))
+
+    if normalized.get("overstock_dollars_delta") is None:
+        normalized["overstock_dollars_delta"] = _metric_delta(
+            baseline_metrics,
+            challenger_metrics,
+            "overstock_dollars",
+        )
+    if normalized.get("opportunity_cost_stockout_delta") is None:
+        normalized["opportunity_cost_stockout_delta"] = _metric_delta(
+            baseline_metrics,
+            challenger_metrics,
+            "opportunity_cost_stockout",
+        )
+    if normalized.get("overall_business_safe") is None and "promoted" in arena_breakdown:
+        normalized["overall_business_safe"] = bool(arena_breakdown.get("promoted"))
+
+    return normalized
+
+
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 
@@ -156,8 +231,8 @@ async def list_experiments(
             "approved_by": exp.approved_by,
             "baseline_version": exp.baseline_version,
             "experimental_version": exp.experimental_version,
-            "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
-            "results": exp.results,
+            "lineage_metadata": _normalize_experiment_results(exp.results).get("lineage_metadata"),
+            "results": _normalize_experiment_results(exp.results),
             "decision_rationale": exp.decision_rationale,
             "created_at": exp.created_at.isoformat(),
             "approved_at": exp.approved_at.isoformat() if exp.approved_at else None,
@@ -199,8 +274,8 @@ async def get_experiment_details(
         "status": exp.status,
         "proposed_by": exp.proposed_by,
         "approved_by": exp.approved_by,
-        "results": exp.results,
-        "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
+        "results": _normalize_experiment_results(exp.results),
+        "lineage_metadata": _normalize_experiment_results(exp.results).get("lineage_metadata"),
         "decision_rationale": exp.decision_rationale,
         "created_at": exp.created_at.isoformat(),
         "approved_at": exp.approved_at.isoformat() if exp.approved_at else None,
@@ -422,11 +497,11 @@ async def complete_experiment(
 
     # Update experiment
     exp.status = "completed"
-    exp.results = {
+    exp.results = _normalize_experiment_results({
         **existing_results,
         "lineage_metadata": lineage_metadata,
         "decision_payload": decision_payload,
-    }
+    })
     exp.decision_rationale = request.decision_rationale
     exp.completed_at = datetime.utcnow()
 
@@ -539,7 +614,7 @@ async def run_experiment(
 
     This is intended for bounded analyst workflow iteration:
       1. Use the logged hypothesis metadata as run configuration
-      2. Auto-approve if still proposed
+      2. Require explicit approval before execution
       3. Execute the offline legacy benchmark cycle
       4. Register the candidate in the arena
       5. Persist gate-by-gate pass/fail and resulting status
@@ -558,17 +633,13 @@ async def run_experiment(
 
     if not exp:
         raise HTTPException(status_code=404, detail="Experiment not found")
-    if exp.status not in {"proposed", "approved"}:
+    if exp.status != "approved":
         raise HTTPException(status_code=400, detail=f"Cannot run experiment in status: {exp.status}")
     if exp.experimental_version:
         raise HTTPException(
             status_code=400, detail="Experiment already has an experimental version. Create a new hypothesis to rerun."
         )
 
-    if exp.status == "proposed":
-        exp.status = "approved"
-        exp.approved_by = actor
-        exp.approved_at = datetime.utcnow()
     exp.status = "in_progress"
     await db.commit()
 
@@ -633,7 +704,7 @@ async def run_experiment(
         candidate_metrics=challenger_metrics,
     )
 
-    existing_results = dict(exp.results or {})
+    existing_results = _normalize_experiment_results(exp.results)
     existing_results["lineage_metadata"] = report["challenger"]["lineage_metadata"]
     existing_results["run_report"] = report
     existing_results["arena_breakdown"] = comparison
@@ -649,7 +720,7 @@ async def run_experiment(
     }
 
     exp.experimental_version = candidate_version
-    exp.results = existing_results
+    exp.results = _normalize_experiment_results(existing_results)
     exp.decision_rationale = str(comparison["reason"])
     if comparison["promoted"]:
         exp.status = "completed"
@@ -728,7 +799,19 @@ async def interpret_experiment(
     except Exception:
         raise HTTPException(status_code=503, detail="Anthropic client unavailable — check ANTHROPIC_API_KEY.")
 
-    results = exp.results or {}
+    results = _normalize_experiment_results(exp.results)
+    if not any(
+        results.get(key) is not None
+        for key in (
+            "baseline_mae",
+            "baseline_wape",
+            "baseline_mase",
+            "experimental_mae",
+            "experimental_wape",
+            "experimental_mase",
+        )
+    ):
+        raise HTTPException(status_code=400, detail="Experiment results are incomplete — run or complete the evaluation first.")
     promo = results.get("promotion_comparison") or {}
     gate_checks = promo.get("gate_checks") or {}
     passed = [k for k, v in gate_checks.items() if v]
@@ -791,7 +874,7 @@ Be specific, use the actual metric values, and keep each section concise."""
     }
 
     # Cache in experiment results
-    exp.results = {**results, "llm_interpretation": interpretation}
+    exp.results = _normalize_experiment_results({**results, "llm_interpretation": interpretation})
     await db.commit()
 
     logger.info("experiment.interpreted", experiment_id=experiment_id, model=interpretation["model"])
@@ -830,8 +913,8 @@ async def get_experiment_results(
         "status": exp.status,
         "baseline_version": exp.baseline_version,
         "experimental_version": exp.experimental_version,
-        "results": exp.results,
-        "lineage_metadata": (exp.results or {}).get("lineage_metadata"),
+        "results": _normalize_experiment_results(exp.results),
+        "lineage_metadata": _normalize_experiment_results(exp.results).get("lineage_metadata"),
         "decision_rationale": exp.decision_rationale,
         "completed_at": exp.completed_at.isoformat() if exp.completed_at else None,
     }

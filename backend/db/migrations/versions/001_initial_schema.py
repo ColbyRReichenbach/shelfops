@@ -19,9 +19,47 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
+def _execute_if_function_exists(function_name: str, body: str) -> None:
+    escaped_body = body.replace("'", "''")
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM pg_proc
+                WHERE proname = '{function_name}'
+            ) THEN
+                EXECUTE '{escaped_body}';
+            END IF;
+        EXCEPTION
+            WHEN OTHERS THEN
+                NULL;
+        END $$;
+        """
+    )
+
+
+def _enable_timescaledb_if_available() -> None:
+    bind = op.get_bind()
+    available = bind.execute(
+        sa.text(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_available_extensions
+                WHERE name = 'timescaledb'
+            )
+            """
+        )
+    ).scalar()
+    if available:
+        bind.execute(sa.text("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"))
+
+
 def upgrade() -> None:
     # Enable TimescaleDB extension
-    op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
+    _enable_timescaledb_if_available()
 
     # 1. Customers
     op.create_table(
@@ -128,8 +166,14 @@ def upgrade() -> None:
     op.create_index("ix_transactions_store_product_time", "transactions", ["store_id", "product_id", "timestamp"])
 
     # Convert to TimescaleDB hypertable
-    op.execute("SELECT create_hypertable('transactions', 'timestamp', migrate_data => true)")
-    op.execute("SELECT add_retention_policy('transactions', INTERVAL '2 years')")
+    _execute_if_function_exists(
+        "create_hypertable",
+        "SELECT create_hypertable('transactions', 'timestamp', migrate_data => true, if_not_exists => true)",
+    )
+    _execute_if_function_exists(
+        "add_retention_policy",
+        "SELECT add_retention_policy('transactions', INTERVAL ''2 years'', if_not_exists => true)",
+    )
 
     # 6. Inventory Levels (will become hypertable)
     op.create_table(
@@ -150,7 +194,10 @@ def upgrade() -> None:
     op.create_index("ix_inventory_store_product", "inventory_levels", ["store_id", "product_id", "timestamp"])
     op.create_index("ix_inventory_customer_time", "inventory_levels", ["customer_id", "timestamp"])
 
-    op.execute("SELECT create_hypertable('inventory_levels', 'timestamp', migrate_data => true)")
+    _execute_if_function_exists(
+        "create_hypertable",
+        "SELECT create_hypertable('inventory_levels', 'timestamp', migrate_data => true, if_not_exists => true)",
+    )
 
     # 7. Demand Forecasts
     op.create_table(
