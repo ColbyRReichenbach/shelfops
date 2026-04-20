@@ -92,8 +92,6 @@ export default function ExperimentWorkbench({
     const [approvalMessage, setApprovalMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
     const [runMessage, setRunMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
     const [latestExecution, setLatestExecution] = useState<ExperimentRunExecution | null>(null)
-    const [draftExperimentId, setDraftExperimentId] = useState<string | null>(null)
-    const [draftSignature, setDraftSignature] = useState<string | null>(null)
 
     useEffect(() => {
         setForm(current => {
@@ -146,13 +144,7 @@ export default function ExperimentWorkbench({
         }
     }
 
-    function payloadSignature(payload: ProposeExperimentPayload): string {
-        return JSON.stringify(payload)
-    }
-
     function resetDraft(modelName: string) {
-        setDraftExperimentId(null)
-        setDraftSignature(null)
         setLatestExecution(null)
         setRunMessage(null)
         setSubmitMessage(null)
@@ -168,17 +160,6 @@ export default function ExperimentWorkbench({
             segment_strategy: current.segment_strategy,
             trigger_source: current.trigger_source,
         }))
-    }
-
-    async function ensureExperiment(payload: ProposeExperimentPayload): Promise<string> {
-        const signature = payloadSignature(payload)
-        if (draftExperimentId && draftSignature === signature) {
-            return draftExperimentId
-        }
-        const response = await proposeExperiment.mutateAsync(payload)
-        setDraftExperimentId(response.experiment_id)
-        setDraftSignature(signature)
-        return response.experiment_id
     }
 
     async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -198,11 +179,9 @@ export default function ExperimentWorkbench({
 
         try {
             const response = await proposeExperiment.mutateAsync(payload)
-            setDraftExperimentId(response.experiment_id)
-            setDraftSignature(payloadSignature(payload))
             setSubmitMessage({
                 tone: 'success',
-                text: `Hypothesis logged${defaultAuthor ? ` as ${defaultAuthor}` : ''}. Baseline version: ${response.baseline_version ?? 'none detected yet'}.`,
+                text: `Hypothesis submitted for review${defaultAuthor ? ` by ${defaultAuthor}` : ''}. Baseline version: ${response.baseline_version ?? 'none detected yet'}.`,
             })
         } catch (error) {
             const detail = error instanceof Error ? error.message : 'Unable to log experiment.'
@@ -210,24 +189,13 @@ export default function ExperimentWorkbench({
         }
     }
 
-    async function handleRun(event: React.MouseEvent<HTMLButtonElement>) {
-        event.preventDefault()
+    async function handleRun(experiment: ExperimentLedgerEntry) {
         setRunMessage(null)
         setSubmitMessage(null)
-        const payload = buildPayload()
-
-        if (!payload.experiment_name || !payload.hypothesis) {
-            setRunMessage({
-                tone: 'error',
-                text: 'Experiment name and hypothesis are required before running.',
-            })
-            return
-        }
 
         try {
-            const experimentId = await ensureExperiment(payload)
             const result = await runExperiment.mutateAsync({
-                experimentId,
+                experimentId: experiment.experiment_id,
             })
             setLatestExecution(result)
             setRunMessage({
@@ -273,7 +241,7 @@ export default function ExperimentWorkbench({
                         <div>
                             <h2 className="text-lg font-semibold text-[#0071e3]">Log New Hypothesis</h2>
                             <p className="text-sm text-[#86868b] mt-1">
-                                This logs the proposed change before a training run starts.
+                                Submit a proposed model change into the review queue before any training run starts.
                             </p>
                             <p className="text-xs text-[#86868b] mt-2">
                                 The submitting account is pulled from {actorLabel}; it is no longer entered manually.
@@ -437,7 +405,7 @@ export default function ExperimentWorkbench({
 
                         <div className="flex items-center justify-between gap-3">
                             <p className="text-xs text-[#86868b]">
-                                `Run Hypothesis` logs the entry if needed, executes the bounded test cycle, and returns the release-check summary.
+                                Approved hypotheses can be launched from the review queue below. Runs are gated until a reviewer approves the experiment.
                             </p>
                             <div className="flex items-center gap-2">
                                 <button
@@ -453,16 +421,7 @@ export default function ExperimentWorkbench({
                                     className="inline-flex items-center gap-2 rounded-lg border border-[#0071e3]/20 bg-white px-4 py-2 text-sm font-medium text-[#0071e3] shadow-sm transition hover:border-[#0071e3]/35 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {proposeExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-                                    Log Hypothesis
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={handleRun}
-                                    disabled={proposeExperiment.isPending || runExperiment.isPending}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {runExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-                                    Run Hypothesis
+                                    Submit for Review
                                 </button>
                             </div>
                         </div>
@@ -474,7 +433,7 @@ export default function ExperimentWorkbench({
                         <div>
                             <h2 className="text-lg font-semibold text-[#0071e3]">Experiment Ledger</h2>
                             <p className="text-sm text-[#86868b] mt-1">
-                                Human-reviewed hypothesis queue for the active model.
+                                Reviewed hypothesis queue for the active model. Approve a proposal before launching the bounded experiment run.
                             </p>
                         </div>
                         <div className="inline-flex items-center gap-2 rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-medium text-[#ff9500]">
@@ -493,8 +452,11 @@ export default function ExperimentWorkbench({
                         isError={ledgerError}
                         errorMessage={ledgerErrorDetail instanceof Error ? ledgerErrorDetail.message : 'Unable to load experiment ledger.'}
                         onApprove={handleApprove}
+                        onRun={handleRun}
                         approvingId={approveExperiment.variables?.experimentId ?? null}
                         approvePending={approveExperiment.isPending}
+                        runningId={runExperiment.variables?.experimentId ?? null}
+                        runPending={runExperiment.isPending}
                     />
                 </section>
             </div>
@@ -536,16 +498,22 @@ function ExperimentLedgerList({
     isError,
     errorMessage,
     onApprove,
+    onRun,
     approvingId,
     approvePending,
+    runningId,
+    runPending,
 }: {
     experiments: ExperimentLedgerEntry[]
     isLoading: boolean
     isError: boolean
     errorMessage: string
     onApprove: (experiment: ExperimentLedgerEntry) => Promise<void>
+    onRun: (experiment: ExperimentLedgerEntry) => Promise<void>
     approvingId: string | null
     approvePending: boolean
+    runningId: string | null
+    runPending: boolean
 }) {
     if (isLoading) {
         return (
@@ -578,7 +546,9 @@ function ExperimentLedgerList({
             {experiments.map(experiment => {
                 const meta = experiment.lineage_metadata ?? {}
                 const canApprove = experiment.status === 'proposed'
+                const canRun = experiment.status === 'approved'
                 const isApproving = approvePending && approvingId === experiment.experiment_id
+                const isRunning = runPending && runningId === experiment.experiment_id
 
                 return (
                     <article key={experiment.experiment_id} className="rounded-xl border border-black/5 bg-white/80 p-4 space-y-3">
@@ -590,17 +560,30 @@ function ExperimentLedgerList({
                                 </div>
                                 <p className="mt-1 text-sm text-[#86868b]">{experiment.hypothesis}</p>
                             </div>
-                            {canApprove && (
-                                <button
-                                    type="button"
-                                    onClick={() => void onApprove(experiment)}
-                                    disabled={isApproving}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-[#34c759]/20 bg-[#34c759]/10 px-3 py-1.5 text-xs font-medium text-[#34c759] transition hover:bg-[#34c759]/20 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                                    Approve
-                                </button>
-                            )}
+                            <div className="flex items-center gap-2">
+                                {canApprove && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void onApprove(experiment)}
+                                        disabled={isApproving}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-[#34c759]/20 bg-[#34c759]/10 px-3 py-1.5 text-xs font-medium text-[#34c759] transition hover:bg-[#34c759]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                        Approve
+                                    </button>
+                                )}
+                                {canRun && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void onRun(experiment)}
+                                        disabled={isRunning}
+                                        className="inline-flex items-center gap-2 rounded-lg bg-[#0071e3] px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {isRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FlaskConical className="h-3.5 w-3.5" />}
+                                        Run
+                                    </button>
+                                )}
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 text-xs text-[#86868b] md:grid-cols-3">
@@ -619,7 +602,11 @@ function ExperimentLedgerList({
 
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#86868b]">
                             <span>Proposed by {experiment.proposed_by}</span>
-                            <span>{new Date(experiment.created_at).toLocaleString()}</span>
+                            <span>
+                                {experiment.approved_at
+                                    ? `Approved ${new Date(experiment.approved_at).toLocaleString()}`
+                                    : new Date(experiment.created_at).toLocaleString()}
+                            </span>
                         </div>
                     </article>
                 )

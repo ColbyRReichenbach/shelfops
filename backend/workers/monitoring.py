@@ -136,7 +136,8 @@ async def summarize_recommendation_impact(
     customer_id: uuid.UUID,
     as_of_date=None,
 ):
-    from db.models import RecommendationOutcome, ReplenishmentRecommendation
+    from db.models import Product, PurchaseOrder, RecommendationOutcome, ReplenishmentRecommendation
+    from recommendations.outcomes import compute_decision_policy_impact
 
     analysis_date = as_of_date or datetime.utcnow().date()
     await compute_recommendation_outcomes(db, customer_id=customer_id, as_of_date=analysis_date)
@@ -150,6 +151,25 @@ async def summarize_recommendation_impact(
         select(RecommendationOutcome).where(RecommendationOutcome.customer_id == customer_id)
     )
     outcomes = outcomes_result.scalars().all()
+    recommendation_by_id = {row.recommendation_id: row for row in recommendations}
+
+    linked_po_ids = [row.linked_po_id for row in recommendations if row.linked_po_id is not None]
+    purchase_order_by_id: dict[uuid.UUID, PurchaseOrder] = {}
+    if linked_po_ids:
+        purchase_orders_result = await db.execute(
+            select(PurchaseOrder).where(PurchaseOrder.po_id.in_(linked_po_ids))
+        )
+        purchase_order_by_id = {
+            row.po_id: row for row in purchase_orders_result.scalars().all()
+        }
+
+    product_ids = list({row.product_id for row in recommendations})
+    product_by_id: dict[uuid.UUID, Product] = {}
+    if product_ids:
+        products_result = await db.execute(
+            select(Product).where(Product.product_id.in_(product_ids))
+        )
+        product_by_id = {row.product_id: row for row in products_result.scalars().all()}
 
     closed_outcomes = [row for row in outcomes if row.status == "closed"]
     provisional_outcomes = [row for row in outcomes if row.status == "provisional"]
@@ -162,7 +182,65 @@ async def summarize_recommendation_impact(
         if closed_outcomes
         else None
     )
-    net_estimated_value = round(sum(float(row.net_estimated_value or 0.0) for row in closed_outcomes), 4)
+
+    policy_summaries = []
+    for outcome in closed_outcomes:
+        recommendation = recommendation_by_id.get(outcome.recommendation_id)
+        if recommendation is None or recommendation.status not in {"accepted", "edited", "rejected"}:
+            continue
+
+        product = product_by_id.get(recommendation.product_id)
+        linked_po = (
+            purchase_order_by_id.get(recommendation.linked_po_id)
+            if recommendation.linked_po_id is not None
+            else None
+        )
+        decision_quantity = 0
+        if recommendation.status == "accepted":
+            decision_quantity = int(linked_po.quantity if linked_po is not None else recommendation.recommended_quantity)
+        elif recommendation.status == "edited":
+            decision_quantity = int(linked_po.quantity if linked_po is not None else recommendation.recommended_quantity)
+
+        policy_summaries.append(
+            compute_decision_policy_impact(
+                inventory_position=recommendation.inventory_position,
+                decision_quantity=decision_quantity,
+                actual_sales_qty=outcome.actual_sales_qty,
+                unit_cost=(
+                    float(product.unit_cost)
+                    if product and product.unit_cost is not None
+                    else recommendation.estimated_unit_cost
+                ),
+                unit_price=float(product.unit_price) if product and product.unit_price is not None else None,
+                holding_cost_per_unit_per_day=(
+                    float(product.holding_cost_per_unit_per_day)
+                    if product and product.holding_cost_per_unit_per_day is not None
+                    else None
+                ),
+            )
+        )
+
+    valued_policy_summaries = [row for row in policy_summaries if row.net_policy_value is not None]
+    policy_net_value = (
+        round(sum(float(row.net_policy_value or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    avoided_stockout_value = (
+        round(sum(float(row.avoided_stockout_value or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    incremental_overstock_cost = (
+        round(sum(float(row.incremental_overstock_cost or 0.0) for row in valued_policy_summaries), 4)
+        if valued_policy_summaries
+        else None
+    )
+    policy_confidence = (
+        "estimated"
+        if valued_policy_summaries
+        else ("provisional" if policy_summaries else "unavailable")
+    )
 
     return {
         "as_of_date": analysis_date.isoformat(),
@@ -174,16 +252,27 @@ async def summarize_recommendation_impact(
         "closed_outcomes_confidence": "measured" if closed_outcomes else "provisional",
         "provisional_outcomes": len(provisional_outcomes),
         "provisional_outcomes_confidence": "provisional",
-        "average_forecast_error_abs": average_forecast_error,
-        "average_forecast_error_abs_confidence": "measured" if closed_outcomes else "provisional",
-        "net_estimated_value": net_estimated_value if closed_outcomes else None,
-        "net_estimated_value_confidence": (
-            "estimated" if closed_outcomes else "provisional"
-        ),
-        "stockout_events": sum(1 for row in closed_outcomes if row.stockout_event),
-        "stockout_events_confidence": "measured" if closed_outcomes else "provisional",
-        "overstock_events": sum(1 for row in closed_outcomes if row.overstock_event),
-        "overstock_events_confidence": "measured" if closed_outcomes else "provisional",
+        "forecast_closeout": {
+            "measurement_basis": "forecast_vs_observed_sales_proxy_with_inventory_closeout",
+            "average_forecast_error_abs": average_forecast_error,
+            "average_forecast_error_abs_confidence": "measured" if closed_outcomes else "provisional",
+            "stockout_events": sum(1 for row in closed_outcomes if row.stockout_event),
+            "stockout_events_confidence": "measured" if closed_outcomes else "provisional",
+            "overstock_events": sum(1 for row in closed_outcomes if row.overstock_event),
+            "overstock_events_confidence": "measured" if closed_outcomes else "provisional",
+        },
+        "recommendation_policy": {
+            "measurement_basis": "observed_sales_proxy_vs_do_nothing_inventory_position_baseline",
+            "decision_quantity_basis": "accepted_or_edited_po_quantity_else_zero",
+            "evaluated_decisions": len(policy_summaries),
+            "evaluated_decisions_confidence": "estimated" if policy_summaries else "provisional",
+            "net_policy_value": policy_net_value,
+            "net_policy_value_confidence": policy_confidence,
+            "avoided_stockout_value": avoided_stockout_value,
+            "avoided_stockout_value_confidence": policy_confidence,
+            "incremental_overstock_cost": incremental_overstock_cost,
+            "incremental_overstock_cost_confidence": policy_confidence,
+        },
     }
 
 

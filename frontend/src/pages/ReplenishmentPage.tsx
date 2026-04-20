@@ -1,5 +1,5 @@
 import { useDeferredValue, useState } from 'react'
-import { AlertTriangle, ClipboardList, Filter, ShieldCheck, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ClipboardList, Filter, RefreshCcw, ShieldCheck, TrendingUp } from 'lucide-react'
 
 import DecisionModal from '@/components/replenishment/DecisionModal'
 import RecommendationDrawer from '@/components/replenishment/RecommendationDrawer'
@@ -7,6 +7,7 @@ import ReplenishmentTable from '@/components/replenishment/ReplenishmentTable'
 import {
     useAcceptRecommendation,
     useEditRecommendation,
+    useGenerateRecommendationQueue,
     useProducts,
     useRecommendationImpact,
     useRecommendationQueue,
@@ -38,6 +39,7 @@ export default function ReplenishmentPage() {
     const acceptRecommendation = useAcceptRecommendation()
     const editRecommendation = useEditRecommendation()
     const rejectRecommendation = useRejectRecommendation()
+    const generateQueue = useGenerateRecommendationQueue()
 
     const storeLookup = Object.fromEntries(stores.map(store => [store.store_id, store]))
     const productLookup = Object.fromEntries(products.map(product => [product.product_id, product]))
@@ -92,6 +94,7 @@ export default function ReplenishmentPage() {
     ).length
 
     const pendingMutation = acceptRecommendation.isPending || editRecommendation.isPending || rejectRecommendation.isPending
+    const pendingQueueRefresh = generateQueue.isPending
 
     return (
         <div className="page-shell">
@@ -130,9 +133,9 @@ export default function ReplenishmentPage() {
                     />
                     <SummaryCard
                         icon={TrendingUp}
-                        label="Net value"
-                        value={formatCurrency(impact?.net_estimated_value ?? null)}
-                        detail={impact?.net_estimated_value_confidence ?? 'unavailable'}
+                        label="Estimated policy value"
+                        value={formatCurrency(impact?.recommendation_policy.net_policy_value ?? null)}
+                        detail={impact?.recommendation_policy.net_policy_value_confidence ?? 'unavailable'}
                     />
                 </div>
             </div>
@@ -142,10 +145,19 @@ export default function ReplenishmentPage() {
                     <div>
                         <h2 className="text-lg font-semibold text-[#1d1d1f]">Queue Filters</h2>
                         <p className="mt-1 text-sm text-[#86868b]">
-                            Filter by decision status and focus on the work that still needs attention.
+                            Filter by decision status or regenerate the open queue from active forecasts and inventory context.
                         </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => generateQueue.mutate({})}
+                            disabled={pendingQueueRefresh}
+                            className="btn-secondary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            <RefreshCcw className={`h-4 w-4 ${pendingQueueRefresh ? 'animate-spin' : ''}`} />
+                            {pendingQueueRefresh ? 'Refreshing…' : 'Refresh Queue'}
+                        </button>
                         <div className="flex items-center gap-2 rounded-full bg-[#f5f5f7] px-3 py-2 text-sm font-medium text-[#1d1d1f]">
                             <Filter className="h-4 w-4 text-[#86868b]" />
                             Status
@@ -178,14 +190,26 @@ export default function ReplenishmentPage() {
                     {getApiErrorDetail(error, 'Failed to load replenishment queue.')}
                 </div>
             ) : (
-                <ReplenishmentTable
-                    recommendations={filteredRecommendations}
-                    selectedRecommendationId={selectedRecommendationId}
-                    lookupByRecommendationId={lookupByRecommendationId}
-                    searchValue={search}
-                    onSearchChange={setSearch}
-                    onSelect={setSelectedRecommendationId}
-                />
+                <>
+                    {generateQueue.isError ? (
+                        <div className="mb-6 rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
+                            {getApiErrorDetail(generateQueue.error, 'Failed to refresh replenishment queue.')}
+                        </div>
+                    ) : null}
+                    {generateQueue.isSuccess ? (
+                        <div className="mb-6 rounded-[20px] border border-[#0071e3]/10 bg-[#0071e3]/[0.04] px-4 py-4 text-sm text-[#1d1d1f]">
+                            Refreshed queue on {generateQueue.data?.as_of_date ?? '—'}: generated {generateQueue.data?.generated_count ?? 0} recommendations and skipped {generateQueue.data?.skipped_count ?? 0}.
+                        </div>
+                    ) : null}
+                    <ReplenishmentTable
+                        recommendations={filteredRecommendations}
+                        selectedRecommendationId={selectedRecommendationId}
+                        lookupByRecommendationId={lookupByRecommendationId}
+                        searchValue={search}
+                        onSearchChange={setSearch}
+                        onSelect={setSelectedRecommendationId}
+                    />
+                </>
             )}
 
             <RecommendationDrawer

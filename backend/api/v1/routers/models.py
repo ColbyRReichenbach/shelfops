@@ -8,8 +8,10 @@ Endpoints:
   GET /models/history — Model version history
 """
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 
 import structlog
@@ -25,10 +27,164 @@ from ml.lineage import append_lifecycle_event
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/api/v1/ml/models", tags=["models"])
+MODELS_DIR = Path(__file__).resolve().parents[3] / "models"
+ROOT_DIR = Path(__file__).resolve().parents[4]
 
 
 class PromoteModelRequest(BaseModel):
     promotion_reason: str = Field(min_length=8, max_length=500)
+
+
+def _load_json(path: Path) -> dict[str, Any] | list[Any] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
+
+
+def _extract_model_card_bullets(section_name: str) -> list[str]:
+    model_card_path = ROOT_DIR / "MODEL_CARD.md"
+    if not model_card_path.exists():
+        return []
+
+    lines = model_card_path.read_text().splitlines()
+    bullets: list[str] = []
+    current_section: str | None = None
+    for raw_line in lines:
+        line = raw_line.strip()
+        if line.startswith("## "):
+            current_section = line[3:].strip()
+            continue
+        if current_section == section_name and line.startswith("- "):
+            bullets.append(line[2:].strip())
+        elif current_section == section_name and line and not line.startswith("- "):
+            if bullets:
+                break
+    return bullets
+
+
+def _build_benchmark_rows(
+    *,
+    benchmark_report: list[dict[str, Any]] | None,
+    holdout_eval: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+
+    if holdout_eval:
+        rows.append(
+            {
+                "label": "Active model holdout",
+                "source": "Promotion holdout",
+                "wape": holdout_eval.get("holdout_wape"),
+                "mase": holdout_eval.get("holdout_mase"),
+                "note": "Holdout result used when the active model was selected.",
+            }
+        )
+        baseline = holdout_eval.get("baseline_to_beat") or {}
+        if baseline:
+            rows.append(
+                {
+                    "label": f"{str(baseline.get('model_name', 'baseline')).replace('_', ' ')} baseline",
+                    "source": "Public benchmark",
+                    "wape": baseline.get("wape"),
+                    "mase": baseline.get("mase"),
+                    "note": "Strongest simple public baseline on the same subset.",
+                }
+            )
+
+    benchmark_entry = benchmark_report[0] if benchmark_report else None
+    benchmark_results = benchmark_entry.get("results", []) if isinstance(benchmark_entry, dict) else []
+    lightgbm_row = next(
+        (row for row in benchmark_results if row.get("model_name") == "lightgbm"),
+        None,
+    )
+    if lightgbm_row:
+        rows.append(
+            {
+                "label": "Simple LightGBM benchmark",
+                "source": "Public benchmark",
+                "wape": lightgbm_row.get("wape"),
+                "mase": lightgbm_row.get("mase"),
+                "note": "Reference benchmark with a lighter feature set.",
+            }
+        )
+
+    return [
+        row for row in rows
+        if row.get("wape") is not None and row.get("mase") is not None
+    ]
+
+
+def _active_model_evidence_payload() -> dict[str, Any]:
+    champion = _load_json(MODELS_DIR / "champion.json")
+    if not isinstance(champion, dict):
+        raise HTTPException(status_code=404, detail="Active champion artifact not found")
+
+    version = champion.get("version")
+    if not version:
+        raise HTTPException(status_code=404, detail="Champion version missing from artifact")
+
+    metadata = _load_json(MODELS_DIR / str(version) / "metadata.json")
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=404, detail=f"Metadata for champion {version} not found")
+
+    benchmark_report = _load_json(ROOT_DIR / str(metadata.get("benchmark_report_path", "")))
+    holdout_eval = _load_json(ROOT_DIR / str(metadata.get("holdout_evaluation_path", "")))
+    dataset_snapshot = metadata.get("dataset_snapshot") or {}
+    subset_provenance = metadata.get("subset_provenance") or {}
+    lightgbm_metrics = metadata.get("lightgbm_metrics") or {}
+    holdout_metrics = metadata.get("holdout_metrics") or {}
+    benchmark_entry = benchmark_report[0] if isinstance(benchmark_report, list) and benchmark_report else {}
+    segment_coverage = benchmark_entry.get("results", [{}])[0].get("segment_coverage", {}) if benchmark_entry else {}
+
+    claim_boundary_bullets = _extract_model_card_bullets("Claim Boundaries")
+    claim_boundary = claim_boundary_bullets[0] if claim_boundary_bullets else "This is benchmark evidence, not pilot evidence."
+    limitations = claim_boundary_bullets[1:] or [
+        "Live business results also depend on inventory position, vendor lead times, and operating policy.",
+        "Use the Impact page to review live outcomes and scenario comparisons alongside model quality.",
+    ]
+
+    return {
+        "version": version,
+        "model_name": metadata.get("model_name"),
+        "architecture": metadata.get("architecture"),
+        "objective": metadata.get("objective"),
+        "promoted_at": champion.get("promoted_at") or metadata.get("promoted_at"),
+        "promotion_reason": metadata.get("promotion_reason"),
+        "dataset_id": metadata.get("dataset_id") or metadata.get("dataset"),
+        "dataset_snapshot_id": metadata.get("dataset_snapshot_id"),
+        "rows_trained": dataset_snapshot.get("row_count"),
+        "stores": dataset_snapshot.get("store_count"),
+        "products": dataset_snapshot.get("product_count"),
+        "categories": segment_coverage.get("categories"),
+        "series_selected": subset_provenance.get("selected_series"),
+        "subset_strategy": str(subset_provenance.get("subset_strategy", "")).replace("_", " "),
+        "coverage_start": dataset_snapshot.get("date_min"),
+        "coverage_end": dataset_snapshot.get("date_max"),
+        "feature_tier": metadata.get("feature_tier") or lightgbm_metrics.get("feature_tier"),
+        "feature_count": len(metadata.get("feature_cols") or []),
+        "interval_method": metadata.get("interval_method"),
+        "calibration_status": metadata.get("calibration_status"),
+        "interval_coverage": metadata.get("interval_coverage"),
+        "cv": {
+            "mae": lightgbm_metrics.get("mae"),
+            "wape": lightgbm_metrics.get("wape"),
+            "mase": lightgbm_metrics.get("mase"),
+            "bias_pct": lightgbm_metrics.get("bias_pct"),
+        },
+        "holdout": {
+            "cutoff": holdout_metrics.get("cutoff") or (holdout_eval or {}).get("cutoff"),
+            "mae": holdout_metrics.get("mae") or (holdout_eval or {}).get("holdout_mae"),
+            "wape": holdout_metrics.get("wape") or (holdout_eval or {}).get("holdout_wape"),
+            "mase": holdout_metrics.get("mase") or (holdout_eval or {}).get("holdout_mase"),
+            "bias_pct": holdout_metrics.get("bias_pct") or (holdout_eval or {}).get("holdout_bias_pct"),
+        },
+        "benchmark_rows": _build_benchmark_rows(
+            benchmark_report=benchmark_report if isinstance(benchmark_report, list) else None,
+            holdout_eval=holdout_eval if isinstance(holdout_eval, dict) else None,
+        ),
+        "limitations": limitations,
+        "claim_boundary": claim_boundary,
+    }
 
 
 def _resolve_customer_id(user: dict) -> uuid.UUID:
@@ -57,6 +213,15 @@ def _is_admin_user(user: dict) -> bool:
 
 
 # ── Model Health Dashboard ──────────────────────────────────────────────────
+
+
+@router.get("/evidence/active")
+async def get_active_model_evidence(
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    del user, db
+    return _active_model_evidence_payload()
 
 
 @router.get("/health")
@@ -243,7 +408,7 @@ async def get_model_health(
         "challenger": challenger_data,
         "retraining_triggers": retraining_triggers,
         "recent_retraining_events": recent_retraining_events,
-        "models_count": 1 + (1 if challenger else 0),
+        "models_count": (1 if champion else 0) + (1 if challenger else 0),
     }
 
 

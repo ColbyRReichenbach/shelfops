@@ -41,6 +41,16 @@ class RecommendationOutcomeSummary:
     status: str
 
 
+@dataclass(frozen=True)
+class RecommendationPolicyImpactSummary:
+    decision_quantity: int
+    baseline_quantity: int
+    avoided_stockout_value: float | None
+    incremental_overstock_cost: float | None
+    net_policy_value: float | None
+    value_confidence: str
+
+
 def summarize_forecast_window(
     forecasts: Sequence[DemandForecast],
     *,
@@ -87,9 +97,11 @@ def compute_recommendation_outcome(
     holding_cost_per_unit_per_day: float | None,
 ) -> RecommendationOutcomeSummary:
     actual_sales_qty = float(actual_sales_qty or 0.0)
+    # Latent-demand recovery is not yet wired into the closeout loop, so this field
+    # remains an observed-sales proxy rather than measured unconstrained demand.
     actual_demand_qty = actual_sales_qty
     closed = as_of_date > horizon_end_date
-    demand_confidence = "measured" if closed else "provisional"
+    demand_confidence = "estimated" if closed else "provisional"
 
     stockout_event = ending_inventory_qty is not None and ending_inventory_qty <= 0
     overstock_event = ending_inventory_qty is not None and ending_inventory_qty > max(0, int(safety_stock))
@@ -136,6 +148,86 @@ def compute_recommendation_outcome(
     )
 
 
+def compute_decision_policy_impact(
+    *,
+    inventory_position: int,
+    decision_quantity: int,
+    actual_sales_qty: float,
+    unit_cost: float | None,
+    unit_price: float | None,
+    holding_cost_per_unit_per_day: float | None,
+) -> RecommendationPolicyImpactSummary:
+    baseline_quantity = max(0, int(inventory_position or 0))
+    decision_quantity = max(0, int(decision_quantity or 0))
+    policy_quantity = baseline_quantity + decision_quantity
+
+    baseline_metrics = calculate_business_impact_metrics(
+        pd.DataFrame(
+            [
+                {
+                    "predicted_qty": float(baseline_quantity),
+                    "actual_qty": float(actual_sales_qty or 0.0),
+                    "unit_price": unit_price,
+                    "unit_cost": unit_cost,
+                    "holding_cost_per_unit_per_day": holding_cost_per_unit_per_day,
+                }
+            ]
+        )
+    )
+    policy_metrics = calculate_business_impact_metrics(
+        pd.DataFrame(
+            [
+                {
+                    "predicted_qty": float(policy_quantity),
+                    "actual_qty": float(actual_sales_qty or 0.0),
+                    "unit_price": unit_price,
+                    "unit_cost": unit_cost,
+                    "holding_cost_per_unit_per_day": holding_cost_per_unit_per_day,
+                }
+            ]
+        )
+    )
+
+    baseline_stockout = _optional_float(baseline_metrics.get("opportunity_cost_stockout"))
+    policy_stockout = _optional_float(policy_metrics.get("opportunity_cost_stockout"))
+    baseline_overstock = _optional_float(baseline_metrics.get("opportunity_cost_overstock"))
+    policy_overstock = _optional_float(policy_metrics.get("opportunity_cost_overstock"))
+
+    avoided_stockout_value = (
+        round(max(0.0, baseline_stockout - policy_stockout), 4)
+        if baseline_stockout is not None and policy_stockout is not None
+        else None
+    )
+    incremental_overstock_cost = (
+        round(max(0.0, policy_overstock - baseline_overstock), 4)
+        if baseline_overstock is not None and policy_overstock is not None
+        else None
+    )
+    net_policy_value = (
+        round((avoided_stockout_value or 0.0) - (incremental_overstock_cost or 0.0), 4)
+        if avoided_stockout_value is not None and incremental_overstock_cost is not None
+        else None
+    )
+
+    value_confidence = _combine_confidence_labels(
+        str(baseline_metrics.get("opportunity_cost_stockout_confidence", "unavailable")),
+        str(policy_metrics.get("opportunity_cost_stockout_confidence", "unavailable")),
+        str(baseline_metrics.get("opportunity_cost_overstock_confidence", "unavailable")),
+        str(policy_metrics.get("opportunity_cost_overstock_confidence", "unavailable")),
+    )
+    if net_policy_value is None:
+        value_confidence = "unavailable"
+
+    return RecommendationPolicyImpactSummary(
+        decision_quantity=decision_quantity,
+        baseline_quantity=baseline_quantity,
+        avoided_stockout_value=avoided_stockout_value,
+        incremental_overstock_cost=incremental_overstock_cost,
+        net_policy_value=net_policy_value,
+        value_confidence=value_confidence,
+    )
+
+
 def _combine_confidence_labels(*labels: str) -> str:
     normalized = [label for label in labels if label and label != "unavailable"]
     if not normalized:
@@ -145,3 +237,9 @@ def _combine_confidence_labels(*labels: str) -> str:
     if any(label == "estimated" for label in normalized):
         return "estimated"
     return normalized[0]
+
+
+def _optional_float(value) -> float | None:
+    if value is None:
+        return None
+    return float(value)

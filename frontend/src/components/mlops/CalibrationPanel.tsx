@@ -1,14 +1,27 @@
 import { GaugeCircle, ShieldCheck } from 'lucide-react'
 
-import { ACTIVE_CHAMPION_EVIDENCE } from '@/lib/modelEvidence'
-import type { MLEffectiveness } from '@/lib/types'
+import type { ActiveModelEvidence, MLEffectiveness } from '@/lib/types'
 
 interface CalibrationPanelProps {
+    evidence: ActiveModelEvidence | undefined
     effectiveness: MLEffectiveness | undefined
 }
 
-export default function CalibrationPanel({ effectiveness }: CalibrationPanelProps) {
-    const evidence = ACTIVE_CHAMPION_EVIDENCE
+export default function CalibrationPanel({ evidence, effectiveness }: CalibrationPanelProps) {
+    if (!evidence) {
+        return (
+            <section className="card space-y-4">
+                <div className="flex items-center gap-2">
+                    <GaugeCircle className="h-4 w-4 text-[#0071e3]" />
+                    <h2 className="text-lg font-semibold text-[#1d1d1f]">Prediction Range Performance</h2>
+                </div>
+                <div className="rounded-[18px] bg-[#f5f5f7] px-4 py-10 text-sm text-[#6e6e73]">
+                    Coverage evidence is unavailable.
+                </div>
+            </section>
+        )
+    }
+
     const runtimeCoverage = effectiveness?.metrics?.coverage ?? null
 
     return (
@@ -19,14 +32,14 @@ export default function CalibrationPanel({ effectiveness }: CalibrationPanelProp
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <CalibrationTile label="Interval method" value={formatLabel(evidence.intervalMethod)} detail="Champion artifact metadata" />
-                <CalibrationTile label="Champion coverage" value={`${(evidence.intervalCoverage * 100).toFixed(1)}%`} detail="Stored conformal coverage" />
+                <CalibrationTile label="Interval method" value={formatLabel(evidence.interval_method ?? 'unknown')} detail="Champion artifact metadata" />
+                <CalibrationTile label="Champion coverage" value={formatCoverage(evidence.interval_coverage)} detail="Stored conformal coverage" />
                 <CalibrationTile
                     label="Runtime window coverage"
                     value={runtimeCoverage !== null ? `${(runtimeCoverage * 100).toFixed(1)}%` : '—'}
                     detail="Rolling effectiveness endpoint"
                 />
-                <CalibrationTile label="Calibration status" value={formatLabel(evidence.calibrationStatus)} detail="Split-conformal intervals available" />
+                <CalibrationTile label="Calibration status" value={formatLabel(evidence.calibration_status ?? 'unknown')} detail="Split-conformal intervals available" />
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
@@ -47,7 +60,7 @@ export default function CalibrationPanel({ effectiveness }: CalibrationPanelProp
                     <div className="mt-4 space-y-3">
                         <StatusRow
                             label="Stored benchmark coverage"
-                            value={`${(evidence.intervalCoverage * 100).toFixed(1)}%`}
+                            value={formatCoverage(evidence.interval_coverage)}
                             tone="good"
                         />
                         <StatusRow
@@ -98,4 +111,11 @@ function StatusRow({
 
 function formatLabel(value: string) {
     return value.replace(/_/g, ' ')
+}
+
+function formatCoverage(value: number | null) {
+    if (value === null || value === undefined) {
+        return 'Unavailable'
+    }
+    return `${(value * 100).toFixed(1)}%`
 }

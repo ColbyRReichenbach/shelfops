@@ -50,6 +50,31 @@ class TestReplenishmentAPI:
         assert response.status_code == 200
         assert response.json()["recommendation_id"] == str(recommendation.recommendation_id)
 
+    async def test_generate_queue_creates_open_recommendations(self, client, test_db):
+        await _seed_recommendation_fixture(test_db)
+
+        response = await client.post("/api/v1/replenishment/generate", json={})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["candidate_pairs"] == 1
+        assert payload["generated_count"] == 1
+        assert payload["skipped_count"] == 0
+        assert payload["open_queue_count"] == 1
+
+    async def test_generate_queue_skips_existing_open_recommendations(self, client, test_db):
+        await _create_open_recommendation(test_db)
+
+        response = await client.post("/api/v1/replenishment/generate", json={})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["candidate_pairs"] == 1
+        assert payload["generated_count"] == 0
+        assert payload["skipped_count"] == 1
+        assert payload["skipped_reasons"]["open_recommendation_exists"] == 1
+        assert payload["open_queue_count"] == 1
+
     async def test_accept_recommendation_creates_linked_purchase_order(self, client, test_db):
         recommendation = await _create_open_recommendation(test_db)
 

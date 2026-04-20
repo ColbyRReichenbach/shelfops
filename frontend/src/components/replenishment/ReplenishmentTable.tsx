@@ -32,7 +32,7 @@ export default function ReplenishmentTable({
                     <div>
                         <h2 className="text-lg font-semibold text-[#1d1d1f]">Action Queue</h2>
                         <p className="mt-1 max-w-2xl text-sm text-[#6e6e73]">
-                            Review recommendations, inspect interval quality, and move each order into an accept, edit, or reject decision.
+                            Review recommendations, inspect lead-time coverage, and move each order into an accept, edit, or reject decision.
                         </p>
                     </div>
                     <label className="relative block w-full max-w-sm">
@@ -68,8 +68,8 @@ export default function ReplenishmentTable({
                                 <th className="px-4 py-4 font-medium">Store</th>
                                 <th className="px-4 py-4 font-medium">Recommended</th>
                                 <th className="px-4 py-4 font-medium">Inventory Position</th>
-                                <th className="px-4 py-4 font-medium">Demand Band</th>
-                                <th className="px-4 py-4 font-medium">Risk</th>
+                                <th className="px-4 py-4 font-medium">Coverage</th>
+                                <th className="px-4 py-4 font-medium">Decision Risk</th>
                                 <th className="px-4 py-4 font-medium">Provenance</th>
                                 <th className="px-6 py-4 font-medium text-right">Action</th>
                             </tr>
@@ -123,20 +123,23 @@ export default function ReplenishmentTable({
                                         </td>
                                         <td className="px-4 py-4">
                                             <p className="text-sm font-semibold text-[#1d1d1f]">
-                                                {recommendation.horizon_demand_mean.toFixed(1)}
+                                                {recommendation.lead_time_demand_mean.toFixed(1)}
                                             </p>
                                             <p className="mt-1 text-xs text-[#86868b]">
-                                                {formatDemandBand(recommendation.horizon_demand_lower, recommendation.horizon_demand_upper)}
+                                                Lead time {recommendation.lead_time_days}d · {formatLeadTimeBand(recommendation.lead_time_demand_upper)}
+                                            </p>
+                                            <p className="mt-1 text-xs text-[#a1a1a6]">
+                                                {recommendation.horizon_days}d plan {recommendation.horizon_demand_mean.toFixed(1)} units
                                             </p>
                                         </td>
                                         <td className="px-4 py-4">
                                             <div className="flex flex-col gap-2">
                                                 <RiskBadge
-                                                    label={`No-order ${recommendation.no_order_stockout_risk}`}
+                                                    label={`Skip order ${recommendation.no_order_stockout_risk}`}
                                                     tone={recommendation.no_order_stockout_risk}
                                                 />
                                                 <RiskBadge
-                                                    label={`Order ${recommendation.order_overstock_risk}`}
+                                                    label={`Place order ${recommendation.order_overstock_risk}`}
                                                     tone={recommendation.order_overstock_risk}
                                                 />
                                             </div>
@@ -205,11 +208,11 @@ function ProvenanceBadge({ label, tone }: { label: string; tone: 'good' | 'warni
     )
 }
 
-function formatDemandBand(lower: number | null, upper: number | null) {
-    if (lower === null || upper === null) {
-        return 'No calibrated band'
+function formatLeadTimeBand(upper: number | null) {
+    if (upper === null) {
+        return 'No upper coverage band'
     }
-    return `${lower.toFixed(1)} to ${upper.toFixed(1)}`
+    return `Upper ${upper.toFixed(1)}`
 }
 
 function shortId(value: string) {

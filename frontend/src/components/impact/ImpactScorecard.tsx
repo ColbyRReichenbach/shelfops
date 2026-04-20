@@ -8,33 +8,36 @@ interface ImpactScorecardProps {
 }
 
 export default function ImpactScorecard({ impact }: ImpactScorecardProps) {
+    const forecastCloseout = impact?.forecast_closeout
+    const recommendationPolicy = impact?.recommendation_policy
+
     return (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <ImpactCard
                 icon={CircleDollarSign}
-                label="Net value"
-                value={formatCurrency(impact?.net_estimated_value ?? null)}
-                provenance={impact?.net_estimated_value_confidence ?? 'unavailable'}
+                label="Estimated policy value"
+                value={formatCurrency(recommendationPolicy?.net_policy_value ?? null)}
+                provenance={recommendationPolicy?.net_policy_value_confidence ?? 'unavailable'}
             />
             <ImpactCard
                 icon={LineChart}
-                label="Forecast error"
-                value={impact?.average_forecast_error_abs !== null && impact?.average_forecast_error_abs !== undefined
-                    ? impact.average_forecast_error_abs.toFixed(2)
+                label="Forecast vs observed sales proxy"
+                value={forecastCloseout?.average_forecast_error_abs !== null && forecastCloseout?.average_forecast_error_abs !== undefined
+                    ? forecastCloseout.average_forecast_error_abs.toFixed(2)
                     : '—'}
-                provenance={impact?.average_forecast_error_abs_confidence ?? 'unavailable'}
+                provenance={forecastCloseout?.average_forecast_error_abs_confidence ?? 'unavailable'}
             />
             <ImpactCard
                 icon={ShieldAlert}
                 label="Stockout events"
-                value={String(impact?.stockout_events ?? 0)}
-                provenance={impact?.stockout_events_confidence ?? 'unavailable'}
+                value={String(forecastCloseout?.stockout_events ?? 0)}
+                provenance={forecastCloseout?.stockout_events_confidence ?? 'unavailable'}
             />
             <ImpactCard
                 icon={ShoppingBag}
                 label="Overstock events"
-                value={String(impact?.overstock_events ?? 0)}
-                provenance={impact?.overstock_events_confidence ?? 'unavailable'}
+                value={String(forecastCloseout?.overstock_events ?? 0)}
+                provenance={forecastCloseout?.overstock_events_confidence ?? 'unavailable'}
             />
         </section>
     )

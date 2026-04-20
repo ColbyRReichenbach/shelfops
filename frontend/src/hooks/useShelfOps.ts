@@ -10,12 +10,14 @@ import type {
     Forecast, ForecastAccuracy, Integration,
     InventoryItem, InventorySummary,
     ProductMutationPayload, StoreMutationPayload,
-    MLModel, BacktestEntry, ExperimentRun,
+    ActiveModelEvidence, MLModel, BacktestEntry, ExperimentRun,
     ExperimentLedgerEntry, ProposeExperimentPayload, ProposeExperimentResponse, ApproveExperimentPayload,
     RunExperimentPayload, ExperimentRunExecution,
     SHAPFeature, MLHealth, MLEffectiveness, ModelHistoryEntry, RuntimeModelHealth, SyncHealthResponse,
     ReplenishmentRecommendation, RecommendationImpact, RecommendationAcceptPayload, RecommendationEditPayload,
-    RecommendationRejectPayload, DataReadiness, ReplenishmentSimulationReport,
+    RecommendationRejectPayload, RecommendationQueueGenerationResult, CsvIngestResponse, CsvOnboardingPayload,
+    CsvValidationResponse, DataReadiness, ReplenishmentSimulationReport, SquareMappingConfirmPayload,
+    SquareMappingPreviewResponse, WebhookDeadLetterEvent,
 } from '@/lib/types'
 
 // ─── Products ──────────────────────────────────────────────────────────────
@@ -231,6 +233,7 @@ export function useForecasts(filters?: {
     product_id?: string
     start_date?: string
     end_date?: string
+    limit?: number
 }) {
     const api = useApi()
     const params = new URLSearchParams()
@@ -238,6 +241,7 @@ export function useForecasts(filters?: {
     if (filters?.product_id) params.set('product_id', filters.product_id)
     if (filters?.start_date) params.set('start_date', filters.start_date)
     if (filters?.end_date) params.set('end_date', filters.end_date)
+    if (filters?.limit) params.set('limit', String(filters.limit))
     const qs = params.toString()
 
     return useQuery({
@@ -265,6 +269,53 @@ export function useDisconnectIntegration() {
             api.delete(`/api/v1/integrations/${integrationId}`),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['integrations'] })
+        },
+    })
+}
+
+export function useSquareMappingPreview(enabled = true) {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['square-mapping-preview'],
+        queryFn: () => api.get<SquareMappingPreviewResponse>('/api/v1/integrations/square/mapping-preview'),
+        enabled,
+    })
+}
+
+export function useConfirmSquareMapping() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: SquareMappingConfirmPayload) =>
+            api.post<Integration>('/api/v1/integrations/square/mapping-confirm', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['integrations'] })
+            queryClient.invalidateQueries({ queryKey: ['sync-health'] })
+            queryClient.invalidateQueries({ queryKey: ['square-mapping-preview'] })
+            queryClient.invalidateQueries({ queryKey: ['data-readiness'] })
+        },
+    })
+}
+
+export function useDeadLetterWebhooks() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['dead-letter-webhooks'],
+        queryFn: () => api.get<WebhookDeadLetterEvent[]>('/api/v1/integrations/webhooks/dead-letter'),
+    })
+}
+
+export function useReplayWebhookEvent() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (webhookEventId: string) =>
+            api.post<Record<string, unknown>>(`/api/v1/integrations/webhooks/${webhookEventId}/replay`, {}),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['dead-letter-webhooks'] })
+            queryClient.invalidateQueries({ queryKey: ['sync-health'] })
         },
     })
 }
@@ -327,6 +378,14 @@ export function useMLModels(modelName?: string, status?: string) {
     return useQuery({
         queryKey: ['ml-models', modelName, status],
         queryFn: () => api.get<MLModel[]>(`/api/v1/ml/models${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useActiveModelEvidence() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['active-model-evidence'],
+        queryFn: () => api.get<ActiveModelEvidence>('/api/v1/ml/models/evidence/active'),
     })
 }
 
@@ -528,6 +587,20 @@ export function useRecommendationImpact() {
     })
 }
 
+export function useGenerateRecommendationQueue() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: { horizon_days?: number; model_version?: string | null } = {}) =>
+            api.post<RecommendationQueueGenerationResult>('/api/v1/replenishment/generate', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['replenishment-queue'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-impact'] })
+        },
+    })
+}
+
 export function useAcceptRecommendation() {
     const api = useApi()
     const queryClient = useQueryClient()
@@ -589,6 +662,32 @@ export function useDataReadiness() {
     return useQuery({
         queryKey: ['data-readiness'],
         queryFn: () => api.get<DataReadiness>('/api/v1/data/readiness'),
+    })
+}
+
+export function useValidateCsvOnboarding() {
+    const api = useApi()
+    return useMutation({
+        mutationFn: (payload: CsvOnboardingPayload) =>
+            api.post<CsvValidationResponse>('/api/v1/data/csv/validate', payload),
+    })
+}
+
+export function useIngestCsvOnboarding() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: CsvOnboardingPayload) =>
+            api.post<CsvIngestResponse>('/api/v1/data/csv/ingest', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['data-readiness'] })
+            queryClient.invalidateQueries({ queryKey: ['integrations'] })
+            queryClient.invalidateQueries({ queryKey: ['sync-health'] })
+            queryClient.invalidateQueries({ queryKey: ['stores'] })
+            queryClient.invalidateQueries({ queryKey: ['products'] })
+            queryClient.invalidateQueries({ queryKey: ['inventory'] })
+        },
     })
 }
 

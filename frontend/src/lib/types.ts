@@ -118,10 +118,92 @@ export interface ForecastAccuracy {
 
 export interface Integration {
     integration_id: string
-    provider: 'square' | 'shopify' | 'lightspeed' | 'clover'
+    customer_id?: string
+    provider: string
     status: 'connected' | 'disconnected' | 'error' | 'pending'
     last_sync_at?: string
     merchant_id?: string
+    created_at?: string
+    updated_at?: string
+}
+
+export interface CsvOnboardingPayload {
+    stores_csv?: string | null
+    products_csv?: string | null
+    transactions_csv?: string | null
+    inventory_csv?: string | null
+}
+
+export interface CsvValidationIssue {
+    file_type: 'stores' | 'products' | 'transactions' | 'inventory'
+    severity: 'error' | 'warning'
+    message: string
+    row_number?: number | null
+    field?: string | null
+}
+
+export interface CsvValidationSummary {
+    rows: number
+    columns: string[]
+}
+
+export interface CsvValidationResponse {
+    valid: boolean
+    issues: CsvValidationIssue[]
+    summary: Partial<Record<'stores' | 'products' | 'transactions' | 'inventory', CsvValidationSummary>>
+}
+
+export interface CsvIngestResponse {
+    created: {
+        stores: number
+        products: number
+        transactions: number
+        inventory: number
+    }
+    readiness: DataReadiness
+}
+
+export interface SquareMappingPreviewRow {
+    external_id: string
+    name: string | null
+    status: 'mapped' | 'unmapped'
+    mapped_store_id?: string | null
+    mapped_product_id?: string | null
+    timezone?: string | null
+    variation_ids?: string[]
+}
+
+export interface SquareMappingPreviewResponse {
+    integration_id: string
+    provider: string
+    mapping_confirmed: boolean
+    mapping_coverage: {
+        locations_total: number
+        locations_mapped: number
+        catalog_total: number
+        catalog_mapped: number
+    }
+    unmapped_location_ids: string[]
+    unmapped_catalog_ids: string[]
+    locations: SquareMappingPreviewRow[]
+    catalog_items: SquareMappingPreviewRow[]
+}
+
+export interface SquareMappingConfirmPayload {
+    square_location_to_store: Record<string, string>
+    square_catalog_to_product: Record<string, string>
+    square_mapping_confirmed: boolean
+}
+
+export interface WebhookDeadLetterEvent {
+    webhook_event_id: string
+    provider: string
+    merchant_id: string | null
+    event_type: string
+    status: string
+    delivery_attempts: number
+    last_error: string | null
+    received_at: string
 }
 
 export interface InventoryItem {
@@ -193,6 +275,52 @@ export interface MLModel {
     created_at: string | null
     promoted_at: string | null
     archived_at: string | null
+}
+
+export interface ActiveModelEvidence {
+    version: string
+    model_name: string | null
+    architecture: string | null
+    objective: string | null
+    promoted_at: string | null
+    promotion_reason: string | null
+    dataset_id: string | null
+    dataset_snapshot_id: string | null
+    rows_trained: number | null
+    stores: number | null
+    products: number | null
+    categories: number | null
+    series_selected: number | null
+    subset_strategy: string | null
+    coverage_start: string | null
+    coverage_end: string | null
+    feature_tier: string | null
+    feature_count: number | null
+    interval_method: string | null
+    calibration_status: string | null
+    interval_coverage: number | null
+    cv: {
+        mae: number | null
+        wape: number | null
+        mase: number | null
+        bias_pct: number | null
+    }
+    holdout: {
+        cutoff: string | null
+        mae: number | null
+        wape: number | null
+        mase: number | null
+        bias_pct: number | null
+    }
+    benchmark_rows: Array<{
+        label: string
+        source: string
+        wape: number
+        mase: number
+        note: string
+    }>
+    limitations: string[]
+    claim_boundary: string
 }
 
 export interface BacktestEntry {
@@ -501,7 +629,13 @@ export interface SyncHealth {
     syncs_24h: number
     records_24h: number
     mapping_confirmed?: boolean
-    mapping_coverage?: Record<string, number>
+    mapping_coverage?: {
+        locations_total?: number
+        locations_mapped?: number
+        catalog_total?: number
+        catalog_mapped?: number
+        [key: string]: number | undefined
+    }
     unmapped_location_ids?: string[]
     unmapped_catalog_ids?: string[]
 }
@@ -563,14 +697,38 @@ export interface RecommendationImpact {
     closed_outcomes_confidence: string
     provisional_outcomes: number
     provisional_outcomes_confidence: string
-    average_forecast_error_abs: number | null
-    average_forecast_error_abs_confidence: string
-    net_estimated_value: number | null
-    net_estimated_value_confidence: string
-    stockout_events: number
-    stockout_events_confidence: string
-    overstock_events: number
-    overstock_events_confidence: string
+    forecast_closeout: {
+        measurement_basis: string
+        average_forecast_error_abs: number | null
+        average_forecast_error_abs_confidence: string
+        stockout_events: number
+        stockout_events_confidence: string
+        overstock_events: number
+        overstock_events_confidence: string
+    }
+    recommendation_policy: {
+        measurement_basis: string
+        decision_quantity_basis: string
+        evaluated_decisions: number
+        evaluated_decisions_confidence: string
+        net_policy_value: number | null
+        net_policy_value_confidence: string
+        avoided_stockout_value: number | null
+        avoided_stockout_value_confidence: string
+        incremental_overstock_cost: number | null
+        incremental_overstock_cost_confidence: string
+    }
+}
+
+export interface RecommendationQueueGenerationResult {
+    as_of_date: string
+    horizon_days: number
+    model_version: string | null
+    candidate_pairs: number
+    generated_count: number
+    skipped_count: number
+    skipped_reasons: Record<string, number>
+    open_queue_count: number
 }
 
 export interface RecommendationAcceptPayload {

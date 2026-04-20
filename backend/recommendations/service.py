@@ -6,7 +6,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import (
@@ -232,6 +232,87 @@ class RecommendationService:
             .limit(limit)
         )
         return [self._to_response_from_record(row) for row in result.scalars().all()]
+
+    async def generate_queue(
+        self,
+        *,
+        customer_id: uuid.UUID,
+        horizon_days: int = 7,
+        model_version: str | None = None,
+    ) -> dict[str, object]:
+        start_date = datetime.utcnow().date()
+        end_date = start_date + timedelta(days=max(1, horizon_days) - 1)
+
+        forecast_pairs_query = (
+            select(DemandForecast.store_id, DemandForecast.product_id)
+            .where(
+                DemandForecast.customer_id == customer_id,
+                DemandForecast.forecast_date >= start_date,
+                DemandForecast.forecast_date <= end_date,
+            )
+            .distinct()
+            .order_by(DemandForecast.store_id.asc(), DemandForecast.product_id.asc())
+        )
+        if model_version:
+            forecast_pairs_query = forecast_pairs_query.where(DemandForecast.model_version == model_version)
+
+        candidate_pairs = list((await self.db.execute(forecast_pairs_query)).all())
+
+        open_rows = (
+            await self.db.execute(
+                select(
+                    ReplenishmentRecommendation.store_id,
+                    ReplenishmentRecommendation.product_id,
+                ).where(
+                    ReplenishmentRecommendation.customer_id == customer_id,
+                    ReplenishmentRecommendation.status == "open",
+                )
+            )
+        ).all()
+        open_pairs = {(row.store_id, row.product_id) for row in open_rows}
+
+        generated_count = 0
+        skipped_reasons: dict[str, int] = {}
+
+        for pair in candidate_pairs:
+            pair_key = (pair.store_id, pair.product_id)
+            if pair_key in open_pairs:
+                skipped_reasons["open_recommendation_exists"] = (
+                    skipped_reasons.get("open_recommendation_exists", 0) + 1
+                )
+                continue
+
+            try:
+                await self.create_recommendation(
+                    customer_id=customer_id,
+                    store_id=pair.store_id,
+                    product_id=pair.product_id,
+                    horizon_days=horizon_days,
+                    model_version=model_version,
+                )
+                generated_count += 1
+                open_pairs.add(pair_key)
+            except ValueError as exc:
+                reason = str(exc).strip().lower().replace(" ", "_")
+                skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
+
+        open_queue_count = await self.db.scalar(
+            select(func.count(ReplenishmentRecommendation.recommendation_id)).where(
+                ReplenishmentRecommendation.customer_id == customer_id,
+                ReplenishmentRecommendation.status == "open",
+            )
+        )
+
+        return {
+            "as_of_date": start_date.isoformat(),
+            "horizon_days": horizon_days,
+            "model_version": model_version,
+            "candidate_pairs": len(candidate_pairs),
+            "generated_count": generated_count,
+            "skipped_count": sum(skipped_reasons.values()),
+            "skipped_reasons": skipped_reasons,
+            "open_queue_count": int(open_queue_count or 0),
+        }
 
     async def get_recommendation(
         self,

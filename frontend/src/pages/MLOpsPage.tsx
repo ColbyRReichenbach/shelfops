@@ -6,20 +6,20 @@ import ExperimentWorkbench from '@/components/mlops/ExperimentWorkbench'
 import ModelArena from '@/components/mlops/ModelArena'
 import ModelCardPanel from '@/components/mlops/ModelCardPanel'
 import SegmentMetricsTable from '@/components/mlops/SegmentMetricsTable'
-import { useExperiments, useMLEffectiveness, useMLHealth, useMLModels, useModelHistory, useSyncHealth } from '@/hooks/useShelfOps'
-import { ACTIVE_CHAMPION_EVIDENCE } from '@/lib/modelEvidence'
+import { useActiveModelEvidence, useExperiments, useMLEffectiveness, useMLHealth, useMLModels, useModelHistory, useSyncHealth } from '@/hooks/useShelfOps'
 
 export default function MLOpsPage() {
     const { data: health, isLoading: healthLoading } = useMLHealth()
+    const { data: evidence, isLoading: evidenceLoading } = useActiveModelEvidence()
     const { data: models = [] } = useMLModels('demand_forecast')
     const { data: experiments = [], isLoading: experimentsLoading, isError: experimentsError, error: experimentsErrorDetail } = useExperiments('demand_forecast')
     const { data: modelHistory = [] } = useModelHistory(12)
     const { data: syncData = [], isLoading: syncLoading } = useSyncHealth()
     const { data: effectiveness } = useMLEffectiveness(30, 'demand_forecast')
 
-    const championModel = models.find(model => model.version === ACTIVE_CHAMPION_EVIDENCE.version)
+    const championModel = models.find(model => model.version === evidence?.version)
         ?? models.find(model => model.status === 'champion')
-    const championHistory = modelHistory.find(model => model.version === ACTIVE_CHAMPION_EVIDENCE.version)
+    const championHistory = modelHistory.find(model => model.version === evidence?.version)
         ?? modelHistory.find(model => model.status === 'champion')
     const modelNames = [...new Set(models.map(model => model.model_name))]
 
@@ -43,20 +43,22 @@ export default function MLOpsPage() {
                     <HeroStat
                         icon={ShieldCheck}
                         label="Active model"
-                        value={ACTIVE_CHAMPION_EVIDENCE.version}
-                        detail={ACTIVE_CHAMPION_EVIDENCE.datasetId}
+                        value={evidenceLoading ? 'Loading' : (evidence?.version ?? 'unknown')}
+                        detail={evidence?.dataset_id ?? 'artifact unavailable'}
                     />
                     <HeroStat
                         icon={Activity}
                         label="Holdout WAPE"
-                        value={`${(ACTIVE_CHAMPION_EVIDENCE.holdout.wape * 100).toFixed(1)}%`}
-                        detail={`vs baseline ${(ACTIVE_CHAMPION_EVIDENCE.benchmarkRows[1].wape * 100).toFixed(1)}%`}
+                        value={formatPercent(evidence?.holdout.wape)}
+                        detail={evidence?.benchmark_rows?.[1]?.wape !== undefined
+                            ? `vs baseline ${formatPercent(evidence.benchmark_rows[1].wape)}`
+                            : 'baseline unavailable'}
                     />
                     <HeroStat
                         icon={Brain}
                         label="Interval coverage"
-                        value={`${(ACTIVE_CHAMPION_EVIDENCE.intervalCoverage * 100).toFixed(1)}%`}
-                        detail={ACTIVE_CHAMPION_EVIDENCE.intervalMethod}
+                        value={formatPercent(evidence?.interval_coverage)}
+                        detail={evidence?.interval_method ?? 'artifact unavailable'}
                     />
                     <HeroStat
                         icon={Database}
@@ -67,8 +69,8 @@ export default function MLOpsPage() {
                 </div>
             </div>
 
-            <ModelCardPanel championModel={championModel} championHistory={championHistory} />
-            <CalibrationPanel effectiveness={effectiveness} />
+            <ModelCardPanel evidence={evidence} championModel={championModel} championHistory={championHistory} />
+            <CalibrationPanel evidence={evidence} effectiveness={effectiveness} />
             <SegmentMetricsTable effectiveness={effectiveness} />
 
             <section className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
@@ -113,6 +115,13 @@ export default function MLOpsPage() {
             </section>
         </div>
     )
+}
+
+function formatPercent(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+        return '—'
+    }
+    return `${(value * 100).toFixed(1)}%`
 }
 
 function HeroStat({

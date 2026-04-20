@@ -35,7 +35,7 @@ export default function PilotImpactPage() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">Outcome Scorecard</h2>
                         </div>
                         <p className="mt-2 text-sm text-[#6e6e73]">
-                            These metrics summarize recent recommendation performance. Some values come from observed activity, while others stay modeled until the full closeout window is complete.
+                            These metrics split forecast closeout from decision-policy value. Observed sales close the loop today, while policy value remains an estimated proxy against a do-nothing baseline until richer demand recovery and counterfactual evidence are available.
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-2">

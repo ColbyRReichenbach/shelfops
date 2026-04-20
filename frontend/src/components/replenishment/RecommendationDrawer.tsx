@@ -63,7 +63,7 @@ export default function RecommendationDrawer({
                             icon={Package2}
                             label="Recommended order"
                             value={`${recommendation.recommended_quantity.toLocaleString()} units`}
-                            detail={`EOQ ${recommendation.economic_order_qty.toLocaleString()} · Lead time ${recommendation.lead_time_days}d`}
+                            detail={`EOQ ${recommendation.economic_order_qty.toLocaleString()} · Lead time ${recommendation.lead_time_days}d · Plan window ${recommendation.horizon_days}d`}
                         />
                         <HighlightCard
                             icon={ShieldAlert}
@@ -87,14 +87,14 @@ export default function RecommendationDrawer({
                         <div className="grid gap-4 md:grid-cols-2">
                             <MetricTile label="Forecast window" value={`${recommendation.forecast_start_date} to ${recommendation.forecast_end_date}`} />
                             <MetricTile label="Policy version" value={recommendation.policy_version} />
-                            <MetricTile label="Horizon demand mean" value={recommendation.horizon_demand_mean.toFixed(1)} />
-                            <MetricTile label="Lead-time demand mean" value={recommendation.lead_time_demand_mean.toFixed(1)} />
+                            <MetricTile label="Lead-time demand" value={`${recommendation.lead_time_demand_mean.toFixed(1)} units`} />
+                            <MetricTile label="Planning horizon demand" value={`${recommendation.horizon_demand_mean.toFixed(1)} units over ${recommendation.horizon_days}d`} />
                             <MetricTile
-                                label="Prediction band"
+                                label="Planning range"
                                 value={formatBand(recommendation.horizon_demand_lower, recommendation.horizon_demand_upper)}
                             />
                             <MetricTile
-                                label="Range quality"
+                                label="Coverage quality"
                                 value={`${recommendation.interval_method ?? 'unavailable'} · ${recommendation.calibration_status ?? 'unknown'}`}
                             />
                         </div>
@@ -105,7 +105,7 @@ export default function RecommendationDrawer({
                             <div>
                                 <h3 className="text-base font-semibold text-[#1d1d1f]">Impact Summary</h3>
                                 <p className="mt-1 text-sm text-[#6e6e73]">
-                                    A rollup of recent recommendation outcomes across the queue. Status tags below come directly from the backend.
+                                    A rollup of recent queue outcomes. Forecast closeout uses observed sales proxies at horizon close, and policy value is estimated against a do-nothing baseline using recorded decision quantities.
                                 </p>
                             </div>
                             <span className="rounded-full bg-[#f5f5f7] px-3 py-1 text-xs font-semibold text-[#1d1d1f]">
@@ -116,24 +116,24 @@ export default function RecommendationDrawer({
                         {impact ? (
                             <div className="grid gap-4 md:grid-cols-2">
                                 <ImpactTile
-                                    label="Net value"
-                                    value={formatCurrency(impact.net_estimated_value)}
-                                    provenance={impact.net_estimated_value_confidence}
+                                    label="Estimated policy value"
+                                    value={formatCurrency(impact.recommendation_policy.net_policy_value)}
+                                    provenance={impact.recommendation_policy.net_policy_value_confidence}
                                 />
                                 <ImpactTile
-                                    label="Forecast error"
-                                    value={impact.average_forecast_error_abs !== null ? impact.average_forecast_error_abs.toFixed(2) : '—'}
-                                    provenance={impact.average_forecast_error_abs_confidence}
+                                    label="Forecast vs observed sales proxy"
+                                    value={impact.forecast_closeout.average_forecast_error_abs !== null ? impact.forecast_closeout.average_forecast_error_abs.toFixed(2) : '—'}
+                                    provenance={impact.forecast_closeout.average_forecast_error_abs_confidence}
                                 />
                                 <ImpactTile
                                     label="Stockout events"
-                                    value={impact.stockout_events.toLocaleString()}
-                                    provenance={impact.stockout_events_confidence}
+                                    value={impact.forecast_closeout.stockout_events.toLocaleString()}
+                                    provenance={impact.forecast_closeout.stockout_events_confidence}
                                 />
                                 <ImpactTile
                                     label="Overstock events"
-                                    value={impact.overstock_events.toLocaleString()}
-                                    provenance={impact.overstock_events_confidence}
+                                    value={impact.forecast_closeout.overstock_events.toLocaleString()}
+                                    provenance={impact.forecast_closeout.overstock_events_confidence}
                                 />
                             </div>
                         ) : (

@@ -38,10 +38,6 @@
   "calibration_status": "calibrated",
   "interval_coverage": 0.9000010454783063,
   "conformal_residual_quantile": 1.6980407113171767,
-  "weights": {
-    "lightgbm": 1.0,
-    "lstm": 0.0
-  },
   "lightgbm_metrics": {
     "mae": 0.7011100629617129,
     "mape": 0.5731624460219926,
@@ -91,12 +87,6 @@
       "forecast_trust_score"
     ]
   },
-  "lstm_metrics": {
-    "mae": Infinity,
-    "mape": Infinity,
-    "model_type": "lstm_disabled"
-  },
-  "ensemble_mae": 0.7011100629617129,
   "feature_tier": "cold_start",
   "feature_cols": [
     "day_of_week",

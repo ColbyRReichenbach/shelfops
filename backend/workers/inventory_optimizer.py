@@ -1,11 +1,11 @@
 """
 Inventory Optimizer Worker — Nightly reorder point recalculation.
 
-Runs after forecast generation (2:30 AM UTC) to update reorder points
+Runs after forecast generation (3:15 AM UTC) to update reorder points
 for all active (store, product) pairs based on latest demand forecasts,
 supply chain lead times, and vendor reliability scores.
 
-Schedule: crontab(hour=2, minute=30) — nightly
+Schedule: crontab(hour=3, minute=15) — nightly
 Queue: ml (long-running, separate from data sync)
 """
 
