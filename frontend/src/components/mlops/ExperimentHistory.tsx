@@ -18,38 +18,38 @@ export default function ExperimentHistory({
 }) {
     if (isLoading) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
-                <p className="text-sm text-shelf-foreground/60">Loading experiments...</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <Loader2 className="h-8 w-8 mx-auto mb-3 text-[#0071e3] animate-spin" />
+                <p className="text-sm text-[#86868b]">Loading experiments...</p>
             </div>
         )
     }
 
     if (isError) {
         return (
-            <div className="card border border-red-200 bg-red-50/50 shadow-sm text-center py-16">
-                <AlertCircle className="h-8 w-8 mx-auto mb-3 text-red-500" />
-                <p className="text-sm text-red-600">{errorMessage}</p>
+            <div className="card border border-[#ff3b30]/20 bg-[#ff3b30]/5 shadow-sm text-center py-16">
+                <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[#ff3b30]" />
+                <p className="text-sm text-[#ff3b30]">{errorMessage}</p>
             </div>
         )
     }
 
     if (experiments.length === 0) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <FlaskConical className="h-8 w-8 mx-auto mb-3 text-shelf-foreground/30" />
-                <p className="text-sm text-shelf-foreground/50">No training runs recorded</p>
-                <p className="text-xs text-shelf-foreground/40 mt-1">Log a hypothesis above, then run the training pipeline to populate this history.</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <FlaskConical className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
+                <p className="text-sm text-[#86868b]">No training runs recorded</p>
+                <p className="text-xs text-[#86868b] mt-1">Log a hypothesis above, then run the training pipeline to populate this history.</p>
             </div>
         )
     }
 
     return (
-        <div className="card border border-white/40 shadow-sm overflow-hidden">
+        <div className="card border border-black/[0.02] shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                     <thead>
-                        <tr className="border-b border-shelf-foreground/5 text-left text-xs font-semibold uppercase tracking-wider text-shelf-foreground/50">
+                        <tr className="border-b border-black/5 text-left text-xs font-semibold uppercase tracking-wider text-[#86868b]">
                             <th className="px-4 py-3">Experiment</th>
                             <th className="px-4 py-3">Model</th>
                             <th className="px-4 py-3 text-right">MAE</th>
@@ -60,7 +60,7 @@ export default function ExperimentHistory({
                             <th className="px-4 py-3">Trigger</th>
                         </tr>
                     </thead>
-                    <tbody className="divide-y divide-shelf-foreground/5">
+                    <tbody className="divide-y divide-black/5">
                         {experiments.map((run, idx) => {
                             const mae = run.metrics?.mae ?? run.metrics?.test_mae
                             const wape = run.metrics?.wape ?? run.metrics?.test_wape
@@ -68,17 +68,17 @@ export default function ExperimentHistory({
                             const biasPct = run.metrics?.bias_pct
 
                             return (
-                                <tr key={run.source_file ?? idx} className="hover:bg-shelf-foreground/[0.02] transition-colors">
+                                <tr key={run.source_file ?? idx} className="hover:bg-[#f5f5f7] transition-colors">
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-2">
-                                            <FlaskConical className="h-4 w-4 text-shelf-primary/60" />
-                                            <span className="font-medium text-shelf-foreground truncate max-w-[200px]">
+                                            <FlaskConical className="h-4 w-4 text-[#0071e3]/60" />
+                                            <span className="font-medium text-[#1d1d1f] truncate max-w-[200px]">
                                                 {run.experiment}
                                             </span>
                                         </div>
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className="inline-flex rounded-full bg-shelf-primary/10 px-2 py-0.5 text-xs font-medium text-shelf-primary">
+                                        <span className="inline-flex rounded-full bg-[#0071e3]/10 px-2 py-0.5 text-xs font-medium text-[#0071e3]">
                                             {run.model_name}
                                         </span>
                                     </td>
@@ -94,13 +94,13 @@ export default function ExperimentHistory({
                                     <td className="px-4 py-3 text-right font-mono">
                                         {biasPct !== undefined ? `${(Number(biasPct) * 100).toFixed(1)}%` : '—'}
                                     </td>
-                                    <td className="px-4 py-3 text-shelf-foreground/60 text-xs">
+                                    <td className="px-4 py-3 text-[#86868b] text-xs">
                                         {run.timestamp
                                             ? new Date(run.timestamp).toLocaleDateString()
                                             : '—'}
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className="text-xs text-shelf-foreground/50">
+                                        <span className="text-xs text-[#86868b]">
                                             {run.tags?.trigger ?? 'manual'}
                                         </span>
                                     </td>

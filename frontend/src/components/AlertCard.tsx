@@ -32,10 +32,10 @@ export default function AlertCard({ alert, onAcknowledge, onDismiss }: AlertCard
 
     return (
         <div className="card-compact flex items-start gap-4 animate-slide-up">
-            <div className={`mt-0.5 rounded-lg p-2 ${alert.severity === 'critical' ? 'bg-red-500/15 text-red-400' :
-                alert.severity === 'high' ? 'bg-orange-500/15 text-orange-400' :
-                    alert.severity === 'medium' ? 'bg-yellow-500/15 text-yellow-400' :
-                        'bg-green-500/15 text-green-400'
+            <div className={`mt-0.5 rounded-lg p-2 ${alert.severity === 'critical' ? 'bg-[#ff3b30]/15 text-[#ff3b30]' :
+                alert.severity === 'high' ? 'bg-[#ff9500]/15 text-[#ff9500]' :
+                    alert.severity === 'medium' ? 'bg-[#ffcc00]/15 text-[#b38f00]' :
+                        'bg-[#34c759]/15 text-[#34c759]'
                 }`}>
                 <Icon className="h-4 w-4" />
             </div>
@@ -43,23 +43,23 @@ export default function AlertCard({ alert, onAcknowledge, onDismiss }: AlertCard
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                     <span className={severityBadge[alert.severity]}>{alert.severity}</span>
-                    <span className="text-xs text-surface-200/40">{timeAgo}</span>
+                    <span className="text-xs text-[#86868b]">{timeAgo}</span>
                 </div>
-                <p className="text-sm text-surface-50 leading-relaxed">{alert.message}</p>
+                <p className="text-sm text-[#1d1d1f] leading-relaxed">{alert.message}</p>
             </div>
 
             {alert.status === 'open' && (
                 <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
                         onClick={() => onAcknowledge?.(alert.alert_id)}
-                        className="rounded-md p-1.5 text-surface-200/50 hover:bg-brand-600/15 hover:text-brand-400 transition-colors"
+                        className="rounded-md p-1.5 text-[#86868b] hover:bg-[#0071e3]/10 hover:text-[#0071e3] transition-colors"
                         title="Acknowledge"
                     >
                         <CheckCircle className="h-4 w-4" />
                     </button>
                     <button
                         onClick={() => onDismiss?.(alert.alert_id)}
-                        className="rounded-md p-1.5 text-surface-200/50 hover:bg-red-600/15 hover:text-red-400 transition-colors"
+                        className="rounded-md p-1.5 text-[#86868b] hover:bg-[#ff3b30]/10 hover:text-[#ff3b30] transition-colors"
                         title="Dismiss"
                     >
                         <XCircle className="h-4 w-4" />

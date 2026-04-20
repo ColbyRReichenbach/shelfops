@@ -1,6 +1,6 @@
 /**
  * SHAPWaterfall — Collapsible SHAP feature importance panel.
- * WS-4 demo component. Fetches from /api/v1/forecasts/{forecastId}/explain.
+ * Forecast explanation panel. Fetches from /api/v1/forecasts/{forecastId}/explain.
  */
 
 import { useState } from 'react'
@@ -79,17 +79,18 @@ function SHAPTooltip({
     return (
         <div
             style={{
-                backgroundColor: 'rgba(255,255,255,0.97)',
-                border: '1px solid rgba(0,0,0,0.08)',
-                borderRadius: '8px',
+                backgroundColor: 'rgba(29,29,31,0.8)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '16px',
                 padding: '8px 12px',
-                fontSize: '11px',
-                color: '#4e5274',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                fontSize: '12px',
+                color: '#ffffff',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             }}
         >
             <p className="font-medium">{item.payload.label}</p>
-            <p style={{ color: val >= 0 ? '#22c55e' : '#ef4444' }}>
+            <p style={{ color: val >= 0 ? '#34c759' : '#ff3b30' }}>
                 SHAP: {val >= 0 ? '+' : ''}{val.toFixed(3)}
             </p>
         </div>
@@ -133,12 +134,12 @@ export default function SHAPWaterfall({
         : []
 
     return (
-        <div className="mt-3 border-t border-shelf-foreground/5 pt-3">
+        <div className="mt-3 border-t border-black/5 pt-3">
             {/* Trigger button — id required for Shepherd.js step */}
             <button
                 id="shap-explain-btn"
                 onClick={() => setIsOpen(prev => !prev)}
-                className="flex items-center gap-1.5 text-xs font-medium text-shelf-primary hover:text-shelf-primary/80 transition-colors"
+                className="flex items-center gap-1.5 text-xs font-medium text-[#0071e3] hover:text-[#0071e3]/80 transition-colors"
             >
                 <HelpCircle className="h-3.5 w-3.5" />
                 Why this forecast?
@@ -153,12 +154,12 @@ export default function SHAPWaterfall({
                 <div className="mt-3 space-y-3">
                     {/* Predicted value summary */}
                     <div className="flex items-baseline gap-2">
-                        <span className="text-lg font-bold text-shelf-foreground">
+                        <span className="text-lg font-bold text-[#1d1d1f]">
                             {predictedValue.toLocaleString()}
                         </span>
-                        <span className="text-xs text-shelf-foreground/50">units forecast</span>
+                        <span className="text-xs text-[#86868b]">units forecast</span>
                         {data?.base_value != null && (
-                            <span className="text-xs text-shelf-foreground/40">
+                            <span className="text-xs text-[#86868b]">
                                 (base: {data.base_value.toFixed(1)})
                             </span>
                         )}
@@ -166,7 +167,7 @@ export default function SHAPWaterfall({
 
                     {/* Loading */}
                     {(isLoading || isFetching) && (
-                        <div className="flex items-center gap-2 py-4 text-shelf-foreground/40">
+                        <div className="flex items-center gap-2 py-4 text-[#86868b]">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             <span className="text-xs">Loading explanation&hellip;</span>
                         </div>
@@ -174,7 +175,7 @@ export default function SHAPWaterfall({
 
                     {/* Error */}
                     {isError && !isFetching && (
-                        <div className="flex items-center gap-2 py-3 text-red-500">
+                        <div className="flex items-center gap-2 py-3 text-[#ff3b30]">
                             <AlertCircle className="h-4 w-4" />
                             <span className="text-xs">Could not load SHAP explanation.</span>
                         </div>
@@ -184,10 +185,10 @@ export default function SHAPWaterfall({
                     {data && !isFetching && (
                         <>
                             {/* Plain-language summary */}
-                            <p className="text-xs text-shelf-foreground/60 bg-shelf-secondary/5 rounded-lg px-3 py-2">
+                            <p className="text-xs text-[#86868b] bg-[#f5f5f7] rounded-lg px-3 py-2">
                                 {buildSummary(data)}
                             </p>
-                            <p className="text-[11px] text-shelf-foreground/45">
+                            <p className="text-[11px] text-[#86868b]">
                                 Demo explanation view: deterministic per-forecast contribution estimates for a repeatable walkthrough.
                             </p>
 
@@ -200,13 +201,13 @@ export default function SHAPWaterfall({
                                     >
                                         <CartesianGrid
                                             strokeDasharray="3 3"
-                                            stroke="#000"
-                                            strokeOpacity={0.04}
+                                            stroke="#e5e5ea"
+                                            strokeOpacity={1}
                                             horizontal={false}
                                         />
                                         <XAxis
                                             type="number"
-                                            tick={{ fill: '#4e5274', fontSize: 10, opacity: 0.6 }}
+                                            tick={{ fill: '#86868b', fontSize: 10, opacity: 0.6 }}
                                             axisLine={false}
                                             tickLine={false}
                                             tickFormatter={v =>
@@ -217,7 +218,7 @@ export default function SHAPWaterfall({
                                             dataKey="label"
                                             type="category"
                                             width={110}
-                                            tick={{ fill: '#4e5274', fontSize: 10 }}
+                                            tick={{ fill: '#86868b', fontSize: 10 }}
                                             axisLine={false}
                                             tickLine={false}
                                         />
@@ -228,8 +229,8 @@ export default function SHAPWaterfall({
                                                     key={`cell-${index}`}
                                                     fill={
                                                         entry.shap_value >= 0
-                                                            ? '#22c55e'
-                                                            : '#ef4444'
+                                                            ? '#34c759'
+                                                            : '#ff3b30'
                                                     }
                                                     fillOpacity={0.8}
                                                 />
@@ -239,13 +240,13 @@ export default function SHAPWaterfall({
                                 </ResponsiveContainer>
                             </div>
 
-                            <div className="flex items-center gap-4 text-[10px] text-shelf-foreground/50">
+                            <div className="flex items-center gap-4 text-[10px] text-[#86868b]">
                                 <span className="flex items-center gap-1">
-                                    <span className="inline-block h-2 w-3 rounded" style={{ backgroundColor: '#22c55e', opacity: 0.8 }} />
+                                    <span className="inline-block h-2 w-3 rounded" style={{ backgroundColor: '#34c759', opacity: 0.8 }} />
                                     Increases forecast
                                 </span>
                                 <span className="flex items-center gap-1">
-                                    <span className="inline-block h-2 w-3 rounded" style={{ backgroundColor: '#ef4444', opacity: 0.8 }} />
+                                    <span className="inline-block h-2 w-3 rounded" style={{ backgroundColor: '#ff3b30', opacity: 0.8 }} />
                                     Decreases forecast
                                 </span>
                             </div>

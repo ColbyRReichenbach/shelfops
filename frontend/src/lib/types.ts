@@ -238,6 +238,25 @@ export type ExperimentStatus =
     | 'completed'
     | 'rejected'
 
+export interface ExperimentResults {
+    baseline_mae?: number | null
+    experimental_mae?: number | null
+    baseline_wape?: number | null
+    experimental_wape?: number | null
+    baseline_mase?: number | null
+    experimental_mase?: number | null
+    overstock_dollars_delta?: number | null
+    opportunity_cost_stockout_delta?: number | null
+    overall_business_safe?: boolean | null
+    decision?: string | null
+    promotion_comparison?: {
+        promoted?: boolean
+        reason?: string
+        gate_checks?: Record<string, boolean>
+    } | null
+    [key: string]: unknown
+}
+
 export interface ExperimentLedgerEntry {
     experiment_id: string
     experiment_name: string
@@ -250,6 +269,7 @@ export interface ExperimentLedgerEntry {
     baseline_version: string | null
     experimental_version: string | null
     lineage_metadata: Record<string, unknown> | null
+    results: ExperimentResults | null
     decision_rationale: string | null
     created_at: string
     approved_at: string | null
@@ -274,6 +294,52 @@ export interface ProposeExperimentResponse {
 export interface ApproveExperimentPayload {
     experimentId: string
     rationale?: string
+}
+
+export interface RunExperimentPayload {
+    experimentId: string
+    dataDir?: string
+    holdoutDays?: number
+    maxRows?: number
+    maxChallengers?: number
+}
+
+export interface ExperimentRunExecution {
+    status: string
+    experiment_id: string
+    experiment_status: ExperimentStatus
+    baseline_version: string | null
+    experimental_version: string
+    comparison: {
+        promoted: boolean
+        reason: string
+        gate_checks: Record<string, boolean>
+        decision?: Record<string, unknown>
+        candidate_mae?: number | null
+        champion_mae?: number | null
+        candidate_wape?: number | null
+        champion_wape?: number | null
+        candidate_mase?: number | null
+        champion_mase?: number | null
+    }
+    report: {
+        baseline: {
+            holdout_metrics: Record<string, number | string | boolean | null>
+            lineage_metadata: Record<string, unknown>
+        }
+        challenger: {
+            holdout_metrics: Record<string, number | string | boolean | null>
+            lineage_metadata: Record<string, unknown>
+            segment_summary?: Record<string, unknown> | null
+        }
+        experiment: {
+            experiment_name: string
+            hypothesis: string
+            experiment_type: ExperimentType
+            decision: string
+            decision_rationale: string
+        }
+    }
 }
 
 export interface SHAPFeature {
@@ -434,10 +500,150 @@ export interface SyncHealth {
     failures_24h: number
     syncs_24h: number
     records_24h: number
+    mapping_confirmed?: boolean
+    mapping_coverage?: Record<string, number>
+    unmapped_location_ids?: string[]
+    unmapped_catalog_ids?: string[]
 }
 
 export interface SyncHealthResponse {
     sources: SyncHealth[]
     overall_health: 'healthy' | 'degraded'
     checked_at: string
+}
+
+export interface ReplenishmentRecommendation {
+    recommendation_id: string
+    customer_id: string
+    store_id: string
+    product_id: string
+    supplier_id: string | null
+    linked_po_id: string | null
+    status: string
+    forecast_model_version: string
+    policy_version: string
+    horizon_days: number
+    forecast_start_date: string
+    forecast_end_date: string
+    recommended_quantity: number
+    quantity_available: number
+    quantity_on_order: number
+    inventory_position: number
+    reorder_point: number
+    safety_stock: number
+    economic_order_qty: number
+    lead_time_days: number
+    service_level: number
+    estimated_unit_cost: number | null
+    estimated_total_cost: number | null
+    source_type: string | null
+    source_id: string | null
+    source_name: string | null
+    horizon_demand_mean: number
+    horizon_demand_lower: number | null
+    horizon_demand_upper: number | null
+    lead_time_demand_mean: number
+    lead_time_demand_upper: number | null
+    interval_method: string | null
+    calibration_status: string | null
+    interval_coverage: number | null
+    no_order_stockout_risk: string
+    order_overstock_risk: string
+    recommendation_rationale: Record<string, unknown>
+    created_at: string
+}
+
+export interface RecommendationImpact {
+    as_of_date: string
+    total_recommendations: number
+    accepted_count: number
+    edited_count: number
+    rejected_count: number
+    closed_outcomes: number
+    closed_outcomes_confidence: string
+    provisional_outcomes: number
+    provisional_outcomes_confidence: string
+    average_forecast_error_abs: number | null
+    average_forecast_error_abs_confidence: string
+    net_estimated_value: number | null
+    net_estimated_value_confidence: string
+    stockout_events: number
+    stockout_events_confidence: string
+    overstock_events: number
+    overstock_events_confidence: string
+}
+
+export interface RecommendationAcceptPayload {
+    reason_code?: string
+    notes?: string
+}
+
+export interface RecommendationEditPayload {
+    quantity: number
+    reason_code: string
+    notes?: string
+}
+
+export interface RecommendationRejectPayload {
+    reason_code: string
+    notes?: string
+}
+
+export interface DataReadinessSnapshot {
+    history_days?: number
+    store_count?: number
+    product_count?: number
+    candidate_version?: string | null
+    champion_version?: string | null
+    candidate_accuracy_samples?: number
+    champion_accuracy_samples?: number
+    thresholds?: {
+        min_history_days?: number
+        min_store_count?: number
+        min_product_count?: number
+        min_accuracy_samples?: number
+        accuracy_window_days?: number
+    }
+    [key: string]: unknown
+}
+
+export interface DataReadiness {
+    state: string
+    reason_code: string
+    snapshot: DataReadinessSnapshot
+}
+
+export interface ReplenishmentSimulationPolicyRow {
+    policy_name: string
+    stockout_days: number
+    lost_sales_units: number
+    lost_sales_proxy: number
+    overstock_units: number
+    overstock_dollars: number
+    service_level: number
+    po_count: number
+    combined_cost_proxy: number
+}
+
+export interface ReplenishmentSimulationReport {
+    dataset_id: string
+    dataset_snapshot_id?: string | null
+    simulation_scope: string
+    impact_confidence: string
+    claim_boundary: string
+    stockout_label_boundary: string
+    inventory_assumptions_confidence: string
+    po_assumptions_confidence: string
+    lead_time_assumptions_confidence: string
+    cost_assumptions_confidence: string
+    model_version?: string | null
+    policy_version?: string | null
+    policy_versions: string[]
+    rows_used: number
+    series_used: number
+    history_start: string
+    history_end: string
+    replay_start: string
+    replay_end: string
+    results: ReplenishmentSimulationPolicyRow[]
 }

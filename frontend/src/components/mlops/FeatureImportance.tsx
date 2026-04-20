@@ -25,19 +25,19 @@ export default function FeatureImportance({
 }) {
     if (isLoading) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
-                <p className="text-sm text-shelf-foreground/60">Loading feature importance...</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <Loader2 className="h-8 w-8 mx-auto mb-3 text-[#0071e3] animate-spin" />
+                <p className="text-sm text-[#86868b]">Loading feature importance...</p>
             </div>
         )
     }
 
     if (features.length === 0) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <Sparkles className="h-8 w-8 mx-auto mb-3 text-shelf-foreground/30" />
-                <p className="text-sm text-shelf-foreground/50">No SHAP data available</p>
-                <p className="text-xs text-shelf-foreground/40 mt-1">Train a model to generate feature importance</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <Sparkles className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
+                <p className="text-sm text-[#86868b]">No SHAP data available</p>
+                <p className="text-xs text-[#86868b] mt-1">Train a model to generate feature importance</p>
             </div>
         )
     }
@@ -48,32 +48,35 @@ export default function FeatureImportance({
     }))
 
     return (
-        <div className="card border border-white/40 shadow-sm p-4">
+        <div className="card border border-black/[0.02] shadow-sm p-4">
             <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-shelf-foreground">SHAP Feature Importance</h3>
-                <span className="text-xs text-shelf-foreground/50 font-mono">{version}</span>
+                <h3 className="text-sm font-semibold text-[#1d1d1f]">SHAP Feature Importance</h3>
+                <span className="text-xs text-[#86868b] font-mono">{version}</span>
             </div>
             <ResponsiveContainer width="100%" height={Math.max(300, chartData.length * 32)}>
                 <BarChart data={chartData} layout="vertical" margin={{ left: 100 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" horizontal={false} />
-                    <XAxis type="number" tick={{ fontSize: 11 }} stroke="rgba(0,0,0,0.3)" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e5ea" horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: '#86868b' }} stroke="rgba(0,0,0,0.3)" />
                     <YAxis
                         type="category"
                         dataKey="name"
-                        tick={{ fontSize: 11 }}
+                        tick={{ fontSize: 11, fill: '#86868b' }}
                         stroke="rgba(0,0,0,0.3)"
                         width={100}
                     />
                     <Tooltip
                         contentStyle={{
-                            backgroundColor: 'white',
-                            borderRadius: '8px',
-                            border: '1px solid rgba(0,0,0,0.1)',
+                            backgroundColor: 'rgba(29,29,31,0.8)',
+                            backdropFilter: 'blur(12px)',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '16px',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                             fontSize: '12px',
+                            color: '#ffffff',
                         }}
                         formatter={(value: number) => [`${value}%`, 'Importance']}
                     />
-                    <Bar dataKey="importance" fill="#6366f1" radius={[0, 4, 4, 0]} />
+                    <Bar dataKey="importance" fill="#0071e3" radius={[0, 4, 4, 0]} />
                 </BarChart>
             </ResponsiveContainer>
         </div>

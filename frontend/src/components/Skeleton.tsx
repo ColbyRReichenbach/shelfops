@@ -6,7 +6,7 @@
 export function Skeleton({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
     return (
         <div
-            className={`animate-pulse rounded-lg bg-shelf-foreground/[0.06] ${className}`}
+            className={`animate-pulse rounded-lg bg-[#f5f5f7] ${className}`}
             style={style}
         />
     )
@@ -14,7 +14,7 @@ export function Skeleton({ className = '', style }: { className?: string; style?
 
 export function KpiSkeleton() {
     return (
-        <div className="card border border-white/40 shadow-sm p-4 space-y-3">
+        <div className="card border border-black/[0.02] rounded-[24px] shadow-sm p-4 space-y-3">
             <div className="flex items-center justify-between">
                 <Skeleton className="h-4 w-24" />
                 <Skeleton className="h-8 w-8 rounded-full" />
@@ -40,7 +40,7 @@ export function TableRowSkeleton({ columns = 5 }: { columns?: number }) {
 export function ChartSkeleton() {
     const heights = ['32%', '45%', '38%', '52%', '61%', '49%', '56%', '63%', '58%', '67%', '54%', '70%']
     return (
-        <div className="card border border-white/40 shadow-sm p-6 h-[350px] flex items-end gap-2">
+        <div className="card border border-black/[0.02] rounded-[24px] shadow-sm p-6 h-[350px] flex items-end gap-2">
             {heights.map((height, i) => (
                 <Skeleton
                     key={i}

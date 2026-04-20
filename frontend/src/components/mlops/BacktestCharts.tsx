@@ -9,19 +9,19 @@ import type { BacktestEntry } from '@/lib/types'
 export default function BacktestCharts({ backtests, isLoading }: { backtests: BacktestEntry[]; isLoading: boolean }) {
     if (isLoading) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
-                <p className="text-sm text-shelf-foreground/60">Loading backtest data...</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <Loader2 className="h-8 w-8 mx-auto mb-3 text-[#0071e3] animate-spin" />
+                <p className="text-sm text-[#86868b]">Loading backtest data...</p>
             </div>
         )
     }
 
     if (backtests.length === 0) {
         return (
-            <div className="card border border-white/40 shadow-sm text-center py-16">
-                <TrendingDown className="h-8 w-8 mx-auto mb-3 text-shelf-foreground/30" />
-                <p className="text-sm text-shelf-foreground/50">No backtest results yet</p>
-                <p className="text-xs text-shelf-foreground/40 mt-1">Backtests run daily at 6:00 AM UTC</p>
+            <div className="card border border-black/[0.02] shadow-sm text-center py-16">
+                <TrendingDown className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
+                <p className="text-sm text-[#86868b]">No backtest results yet</p>
+                <p className="text-xs text-[#86868b] mt-1">Backtests run daily at 6:00 AM UTC</p>
             </div>
         )
     }
@@ -47,42 +47,45 @@ export default function BacktestCharts({ backtests, isLoading }: { backtests: Ba
         <div className="space-y-4">
             {/* KPI row */}
             <div className="grid grid-cols-3 gap-4">
-                <div className="card border border-white/40 shadow-sm p-4">
-                    <p className="text-xs font-medium text-shelf-foreground/50 uppercase tracking-wider">Avg MAE</p>
-                    <p className="text-2xl font-bold text-shelf-primary mt-1">{avgMae.toFixed(2)}</p>
+                <div className="card border border-black/[0.02] shadow-sm p-4">
+                    <p className="text-xs font-medium text-[#86868b] uppercase tracking-wider">Avg MAE</p>
+                    <p className="text-2xl font-bold text-[#0071e3] mt-1">{avgMae.toFixed(2)}</p>
                 </div>
-                <div className="card border border-white/40 shadow-sm p-4">
-                    <p className="text-xs font-medium text-shelf-foreground/50 uppercase tracking-wider">Latest MAE</p>
-                    <p className="text-2xl font-bold text-shelf-foreground mt-1">{latestMae.toFixed(2)}</p>
+                <div className="card border border-black/[0.02] shadow-sm p-4">
+                    <p className="text-xs font-medium text-[#86868b] uppercase tracking-wider">Latest MAE</p>
+                    <p className="text-2xl font-bold text-[#1d1d1f] mt-1">{latestMae.toFixed(2)}</p>
                 </div>
-                <div className="card border border-white/40 shadow-sm p-4">
-                    <p className="text-xs font-medium text-shelf-foreground/50 uppercase tracking-wider">7d Trend</p>
-                    <p className={`text-2xl font-bold mt-1 ${trend < 0 ? 'text-green-600' : trend > 0 ? 'text-red-600' : 'text-shelf-foreground'}`}>
+                <div className="card border border-black/[0.02] shadow-sm p-4">
+                    <p className="text-xs font-medium text-[#86868b] uppercase tracking-wider">7d Trend</p>
+                    <p className={`text-2xl font-bold mt-1 ${trend < 0 ? 'text-[#34c759]' : trend > 0 ? 'text-[#ff3b30]' : 'text-[#1d1d1f]'}`}>
                         {trend > 0 ? '+' : ''}{trend.toFixed(2)}
                     </p>
                 </div>
             </div>
 
             {/* Chart */}
-            <div className="card border border-white/40 shadow-sm p-4">
-                <h3 className="text-sm font-semibold text-shelf-foreground mb-4">Walk-Forward MAE Over Time</h3>
+            <div className="card border border-black/[0.02] shadow-sm p-4">
+                <h3 className="text-sm font-semibold text-[#1d1d1f] mb-4">Walk-Forward MAE Over Time</h3>
                 <ResponsiveContainer width="100%" height={300}>
                     <LineChart data={chartData}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
-                        <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="rgba(0,0,0,0.3)" />
-                        <YAxis tick={{ fontSize: 11 }} stroke="rgba(0,0,0,0.3)" />
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e5e5ea" />
+                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#86868b' }} stroke="rgba(0,0,0,0.3)" />
+                        <YAxis tick={{ fontSize: 11, fill: '#86868b' }} stroke="rgba(0,0,0,0.3)" />
                         <Tooltip
                             contentStyle={{
-                                backgroundColor: 'white',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(0,0,0,0.1)',
+                                backgroundColor: 'rgba(29,29,31,0.8)',
+                                backdropFilter: 'blur(12px)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '16px',
+                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                                 fontSize: '12px',
+                                color: '#ffffff',
                             }}
                         />
                         <Legend />
-                        <Line type="monotone" dataKey="mae" name="MAE" stroke="#6366f1" strokeWidth={2} dot={false} />
+                        <Line type="monotone" dataKey="mae" name="MAE" stroke="#0071e3" strokeWidth={2} dot={false} />
                         {chartData.some(d => d.mape !== null) && (
-                            <Line type="monotone" dataKey="mape" name="MAPE %" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                            <Line type="monotone" dataKey="mape" name="MAPE %" stroke="#34c759" strokeWidth={2} dot={false} />
                         )}
                     </LineChart>
                 </ResponsiveContainer>

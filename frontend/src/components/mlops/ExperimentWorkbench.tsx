@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react'
 import type React from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { CheckCircle2, ClipboardList, FlaskConical, Loader2, PlusCircle } from 'lucide-react'
+import { CheckCircle2, ClipboardList, FlaskConical, Loader2, PlusCircle, Sparkles } from 'lucide-react'
 
 import {
     useApproveExperiment,
     useExperimentLedger,
+    useInterpretExperiment,
     useProposeExperiment,
+    useRunExperiment,
 } from '@/hooks/useShelfOps'
 import type {
     ExperimentLedgerEntry,
+    ExperimentResults,
     ExperimentRun,
+    ExperimentRunExecution,
     ExperimentType,
     ProposeExperimentPayload,
 } from '@/lib/types'
@@ -53,11 +57,11 @@ function initialFormState(defaultModelName: string): ExperimentFormState {
         hypothesis: '',
         experiment_type: 'feature_set',
         model_name: defaultModelName,
-        dataset_id: 'favorita',
-        forecast_grain: 'store_nbr_family_date',
+        dataset_id: 'm5_walmart',
+        forecast_grain: 'dataset_specific',
         architecture: 'lightgbm',
         objective: 'poisson',
-        feature_set_id: 'favorita_baseline_v1',
+        feature_set_id: 'm5_replenishment_baseline_v1',
         segment_strategy: 'global',
         trigger_source: 'manual_hypothesis',
         baseline_version: '',
@@ -86,6 +90,10 @@ export default function ExperimentWorkbench({
     const [form, setForm] = useState<ExperimentFormState>(() => initialFormState(defaultModelName))
     const [submitMessage, setSubmitMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
     const [approvalMessage, setApprovalMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+    const [runMessage, setRunMessage] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
+    const [latestExecution, setLatestExecution] = useState<ExperimentRunExecution | null>(null)
+    const [draftExperimentId, setDraftExperimentId] = useState<string | null>(null)
+    const [draftSignature, setDraftSignature] = useState<string | null>(null)
 
     useEffect(() => {
         setForm(current => {
@@ -97,6 +105,7 @@ export default function ExperimentWorkbench({
 
     const proposeExperiment = useProposeExperiment()
     const approveExperiment = useApproveExperiment()
+    const runExperiment = useRunExperiment()
     const {
         data: ledger = [],
         isLoading: ledgerLoading,
@@ -107,11 +116,17 @@ export default function ExperimentWorkbench({
         limit: 12,
     })
 
-    async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
-        event.preventDefault()
-        setSubmitMessage(null)
+    const {
+        data: completedTrials = [],
+        isLoading: completedLoading,
+    } = useExperimentLedger({
+        modelName: form.model_name || undefined,
+        status: 'completed',
+        limit: 20,
+    })
 
-        const payload: ProposeExperimentPayload = {
+    function buildPayload(): ProposeExperimentPayload {
+        return {
             experiment_name: form.experiment_name.trim(),
             hypothesis: form.hypothesis.trim(),
             experiment_type: form.experiment_type,
@@ -129,6 +144,49 @@ export default function ExperimentWorkbench({
                 notes: form.notes.trim() || null,
             },
         }
+    }
+
+    function payloadSignature(payload: ProposeExperimentPayload): string {
+        return JSON.stringify(payload)
+    }
+
+    function resetDraft(modelName: string) {
+        setDraftExperimentId(null)
+        setDraftSignature(null)
+        setLatestExecution(null)
+        setRunMessage(null)
+        setSubmitMessage(null)
+        setApprovalMessage(null)
+        setForm(current => ({
+            ...initialFormState(modelName),
+            model_name: modelName,
+            dataset_id: current.dataset_id,
+            forecast_grain: current.forecast_grain,
+            architecture: current.architecture,
+            objective: current.objective,
+            feature_set_id: current.feature_set_id,
+            segment_strategy: current.segment_strategy,
+            trigger_source: current.trigger_source,
+        }))
+    }
+
+    async function ensureExperiment(payload: ProposeExperimentPayload): Promise<string> {
+        const signature = payloadSignature(payload)
+        if (draftExperimentId && draftSignature === signature) {
+            return draftExperimentId
+        }
+        const response = await proposeExperiment.mutateAsync(payload)
+        setDraftExperimentId(response.experiment_id)
+        setDraftSignature(signature)
+        return response.experiment_id
+    }
+
+    async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+        event.preventDefault()
+        setSubmitMessage(null)
+        setRunMessage(null)
+
+        const payload = buildPayload()
 
         if (!payload.experiment_name || !payload.hypothesis) {
             setSubmitMessage({
@@ -140,25 +198,52 @@ export default function ExperimentWorkbench({
 
         try {
             const response = await proposeExperiment.mutateAsync(payload)
+            setDraftExperimentId(response.experiment_id)
+            setDraftSignature(payloadSignature(payload))
             setSubmitMessage({
                 tone: 'success',
                 text: `Hypothesis logged${defaultAuthor ? ` as ${defaultAuthor}` : ''}. Baseline version: ${response.baseline_version ?? 'none detected yet'}.`,
             })
-            setForm(current => ({
-                ...initialFormState(payload.model_name),
-                model_name: payload.model_name,
-                dataset_id: current.dataset_id,
-                forecast_grain: current.forecast_grain,
-                architecture: current.architecture,
-                objective: current.objective,
-                feature_set_id: current.feature_set_id,
-                segment_strategy: current.segment_strategy,
-                trigger_source: current.trigger_source,
-            }))
         } catch (error) {
             const detail = error instanceof Error ? error.message : 'Unable to log experiment.'
             setSubmitMessage({ tone: 'error', text: detail })
         }
+    }
+
+    async function handleRun(event: React.MouseEvent<HTMLButtonElement>) {
+        event.preventDefault()
+        setRunMessage(null)
+        setSubmitMessage(null)
+        const payload = buildPayload()
+
+        if (!payload.experiment_name || !payload.hypothesis) {
+            setRunMessage({
+                tone: 'error',
+                text: 'Experiment name and hypothesis are required before running.',
+            })
+            return
+        }
+
+        try {
+            const experimentId = await ensureExperiment(payload)
+            const result = await runExperiment.mutateAsync({
+                experimentId,
+            })
+            setLatestExecution(result)
+            setRunMessage({
+                tone: 'success',
+                text: result.comparison.promoted
+                    ? `Experiment ran successfully and set ${result.experimental_version} as the active version.`
+                    : `Experiment ran successfully. ${result.experimental_version} stays in review because ${result.comparison.reason}.`,
+            })
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : 'Unable to run experiment.'
+            setRunMessage({ tone: 'error', text: detail })
+        }
+    }
+
+    function handleClear() {
+        resetDraft(form.model_name || defaultModelName)
     }
 
     async function handleApprove(experiment: ExperimentLedgerEntry) {
@@ -183,18 +268,18 @@ export default function ExperimentWorkbench({
     return (
         <div className="space-y-6">
             <div className="grid grid-cols-1 xl:grid-cols-[1.2fr,0.8fr] gap-6">
-                <section className="card border border-white/40 shadow-sm p-5 space-y-4">
+                <section className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
                     <div className="flex items-start justify-between gap-4">
                         <div>
-                            <h2 className="text-lg font-semibold text-shelf-primary">Log New Hypothesis</h2>
-                            <p className="text-sm text-shelf-foreground/60 mt-1">
-                                This writes directly to the experiments API and anchors the audit trail before training starts.
+                            <h2 className="text-lg font-semibold text-[#0071e3]">Log New Hypothesis</h2>
+                            <p className="text-sm text-[#86868b] mt-1">
+                                This logs the proposed change before a training run starts.
                             </p>
-                            <p className="text-xs text-shelf-foreground/45 mt-2">
-                                Audit actor is derived from {actorLabel}; it is no longer entered manually.
+                            <p className="text-xs text-[#86868b] mt-2">
+                                The submitting account is pulled from {actorLabel}; it is no longer entered manually.
                             </p>
                         </div>
-                        <div className="inline-flex items-center gap-2 rounded-full bg-shelf-primary/10 px-3 py-1 text-xs font-medium text-shelf-primary">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-[#0071e3]/10 px-3 py-1 text-xs font-medium text-[#0071e3]">
                             <PlusCircle className="h-3.5 w-3.5" />
                             Experiment Intake
                         </div>
@@ -207,13 +292,28 @@ export default function ExperimentWorkbench({
                                     value={form.experiment_name}
                                     onChange={event => setForm(current => ({ ...current, experiment_name: event.target.value }))}
                                     className="input"
-                                    placeholder="favorita_lgbm_feature_set_v2_promo_velocity"
+                                    placeholder="m5_replenishment_feature_set_v2"
                                 />
                             </Field>
                             <Field label="Experiment Type">
                                 <select
                                     value={form.experiment_type}
-                                    onChange={event => setForm(current => ({ ...current, experiment_type: event.target.value as ExperimentType }))}
+                                    onChange={event => {
+                                        const nextType = event.target.value as ExperimentType
+                                        setForm(current => ({
+                                            ...current,
+                                            experiment_type: nextType,
+                                            segment_strategy: nextType === 'segmentation'
+                                                ? 'sku_velocity_terciles_with_global_fallback'
+                                                : current.segment_strategy,
+                                            feature_set_id: nextType === 'segmentation'
+                                                ? 'm5_segmented_candidate_v1'
+                                                : current.feature_set_id,
+                                            success_criteria: nextType === 'segmentation'
+                                                ? 'Reduce lost sales quantity and stockout opportunity cost without regressing WAPE, MASE, or overstock rate.'
+                                                : current.success_criteria,
+                                        }))
+                                    }}
                                     className="input"
                                 >
                                     {EXPERIMENT_TYPES.map(option => (
@@ -331,32 +431,53 @@ export default function ExperimentWorkbench({
                         {submitMessage && (
                             <StatusMessage tone={submitMessage.tone} text={submitMessage.text} />
                         )}
+                        {runMessage && (
+                            <StatusMessage tone={runMessage.tone} text={runMessage.text} />
+                        )}
 
                         <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs text-shelf-foreground/50">
-                                Baseline version is still auto-detected by the backend from the current champion.
+                            <p className="text-xs text-[#86868b]">
+                                `Run Hypothesis` logs the entry if needed, executes the bounded test cycle, and returns the release-check summary.
                             </p>
-                            <button
-                                type="submit"
-                                disabled={proposeExperiment.isPending}
-                                className="inline-flex items-center gap-2 rounded-lg bg-shelf-primary px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                                {proposeExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-                                Log Hypothesis
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={handleClear}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-black/5 bg-white px-4 py-2 text-sm font-medium text-[#86868b] shadow-sm transition hover:border-[#0071e3]/30 hover:text-[#0071e3]"
+                                >
+                                    Clear
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={proposeExperiment.isPending || runExperiment.isPending}
+                                    className="inline-flex items-center gap-2 rounded-lg border border-[#0071e3]/20 bg-white px-4 py-2 text-sm font-medium text-[#0071e3] shadow-sm transition hover:border-[#0071e3]/35 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {proposeExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
+                                    Log Hypothesis
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleRun}
+                                    disabled={proposeExperiment.isPending || runExperiment.isPending}
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                    {runExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+                                    Run Hypothesis
+                                </button>
+                            </div>
                         </div>
                     </form>
                 </section>
 
-                <section className="card border border-white/40 shadow-sm p-5 space-y-4">
+                <section className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
                     <div className="flex items-start justify-between gap-3">
                         <div>
-                            <h2 className="text-lg font-semibold text-shelf-primary">Experiment Ledger</h2>
-                            <p className="text-sm text-shelf-foreground/60 mt-1">
+                            <h2 className="text-lg font-semibold text-[#0071e3]">Experiment Ledger</h2>
+                            <p className="text-sm text-[#86868b] mt-1">
                                 Human-reviewed hypothesis queue for the active model.
                             </p>
                         </div>
-                        <div className="inline-flex items-center gap-2 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-medium text-[#ff9500]">
                             <ClipboardList className="h-3.5 w-3.5" />
                             {form.model_name}
                         </div>
@@ -379,9 +500,12 @@ export default function ExperimentWorkbench({
             </div>
 
             <section className="space-y-3">
+                {latestExecution && (
+                    <ExperimentExecutionSummary execution={latestExecution} />
+                )}
                 <div>
-                    <h2 className="text-lg font-semibold text-shelf-primary">Training Run Evidence</h2>
-                    <p className="text-sm text-shelf-foreground/60 mt-1">
+                    <h2 className="text-lg font-semibold text-[#0071e3]">Training Run History</h2>
+                    <p className="text-sm text-[#86868b] mt-1">
                         Runtime training and evaluation logs from the local report history.
                     </p>
                 </div>
@@ -391,6 +515,16 @@ export default function ExperimentWorkbench({
                     isError={runsError}
                     errorMessage={runsErrorMessage}
                 />
+            </section>
+
+            <section className="space-y-3">
+                <div>
+                    <h2 className="text-lg font-semibold text-[#0071e3]">Completed Trials</h2>
+                    <p className="text-sm text-[#86868b] mt-1">
+                        Finished model comparisons with final release-check outcomes.
+                    </p>
+                </div>
+                <CompletedTrialsLog experiments={completedTrials} isLoading={completedLoading} />
             </section>
         </div>
     )
@@ -415,16 +549,16 @@ function ExperimentLedgerList({
 }) {
     if (isLoading) {
         return (
-            <div className="rounded-xl border border-shelf-foreground/10 bg-shelf-secondary/5 p-6 text-center">
-                <Loader2 className="mx-auto h-5 w-5 animate-spin text-shelf-primary" />
-                <p className="mt-2 text-sm text-shelf-foreground/60">Loading experiment ledger...</p>
+            <div className="rounded-xl border border-black/5 bg-[#f5f5f7] p-6 text-center">
+                <Loader2 className="mx-auto h-5 w-5 animate-spin text-[#0071e3]" />
+                <p className="mt-2 text-sm text-[#86868b]">Loading experiment ledger...</p>
             </div>
         )
     }
 
     if (isError) {
         return (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-5 text-sm text-red-700">
+            <div className="rounded-xl border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-5 text-sm text-[#ff3b30]">
                 {errorMessage}
             </div>
         )
@@ -432,9 +566,9 @@ function ExperimentLedgerList({
 
     if (experiments.length === 0) {
         return (
-            <div className="rounded-xl border border-dashed border-shelf-foreground/15 bg-shelf-secondary/5 p-6 text-center">
-                <FlaskConical className="mx-auto h-6 w-6 text-shelf-foreground/35" />
-                <p className="mt-2 text-sm text-shelf-foreground/55">No hypotheses logged for this model yet.</p>
+            <div className="rounded-xl border border-dashed border-black/5 bg-[#f5f5f7] p-6 text-center">
+                <FlaskConical className="mx-auto h-6 w-6 text-[#86868b]" />
+                <p className="mt-2 text-sm text-[#86868b]">No hypotheses logged for this model yet.</p>
             </div>
         )
     }
@@ -447,21 +581,21 @@ function ExperimentLedgerList({
                 const isApproving = approvePending && approvingId === experiment.experiment_id
 
                 return (
-                    <article key={experiment.experiment_id} className="rounded-xl border border-shelf-foreground/10 bg-white/80 p-4 space-y-3">
+                    <article key={experiment.experiment_id} className="rounded-xl border border-black/5 bg-white/80 p-4 space-y-3">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <p className="font-semibold text-shelf-foreground">{experiment.experiment_name}</p>
+                                    <p className="font-semibold text-[#1d1d1f]">{experiment.experiment_name}</p>
                                     <StatusPill status={experiment.status} />
                                 </div>
-                                <p className="mt-1 text-sm text-shelf-foreground/65">{experiment.hypothesis}</p>
+                                <p className="mt-1 text-sm text-[#86868b]">{experiment.hypothesis}</p>
                             </div>
                             {canApprove && (
                                 <button
                                     type="button"
                                     onClick={() => void onApprove(experiment)}
                                     disabled={isApproving}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition hover:bg-green-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex items-center gap-2 rounded-lg border border-[#34c759]/20 bg-[#34c759]/10 px-3 py-1.5 text-xs font-medium text-[#34c759] transition hover:bg-[#34c759]/20 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {isApproving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                                     Approve
@@ -469,7 +603,7 @@ function ExperimentLedgerList({
                             )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 text-xs text-shelf-foreground/60 md:grid-cols-3">
+                        <div className="grid grid-cols-2 gap-3 text-xs text-[#86868b] md:grid-cols-3">
                             <Meta label="Type" value={experiment.experiment_type} />
                             <Meta label="Model" value={experiment.model_name} />
                             <Meta label="Baseline" value={experiment.baseline_version ?? '—'} />
@@ -478,12 +612,12 @@ function ExperimentLedgerList({
                             <Meta label="Segment Strategy" value={stringValue(meta.segment_strategy)} />
                         </div>
 
-                        <div className="rounded-lg bg-shelf-secondary/5 px-3 py-2 text-xs text-shelf-foreground/60">
-                            <span className="font-medium text-shelf-foreground/70">Success criteria:</span>{' '}
+                        <div className="rounded-lg bg-[#f5f5f7] px-3 py-2 text-xs text-[#86868b]">
+                            <span className="font-medium text-[#86868b]">Success criteria:</span>{' '}
                             {stringValue(meta.success_criteria) || 'Not provided'}
                         </div>
 
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-shelf-foreground/50">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#86868b]">
                             <span>Proposed by {experiment.proposed_by}</span>
                             <span>{new Date(experiment.created_at).toLocaleString()}</span>
                         </div>
@@ -503,18 +637,129 @@ function Field({
 }) {
     return (
         <label className="space-y-1.5 block">
-            <span className="text-xs font-medium uppercase tracking-wider text-shelf-foreground/55">{label}</span>
+            <span className="text-xs font-medium uppercase tracking-wider text-[#86868b]">{label}</span>
             {children}
         </label>
     )
+}
+
+function ExperimentExecutionSummary({ execution }: { execution: ExperimentRunExecution }) {
+    const baselineMetrics = execution.report.baseline.holdout_metrics
+    const challengerMetrics = execution.report.challenger.holdout_metrics
+    const gateChecks = Object.entries(execution.comparison.gate_checks ?? {})
+
+    return (
+        <section className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-lg font-semibold text-[#0071e3]">Latest Arena Decision</h2>
+                    <p className="text-sm text-[#86868b] mt-1">
+                        {execution.report.experiment.experiment_name} · {execution.experimental_version}
+                    </p>
+                </div>
+                <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium ${
+                    execution.comparison.promoted
+                        ? 'bg-[#34c759]/10 text-[#34c759]'
+                        : 'bg-[#ff9500]/10 text-[#ff9500]'
+                }`}>
+                    {execution.comparison.promoted ? 'Promoted to Champion' : 'Shadow Review Required'}
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <DecisionMetric
+                    label="WAPE"
+                    baseline={numberMetric(baselineMetrics.wape, 'percent')}
+                    challenger={numberMetric(challengerMetrics.wape, 'percent')}
+                />
+                <DecisionMetric
+                    label="MASE"
+                    baseline={numberMetric(baselineMetrics.mase)}
+                    challenger={numberMetric(challengerMetrics.mase)}
+                />
+                <DecisionMetric
+                    label="Opportunity Cost Stockout"
+                    baseline={numberMetric(baselineMetrics.opportunity_cost_stockout, 'currency')}
+                    challenger={numberMetric(challengerMetrics.opportunity_cost_stockout, 'currency')}
+                />
+            </div>
+
+            <div className="rounded-xl border border-black/5 bg-[#f5f5f7] p-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-[#86868b]">Decision rationale</p>
+                <p className="mt-2 text-sm text-[#86868b]">{execution.comparison.reason}</p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+                {gateChecks.map(([gateName, passed]) => (
+                    <div
+                        key={gateName}
+                        className={`rounded-lg border px-3 py-2 text-sm ${
+                            passed
+                                ? 'border-[#34c759]/20 bg-[#34c759]/10 text-[#34c759]'
+                                : 'border-[#ff3b30]/20 bg-[#ff3b30]/10 text-[#ff3b30]'
+                        }`}
+                    >
+                        <div className="font-medium">{humanizeGateName(gateName)}</div>
+                        <div className="text-xs mt-1">{passed ? 'Passed' : 'Failed'}</div>
+                    </div>
+                ))}
+            </div>
+        </section>
+    )
+}
+
+function DecisionMetric({
+    label,
+    baseline,
+    challenger,
+}: {
+    label: string
+    baseline: string
+    challenger: string
+}) {
+    return (
+        <div className="rounded-xl border border-black/5 bg-white/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[#86868b]">{label}</p>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                    <p className="text-[#86868b]">Baseline</p>
+                    <p className="font-semibold text-[#1d1d1f]">{baseline}</p>
+                </div>
+                <div>
+                    <p className="text-[#86868b]">Challenger</p>
+                    <p className="font-semibold text-[#0071e3]">{challenger}</p>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function humanizeGateName(value: string) {
+    return value
+        .replace(/_gate$/g, '')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function numberMetric(value: unknown, mode: 'number' | 'percent' | 'currency' = 'number') {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return '—'
+    }
+    if (mode === 'percent') {
+        return `${(value * 100).toFixed(1)}%`
+    }
+    if (mode === 'currency') {
+        return `$${Math.round(value).toLocaleString()}`
+    }
+    return value.toFixed(3)
 }
 
 function StatusMessage({ tone, text }: { tone: 'success' | 'error'; text: string }) {
     return (
         <div className={`rounded-lg px-3 py-2 text-sm ${
             tone === 'success'
-                ? 'bg-green-50 text-green-700 border border-green-200'
-                : 'bg-red-50 text-red-700 border border-red-200'
+                ? 'bg-[#34c759]/10 text-[#34c759] border border-[#34c759]/20'
+                : 'bg-[#ff3b30]/10 text-[#ff3b30] border border-[#ff3b30]/20'
         }`}>
             {text}
         </div>
@@ -523,16 +768,16 @@ function StatusMessage({ tone, text }: { tone: 'success' | 'error'; text: string
 
 function StatusPill({ status }: { status: string }) {
     const styles: Record<string, string> = {
-        proposed: 'bg-slate-100 text-slate-700',
-        approved: 'bg-green-100 text-green-700',
-        in_progress: 'bg-blue-100 text-blue-700',
-        shadow_testing: 'bg-amber-100 text-amber-700',
-        completed: 'bg-violet-100 text-violet-700',
-        rejected: 'bg-rose-100 text-rose-700',
+        proposed: 'bg-[#86868b]/10 text-[#86868b]',
+        approved: 'bg-[#34c759]/10 text-[#34c759]',
+        in_progress: 'bg-[#0071e3]/10 text-[#0071e3]',
+        shadow_testing: 'bg-[#ff9500]/10 text-[#ff9500]',
+        completed: 'bg-[#5856d6]/10 text-[#5856d6]',
+        rejected: 'bg-[#ff3b30]/10 text-[#ff3b30]',
     }
 
     return (
-        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${styles[status] ?? 'bg-slate-100 text-slate-700'}`}>
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${styles[status] ?? 'bg-[#86868b]/10 text-[#86868b]'}`}>
             {status.replace(/_/g, ' ')}
         </span>
     )
@@ -541,8 +786,8 @@ function StatusPill({ status }: { status: string }) {
 function Meta({ label, value }: { label: string; value: string }) {
     return (
         <div>
-            <p className="uppercase tracking-wider text-[10px] text-shelf-foreground/40">{label}</p>
-            <p className="mt-1 font-medium text-shelf-foreground/70">{value || '—'}</p>
+            <p className="uppercase tracking-wider text-[10px] text-[#86868b]">{label}</p>
+            <p className="mt-1 font-medium text-[#86868b]">{value || '—'}</p>
         </div>
     )
 }
@@ -551,4 +796,207 @@ function stringValue(value: unknown): string {
     if (typeof value === 'string') return value
     if (typeof value === 'number') return String(value)
     return ''
+}
+
+function CompletedTrialsLog({
+    experiments,
+    isLoading,
+}: {
+    experiments: ExperimentLedgerEntry[]
+    isLoading: boolean
+}) {
+    if (isLoading) {
+        return (
+            <div className="card border border-black/[0.02] shadow-sm text-center py-10">
+                <Loader2 className="h-5 w-5 mx-auto text-[#0071e3] animate-spin" />
+            </div>
+        )
+    }
+
+    if (experiments.length === 0) {
+        return (
+            <div className="card border border-dashed border-black/5 bg-[#f5f5f7] text-center py-10">
+                <FlaskConical className="h-6 w-6 mx-auto text-[#86868b]" />
+                <p className="mt-2 text-sm text-[#86868b]">No completed trials yet.</p>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-3">
+            {experiments.map(exp => (
+                <CompletedTrialCard key={exp.experiment_id} exp={exp} />
+            ))}
+        </div>
+    )
+}
+
+function CompletedTrialCard({ exp }: { exp: ExperimentLedgerEntry }) {
+    const interpret = useInterpretExperiment()
+    const [interpretation, setInterpretation] = useState<{
+        results_summary: string
+        why_it_worked: string
+        next_hypothesis: string
+    } | null>(() => {
+        const cached = (exp.results as ExperimentResults | null)?.llm_interpretation as {
+            results_summary: string
+            why_it_worked: string
+            next_hypothesis: string
+        } | undefined
+        return cached ?? null
+    })
+
+    const r = (exp.results ?? {}) as ExperimentResults
+    const promoted = r.promotion_comparison?.promoted ?? r.overall_business_safe
+    const gateChecks = r.promotion_comparison?.gate_checks ?? {}
+    const failedGates = Object.entries(gateChecks).filter(([, passed]) => !passed).map(([k]) => k)
+    const maseDelta = r.baseline_mase != null && r.experimental_mase != null
+        ? (((r.baseline_mase - r.experimental_mase) / r.baseline_mase) * 100)
+        : null
+
+    async function handleInterpret() {
+        try {
+            const result = await interpret.mutateAsync(exp.experiment_id)
+            setInterpretation({
+                results_summary: result.results_summary,
+                why_it_worked: result.why_it_worked,
+                next_hypothesis: result.next_hypothesis,
+            })
+        } catch {
+            // error surfaced via interpret.isError
+        }
+    }
+
+    return (
+        <article className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-[#1d1d1f]">{exp.experiment_name}</p>
+                        <span className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                            promoted ? 'bg-[#34c759]/10 text-[#34c759]' : 'bg-[#ff9500]/10 text-[#ff9500]'
+                        }`}>
+                            {promoted ? 'Promoted' : 'Shadow only'}
+                        </span>
+                    </div>
+                    <p className="mt-1 text-sm text-[#86868b]">{exp.hypothesis}</p>
+                </div>
+                <div className="flex items-start gap-3">
+                    <div className="text-right text-xs text-[#86868b]">
+                        <p>{exp.baseline_version ?? '—'} → {exp.experimental_version ?? '—'}</p>
+                        {exp.completed_at && <p className="mt-0.5">{new Date(exp.completed_at).toLocaleDateString()}</p>}
+                    </div>
+                    {!interpretation && (
+                        <button
+                            type="button"
+                            onClick={() => void handleInterpret()}
+                            disabled={interpret.isPending}
+                            className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#5856d6]/20 bg-[#5856d6]/10 px-3 py-1.5 text-xs font-medium text-[#5856d6] transition hover:bg-[#5856d6]/15 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                            {interpret.isPending
+                                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                : <Sparkles className="h-3.5 w-3.5" />
+                            }
+                            Interpret Results
+                        </button>
+                    )}
+                </div>
+            </div>
+
+            {(r.baseline_mase != null || r.baseline_mae != null) && (
+                <div className="grid grid-cols-3 gap-3">
+                    <TrialMetricDelta label="MAE" baseline={r.baseline_mae} experimental={r.experimental_mae} lowerIsBetter />
+                    <TrialMetricDelta label="WAPE" baseline={r.baseline_wape} experimental={r.experimental_wape} lowerIsBetter isPercent />
+                    <TrialMetricDelta label="MASE" baseline={r.baseline_mase} experimental={r.experimental_mase} lowerIsBetter />
+                </div>
+            )}
+
+            {maseDelta != null && (
+                <div className="rounded-lg bg-[#f5f5f7] px-3 py-2 text-xs text-[#86868b]">
+                    MASE improved <span className="font-semibold text-[#0071e3]">{maseDelta.toFixed(1)}%</span>
+                    {' '}· {String(r.decision_rationale ?? r.promotion_comparison?.reason ?? exp.decision_rationale ?? '')}
+                    {failedGates.length > 0 && (
+                        <span className="ml-2 text-[#ff9500]">Failed: {failedGates.map(g => g.replace('_gate', '')).join(', ')}</span>
+                    )}
+                </div>
+            )}
+
+            {interpret.isError && (
+                <div className="rounded-lg border border-[#ff3b30]/20 bg-[#ff3b30]/10 px-3 py-2 text-xs text-[#ff3b30]">
+                    {interpret.error instanceof Error ? interpret.error.message : 'Interpretation failed.'}
+                </div>
+            )}
+
+            {interpretation && (
+                <div className="rounded-xl border border-[#5856d6]/10 bg-[#5856d6]/5 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-[#5856d6]">
+                        <Sparkles className="h-3.5 w-3.5" />
+                        AI Interpretation
+                        <button
+                            type="button"
+                            onClick={() => setInterpretation(null)}
+                            className="ml-auto text-[#5856d6]/40 hover:text-[#5856d6] text-[10px]"
+                        >
+                            dismiss
+                        </button>
+                    </div>
+                    {interpretation.results_summary && (
+                        <InterpretSection label="Results Summary" text={interpretation.results_summary} />
+                    )}
+                    {interpretation.why_it_worked && (
+                        <InterpretSection label="Why It Worked" text={interpretation.why_it_worked} />
+                    )}
+                    {interpretation.next_hypothesis && (
+                        <InterpretSection label="Next Hypothesis" text={interpretation.next_hypothesis} accent />
+                    )}
+                </div>
+            )}
+        </article>
+    )
+}
+
+function InterpretSection({ label, text, accent = false }: { label: string; text: string; accent?: boolean }) {
+    return (
+        <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#5856d6]/70">{label}</p>
+            <p className={`mt-1 text-sm ${accent ? 'font-medium text-[#5856d6]' : 'text-[#1d1d1f]/80'}`}>{text}</p>
+        </div>
+    )
+}
+
+function TrialMetricDelta({
+    label,
+    baseline,
+    experimental,
+    lowerIsBetter = true,
+    isPercent = false,
+}: {
+    label: string
+    baseline?: number | null
+    experimental?: number | null
+    lowerIsBetter?: boolean
+    isPercent?: boolean
+}) {
+    const fmt = (v: number) => isPercent ? `${(v * 100).toFixed(1)}%` : v.toFixed(3)
+    const improved = baseline != null && experimental != null
+        ? (lowerIsBetter ? experimental < baseline : experimental > baseline)
+        : null
+
+    return (
+        <div className="rounded-lg border border-black/5 bg-white/80 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[#86868b]">{label}</p>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                <div>
+                    <p className="text-[#86868b]">Baseline</p>
+                    <p className="font-medium text-[#1d1d1f]">{baseline != null ? fmt(baseline) : '—'}</p>
+                </div>
+                <div>
+                    <p className="text-[#86868b]">Challenger</p>
+                    <p className={`font-semibold ${improved === true ? 'text-[#34c759]' : improved === false ? 'text-[#ff3b30]' : 'text-[#1d1d1f]'}`}>
+                        {experimental != null ? fmt(experimental) : '—'}
+                    </p>
+                </div>
+            </div>
+        </div>
+    )
 }

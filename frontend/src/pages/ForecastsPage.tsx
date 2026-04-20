@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
+import { motion } from 'framer-motion'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts'
-import { ArrowUpRight, ArrowDownRight, Filter, Loader2, AlertCircle } from 'lucide-react'
+import { ArrowUpRight, ArrowDownRight, Filter, Loader2, AlertCircle, BarChart3 } from 'lucide-react'
 import { useForecasts, useProducts } from '@/hooks/useShelfOps'
 import SHAPWaterfall from '@/components/forecasts/SHAPWaterfall'
 
@@ -97,29 +98,35 @@ export default function ForecastsPage() {
     }, [forecasts])
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-shelf-primary">Forecast Analysis</h1>
-                    <p className="text-sm text-shelf-foreground/60 mt-1">
-                        Aggregate demand planning and trend analysis
+        <div className="page-shell animate-fade-in">
+            <div className="hero-panel hero-panel-blue">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="max-w-3xl">
+                        <div className="hero-chip text-[#0071e3]">
+                            <BarChart3 className="h-3.5 w-3.5" />
+                            Forecasts
+                        </div>
+                        <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#1d1d1f]">Review demand patterns before placing orders.</h1>
+                        <p className="mt-3 text-sm leading-6 text-[#4f4f53]">
+                        Explore forecast volume by date, category, and product.
                         {forecasts.length > 0 && ` · ${forecasts.length} forecasts loaded`}
-                    </p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <button
-                        onClick={() => setWindowDays(7)}
-                        className={`text-xs px-3 h-8 gap-2 ${windowDays === 7 ? 'btn-primary' : 'btn-secondary'}`}
-                    >
-                        <Filter className="h-3 w-3" />
-                        Last 7 Days
-                    </button>
-                    <button
-                        onClick={() => setWindowDays(30)}
-                        className={`text-xs px-3 h-8 ${windowDays === 30 ? 'btn-primary' : 'btn-secondary'}`}
-                    >
-                        Last 30 Days
-                    </button>
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={() => setWindowDays(7)}
+                            className={`text-xs px-3 h-8 gap-2 ${windowDays === 7 ? 'btn-primary' : 'btn-secondary'}`}
+                        >
+                            <Filter className="h-3 w-3" />
+                            Last 7 Days
+                        </button>
+                        <button
+                            onClick={() => setWindowDays(30)}
+                            className={`text-xs px-3 h-8 ${windowDays === 30 ? 'btn-primary' : 'btn-secondary'}`}
+                        >
+                            Last 30 Days
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -130,8 +137,8 @@ export default function ForecastsPage() {
                         key={cat}
                         onClick={() => setActiveCategory(cat)}
                         className={`rounded-full px-4 py-1.5 text-xs font-medium transition-all ${activeCategory === cat
-                            ? 'bg-shelf-primary text-white shadow-md shadow-shelf-primary/20'
-                            : 'bg-white text-shelf-foreground/60 hover:text-shelf-primary hover:bg-white/80 border border-transparent hover:border-shelf-foreground/5'
+                            ? 'bg-[#0071e3] text-white shadow-md shadow-[0_2px_10px_rgba(0,113,227,0.2)]'
+                            : 'bg-white text-[#86868b] hover:text-[#0071e3] hover:bg-white/80 border border-transparent hover:border-black/5'
                             }`}
                     >
                         {cat}
@@ -141,17 +148,17 @@ export default function ForecastsPage() {
 
             {/* Loading state */}
             {isLoading && (
-                <div className="card p-12 text-center border border-white/40 shadow-sm">
-                    <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
-                    <p className="text-sm text-shelf-foreground/60">Loading forecasts...</p>
+                <div className="card p-12 text-center border border-black/[0.02] shadow-sm">
+                    <Loader2 className="h-8 w-8 mx-auto mb-3 text-[#0071e3] animate-spin" />
+                    <p className="text-sm text-[#86868b]">Loading forecasts…</p>
                 </div>
             )}
 
             {/* Error state */}
             {isError && (
-                <div className="card p-12 text-center border border-red-200 bg-red-50/50 shadow-sm">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-3 text-red-500" />
-                    <p className="text-sm text-red-600">Failed to load forecasts</p>
+                <div className="card p-12 text-center bg-[#ff3b30]/5">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[#ff3b30]" />
+                    <p className="text-sm text-[#ff3b30]">Failed to load forecasts.</p>
                 </div>
             )}
 
@@ -159,91 +166,115 @@ export default function ForecastsPage() {
                 <>
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Main Trend Chart */}
-                        <div className="lg:col-span-2 card border border-white/40 shadow-sm">
-                            <h3 className="text-sm font-semibold text-shelf-primary uppercase tracking-wider mb-6">Total Demand Trend</h3>
+                        <motion.div
+                            className="lg:col-span-2 card border border-black/[0.02] shadow-sm"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, ease: 'easeOut' }}
+                        >
+                            <h3 className="text-sm font-semibold text-[#0071e3] uppercase tracking-wider mb-6">Total Demand Trend</h3>
                             <div className="h-[300px]">
                                 {trendData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                             <defs>
                                                 <linearGradient id="colorDemand" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#3e6d96" stopOpacity={0.2} />
-                                                    <stop offset="95%" stopColor="#3e6d96" stopOpacity={0} />
+                                                    <stop offset="5%" stopColor="#0071e3" stopOpacity={0.2} />
+                                                    <stop offset="95%" stopColor="#0071e3" stopOpacity={0} />
                                                 </linearGradient>
                                             </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#000000" strokeOpacity={0.05} vertical={false} />
-                                            <XAxis dataKey="date" tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} dy={10} />
-                                            <YAxis tick={{ fill: '#4e5274', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e5ea" strokeOpacity={0.05} vertical={false} />
+                                            <XAxis dataKey="date" tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} dy={10} />
+                                            <YAxis tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
                                             <Tooltip
                                                 contentStyle={{
-                                                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                                    border: '1px solid rgba(255, 255, 255, 0.5)',
-                                                    borderRadius: '12px',
-                                                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                                    backgroundColor: 'rgba(29,29,31,0.8)',
+                                                    backdropFilter: 'blur(12px)',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: '16px',
+                                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
                                                     fontSize: '12px',
-                                                    color: '#4e5274'
+                                                    color: '#ffffff'
                                                 }}
                                             />
-                                            <Area type="monotone" dataKey="demand" stroke="#3e6d96" fill="url(#colorDemand)" name="Demand" />
+                                            <Area type="monotone" dataKey="demand" stroke="#0071e3" fill="url(#colorDemand)" name="Demand" />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 ) : (
-                                    <div className="flex items-center justify-center h-full text-shelf-foreground/40 text-sm">
+                                    <div className="flex items-center justify-center h-full text-[#86868b] text-sm">
                                         No forecast data available
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
 
                         {/* Category Distribution */}
-                        <div className="card border border-white/40 shadow-sm">
-                            <h3 className="text-sm font-semibold text-shelf-primary uppercase tracking-wider mb-6">Forecast by Category</h3>
+                        <motion.div
+                            className="card border border-black/[0.02] shadow-sm"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, ease: 'easeOut', delay: 0.08 }}
+                        >
+                            <h3 className="text-sm font-semibold text-[#0071e3] uppercase tracking-wider mb-6">Forecast by Category</h3>
                             <div className="h-[300px]">
                                 {categoryData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={categoryData} layout="vertical" margin={{ top: 0, right: 20, bottom: 0, left: 20 }}>
                                             <XAxis type="number" hide />
-                                            <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#4e5274', fontSize: 11 }} axisLine={false} tickLine={false} />
+                                            <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#86868b', fontSize: 11 }} axisLine={false} tickLine={false} />
                                             <Tooltip
                                                 cursor={{ fill: 'rgba(0,0,0,0.02)' }}
-                                                contentStyle={{ borderRadius: '8px' }}
+                                                contentStyle={{
+                                                    backgroundColor: 'rgba(29,29,31,0.8)',
+                                                    backdropFilter: 'blur(12px)',
+                                                    border: '1px solid rgba(255,255,255,0.1)',
+                                                    borderRadius: '16px',
+                                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                                    fontSize: '12px',
+                                                    color: '#ffffff'
+                                                }}
                                             />
                                             <Bar dataKey="value" barSize={20} radius={[0, 4, 4, 0]}>
                                                 {categoryData.map((_, index) => (
-                                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#3e6d96' : '#5ba2b6'} />
+                                                    <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#0071e3' : '#34c759'} />
                                                 ))}
                                             </Bar>
                                         </BarChart>
                                     </ResponsiveContainer>
                                 ) : (
-                                    <div className="flex items-center justify-center h-full text-shelf-foreground/40 text-sm">
+                                    <div className="flex items-center justify-center h-full text-[#86868b] text-sm">
                                         No category data
                                     </div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
                     </div>
 
                     {/* Movers and Shakers */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="card p-0 overflow-hidden border border-white/40 shadow-sm">
-                            <div className="p-4 border-b border-shelf-foreground/5 bg-shelf-secondary/5">
-                                <h3 className="text-sm font-semibold text-shelf-foreground flex items-center gap-2">
-                                    <ArrowUpRight className="h-4 w-4 text-green-600" />
+                        <motion.div
+                            className="card p-0 overflow-hidden border border-black/[0.02] shadow-sm"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, ease: 'easeOut', delay: 0.12 }}
+                        >
+                            <div className="p-4 border-b border-black/5 bg-[#f5f5f7]">
+                                <h3 className="text-sm font-semibold text-[#1d1d1f] flex items-center gap-2">
+                                    <ArrowUpRight className="h-4 w-4 text-[#34c759]" />
                                     Top Demand Products
                                 </h3>
                             </div>
-                            <div className="divide-y divide-shelf-foreground/5">
+                            <div className="divide-y divide-black/5">
                                 {topMovers.length > 0 ? topMovers.map((item, i) => {
                                     const forecast = latestForecastByProduct.get(item.productId)
                                     return (
-                                        <div key={i} className="hover:bg-shelf-primary/5 transition-colors">
+                                        <div key={i} className="hover:bg-[#0071e3]/5 transition-colors">
                                             <div className="p-4 flex items-center justify-between">
                                                 <div>
-                                                    <p className="text-sm font-medium text-shelf-foreground">{item.name}</p>
-                                                    <p className="text-xs text-shelf-foreground/60">{item.total.toLocaleString()} units forecast</p>
+                                                    <p className="text-sm font-medium text-[#1d1d1f]">{item.name}</p>
+                                                    <p className="text-xs text-[#86868b]">{item.total.toLocaleString()} units forecast</p>
                                                 </div>
-                                                <span className="badge bg-green-100 text-green-700 border-green-200">#{i + 1}</span>
+                                                <span className="badge bg-[#34c759]/10 text-[#34c759]">#{i + 1}</span>
                                             </div>
                                             {forecast && (
                                                 <div className="px-4 pb-3">
@@ -253,32 +284,37 @@ export default function ForecastsPage() {
                                         </div>
                                     )
                                 }) : (
-                                    <div className="p-8 text-center text-shelf-foreground/40 text-sm">No forecast data</div>
+                                    <div className="p-8 text-center text-[#86868b] text-sm">No forecast data</div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
 
-                        <div className="card p-0 overflow-hidden border border-white/40 shadow-sm">
-                            <div className="p-4 border-b border-shelf-foreground/5 bg-shelf-secondary/5">
-                                <h3 className="text-sm font-semibold text-shelf-foreground flex items-center gap-2">
-                                    <ArrowDownRight className="h-4 w-4 text-red-600" />
+                        <motion.div
+                            className="card p-0 overflow-hidden border border-black/[0.02] shadow-sm"
+                            initial={{ opacity: 0, y: 16 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, ease: 'easeOut', delay: 0.16 }}
+                        >
+                            <div className="p-4 border-b border-black/5 bg-[#f5f5f7]">
+                                <h3 className="text-sm font-semibold text-[#1d1d1f] flex items-center gap-2">
+                                    <ArrowDownRight className="h-4 w-4 text-[#ff3b30]" />
                                     Lowest Demand Products
                                 </h3>
                             </div>
-                            <div className="divide-y divide-shelf-foreground/5">
+                            <div className="divide-y divide-black/5">
                                 {bottomMovers.length > 0 ? bottomMovers.map((item, i) => (
-                                    <div key={i} className="p-4 flex items-center justify-between hover:bg-shelf-primary/5 transition-colors">
+                                    <div key={i} className="p-4 flex items-center justify-between hover:bg-[#0071e3]/5 transition-colors">
                                         <div>
-                                            <p className="text-sm font-medium text-shelf-foreground">{item.name}</p>
-                                            <p className="text-xs text-shelf-foreground/60">{item.total.toLocaleString()} units forecast</p>
+                                            <p className="text-sm font-medium text-[#1d1d1f]">{item.name}</p>
+                                            <p className="text-xs text-[#86868b]">{item.total.toLocaleString()} units forecast</p>
                                         </div>
-                                        <span className="badge bg-red-100 text-red-700 border-red-200">Low</span>
+                                        <span className="badge bg-[#ff3b30]/10 text-[#ff3b30]">Low</span>
                                     </div>
                                 )) : (
-                                    <div className="p-8 text-center text-shelf-foreground/40 text-sm">No forecast data</div>
+                                    <div className="p-8 text-center text-[#86868b] text-sm">No forecast data</div>
                                 )}
                             </div>
-                        </div>
+                        </motion.div>
                     </div>
                 </>
             )}

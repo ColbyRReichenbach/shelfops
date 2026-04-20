@@ -4,6 +4,7 @@
  */
 
 import { useState } from 'react'
+import { motion } from 'framer-motion'
 import {
     Link2, Loader2, AlertCircle, CheckCircle2,
     XCircle, Clock, Plug, ExternalLink, Trash2,
@@ -14,31 +15,31 @@ import type { Integration } from '@/lib/types'
 const PROVIDER_META: Record<string, { label: string; color: string; description: string }> = {
     square: {
         label: 'Square POS',
-        color: 'bg-blue-500',
+        color: 'bg-[#0071e3]',
         description: 'Real-time inventory counts, transaction sync, and catalog management.',
     },
     shopify: {
         label: 'Shopify',
-        color: 'bg-green-500',
+        color: 'bg-[#34c759]',
         description: 'E-commerce inventory and order synchronization.',
     },
     lightspeed: {
         label: 'Lightspeed',
-        color: 'bg-orange-500',
+        color: 'bg-[#ff9500]',
         description: 'Retail POS inventory and sales data integration.',
     },
     clover: {
         label: 'Clover',
-        color: 'bg-purple-500',
+        color: 'bg-[#5856d6]',
         description: 'POS transaction and inventory tracking.',
     },
 }
 
 const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; label: string }> = {
-    connected: { icon: CheckCircle2, color: 'text-green-600', label: 'Connected' },
-    disconnected: { icon: XCircle, color: 'text-gray-400', label: 'Disconnected' },
-    error: { icon: AlertCircle, color: 'text-red-500', label: 'Error' },
-    pending: { icon: Clock, color: 'text-yellow-500', label: 'Pending' },
+    connected: { icon: CheckCircle2, color: 'text-[#34c759]', label: 'Connected' },
+    disconnected: { icon: XCircle, color: 'text-[#86868b]', label: 'Disconnected' },
+    error: { icon: AlertCircle, color: 'text-[#ff3b30]', label: 'Error' },
+    pending: { icon: Clock, color: 'text-[#ff9500]', label: 'Pending' },
 }
 
 const LIVE_PROVIDER_KEYS = new Set(['square'])
@@ -49,23 +50,26 @@ function IntegrationCard({ integration }: { integration: Integration }) {
 
     const provider = PROVIDER_META[integration.provider] ?? {
         label: integration.provider,
-        color: 'bg-gray-500',
+        color: 'bg-[#86868b]',
         description: 'POS integration.',
     }
-    const status = STATUS_CONFIG[integration.status] ?? { icon: XCircle, color: 'text-gray-400', label: 'Unknown' }
+    const status = STATUS_CONFIG[integration.status] ?? { icon: XCircle, color: 'text-[#86868b]', label: 'Unknown' }
     const StatusIcon = status.icon
 
     return (
-        <div className="card border border-white/40 shadow-sm hover:shadow-md transition-all p-5">
+        <motion.div
+            whileHover={{ y: -2 }}
+            className="card p-5"
+        >
             <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                    <div className={`h-11 w-11 rounded-xl ${provider.color} flex items-center justify-center shadow-sm`}>
+                    <div className={`h-11 w-11 rounded-[12px] ${provider.color} flex items-center justify-center shadow-sm`}>
                         <Link2 className="h-5 w-5 text-white" />
                     </div>
                     <div>
-                        <h3 className="text-sm font-bold text-shelf-foreground">{provider.label}</h3>
-                        <p className="text-xs text-shelf-foreground/60 mt-0.5 max-w-sm">{provider.description}</p>
-                        <div className="flex items-center gap-3 mt-3 text-xs text-shelf-foreground/50">
+                        <h3 className="text-sm font-semibold text-[#1d1d1f]">{provider.label}</h3>
+                        <p className="text-xs text-[#86868b] mt-0.5 max-w-sm">{provider.description}</p>
+                        <div className="flex items-center gap-3 mt-3 text-xs text-[#86868b]">
                             <span className={`flex items-center gap-1 font-medium ${status.color}`}>
                                 <StatusIcon className="h-3.5 w-3.5" />
                                 {status.label}
@@ -73,7 +77,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                             {integration.merchant_id && (
                                 <>
                                     <span>·</span>
-                                    <span className="font-mono bg-shelf-foreground/5 px-1.5 py-0.5 rounded">
+                                    <span className="font-mono bg-[#f5f5f7] px-1.5 py-0.5 rounded">
                                         {integration.merchant_id}
                                     </span>
                                 </>
@@ -92,7 +96,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                     {integration.status === 'connected' && !showConfirm && (
                         <button
                             onClick={() => setShowConfirm(true)}
-                            className="btn-secondary text-xs h-8 px-3 gap-1 text-red-500 hover:bg-red-50"
+                            className="btn-secondary text-xs h-8 px-3 gap-1 text-[#ff3b30] hover:bg-[#ff3b30]/10"
                         >
                             <Trash2 className="h-3 w-3" />
                             Disconnect
@@ -105,7 +109,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                                     disconnect.mutate(integration.integration_id)
                                     setShowConfirm(false)
                                 }}
-                                className="btn-secondary text-xs h-8 px-3 bg-red-50 text-red-600 hover:bg-red-100"
+                                className="btn-secondary text-xs h-8 px-3 bg-[#ff3b30]/10 text-[#ff3b30] hover:bg-[#ff3b30]/20"
                                 disabled={disconnect.isPending}
                             >
                                 {disconnect.isPending ? 'Disconnecting...' : 'Confirm'}
@@ -120,7 +124,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
                     )}
                 </div>
             </div>
-        </div>
+        </motion.div>
     )
 }
 
@@ -129,19 +133,22 @@ function AvailableProviderCard({ provider, providerKey }: { provider: typeof PRO
     const isLiveProvider = LIVE_PROVIDER_KEYS.has(providerKey)
 
     return (
-        <div className={`card border shadow-sm p-5 transition-all ${
-            isLiveProvider
-                ? 'border-dashed border-shelf-foreground/15 hover:border-shelf-primary/30'
-                : 'border-shelf-foreground/10 bg-shelf-secondary/5'
-        }`}>
+        <motion.div
+            whileHover={{ y: -2 }}
+            className={`card p-5 ${
+                isLiveProvider
+                    ? 'border-dashed border-black/10 hover:border-[#0071e3]/30'
+                    : 'border-black/5 bg-[#f5f5f7]/50'
+            }`}
+        >
             <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
-                    <div className={`h-11 w-11 rounded-xl ${provider.color}/20 flex items-center justify-center`}>
+                    <div className={`h-11 w-11 rounded-[12px] ${provider.color}/20 flex items-center justify-center`}>
                         <Plug className={`h-5 w-5 ${provider.color.replace('bg-', 'text-')}`} />
                     </div>
                     <div>
-                        <h3 className="text-sm font-bold text-shelf-foreground">{provider.label}</h3>
-                        <p className="text-xs text-shelf-foreground/60 mt-0.5 max-w-sm">{provider.description}</p>
+                        <h3 className="text-sm font-semibold text-[#1d1d1f]">{provider.label}</h3>
+                        <p className="text-xs text-[#86868b] mt-0.5 max-w-sm">{provider.description}</p>
                     </div>
                 </div>
                 {isLiveProvider ? (
@@ -153,12 +160,12 @@ function AvailableProviderCard({ provider, providerKey }: { provider: typeof PRO
                         <ExternalLink className="h-3 w-3" />
                     </a>
                 ) : (
-                    <span className="rounded-full bg-shelf-foreground/5 px-3 py-1.5 text-xs font-medium text-shelf-foreground/45">
+                    <span className="rounded-full bg-[#86868b]/10 px-3 py-1.5 text-xs font-medium text-[#86868b]">
                         Roadmap only
                     </span>
                 )}
             </div>
-        </div>
+        </motion.div>
     )
 }
 
@@ -175,24 +182,23 @@ export default function IntegrationsPage() {
     return (
         <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
             <div>
-                <h1 className="text-2xl font-bold tracking-tight text-shelf-primary">Integrations</h1>
-                <p className="text-sm text-shelf-foreground/60 mt-1">
+                <h1 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">Integrations</h1>
+                <p className="text-sm text-[#86868b] mt-1">
                     Connect your POS systems for automatic inventory and sales sync.
                 </p>
             </div>
 
-            {/* Connected Integrations */}
             {isLoading && (
-                <div className="card text-center py-16 border border-white/40 shadow-sm">
-                    <Loader2 className="h-8 w-8 mx-auto mb-3 text-shelf-primary animate-spin" />
-                    <p className="text-sm text-shelf-foreground/60">Loading integrations...</p>
+                <div className="card text-center py-16">
+                    <Loader2 className="h-8 w-8 mx-auto mb-3 text-[#0071e3] animate-spin" />
+                    <p className="text-sm text-[#86868b]">Loading integrations...</p>
                 </div>
             )}
 
             {isError && (
-                <div className="card text-center py-16 border border-red-200 bg-red-50/50 shadow-sm">
-                    <AlertCircle className="h-8 w-8 mx-auto mb-3 text-red-500" />
-                    <p className="text-sm text-red-600">Failed to load integrations</p>
+                <div className="card text-center py-16 bg-[#ff3b30]/5">
+                    <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[#ff3b30]" />
+                    <p className="text-sm text-[#ff3b30]">Failed to load integrations</p>
                 </div>
             )}
 
@@ -200,7 +206,7 @@ export default function IntegrationsPage() {
                 <>
                     {integrations.length > 0 && (
                         <div className="space-y-3">
-                            <h2 className="text-sm font-semibold text-shelf-foreground/70 uppercase tracking-wider">
+                            <h2 className="text-xs font-semibold text-[#86868b] uppercase tracking-wider">
                                 Connected ({integrations.length})
                             </h2>
                             {integrations.map((integration) => (
@@ -211,7 +217,7 @@ export default function IntegrationsPage() {
 
                     {connectableProviders.length > 0 && (
                         <div className="space-y-3">
-                            <h2 className="text-sm font-semibold text-shelf-foreground/70 uppercase tracking-wider">
+                            <h2 className="text-xs font-semibold text-[#86868b] uppercase tracking-wider">
                                 Available to Connect
                             </h2>
                             {connectableProviders.map(([key, provider]) => (
@@ -222,10 +228,10 @@ export default function IntegrationsPage() {
 
                     {roadmapProviders.length > 0 && (
                         <div className="space-y-3">
-                            <h2 className="text-sm font-semibold text-shelf-foreground/70 uppercase tracking-wider">
+                            <h2 className="text-xs font-semibold text-[#86868b] uppercase tracking-wider">
                                 Roadmap Providers
                             </h2>
-                            <p className="text-xs text-shelf-foreground/45">
+                            <p className="text-xs text-[#86868b]">
                                 These providers are visible for planning only and are not interactive in production until OAuth and sync flows exist end to end.
                             </p>
                             {roadmapProviders.map(([key, provider]) => (

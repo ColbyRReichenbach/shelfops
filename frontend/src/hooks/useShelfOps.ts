@@ -12,7 +12,10 @@ import type {
     ProductMutationPayload, StoreMutationPayload,
     MLModel, BacktestEntry, ExperimentRun,
     ExperimentLedgerEntry, ProposeExperimentPayload, ProposeExperimentResponse, ApproveExperimentPayload,
+    RunExperimentPayload, ExperimentRunExecution,
     SHAPFeature, MLHealth, MLEffectiveness, ModelHistoryEntry, RuntimeModelHealth, SyncHealthResponse,
+    ReplenishmentRecommendation, RecommendationImpact, RecommendationAcceptPayload, RecommendationEditPayload,
+    RecommendationRejectPayload, DataReadiness, ReplenishmentSimulationReport,
 } from '@/lib/types'
 
 // ─── Products ──────────────────────────────────────────────────────────────
@@ -407,6 +410,43 @@ export function useApproveExperiment() {
     })
 }
 
+export function useRunExperiment() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ experimentId, dataDir, holdoutDays, maxRows, maxChallengers }: RunExperimentPayload) =>
+            api.post<ExperimentRunExecution>(`/api/v1/experiments/${experimentId}/run`, {
+                data_dir: dataDir,
+                holdout_days: holdoutDays,
+                max_rows: maxRows,
+                max_challengers: maxChallengers,
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+            queryClient.invalidateQueries({ queryKey: ['ml-models'] })
+            queryClient.invalidateQueries({ queryKey: ['model-history'] })
+            queryClient.invalidateQueries({ queryKey: ['runtime-model-health'] })
+            queryClient.invalidateQueries({ queryKey: ['ml-health'] })
+        },
+    })
+}
+
+export function useInterpretExperiment() {
+    const api = useApi()
+    return useMutation({
+        mutationFn: (experimentId: string) =>
+            api.post<{
+                experiment_id: string
+                cached: boolean
+                results_summary: string
+                why_it_worked: string
+                next_hypothesis: string
+                model: string
+            }>(`/api/v1/experiments/${experimentId}/interpret`, {}),
+    })
+}
+
 export function useMLHealth() {
     const api = useApi()
     return useQuery({
@@ -454,5 +494,108 @@ export function useSyncHealth() {
             const response = await api.get<SyncHealthResponse>('/api/v1/integrations/sync-health')
             return response.sources
         },
+    })
+}
+
+// ─── Replenishment ───────────────────────────────────────────────────────
+
+export function useRecommendationQueue(status = 'open', limit = 50) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    params.set('status', status)
+    params.set('limit', String(limit))
+
+    return useQuery({
+        queryKey: ['replenishment-queue', status, limit],
+        queryFn: () => api.get<ReplenishmentRecommendation[]>(`/api/v1/replenishment/queue?${params.toString()}`),
+    })
+}
+
+export function useRecommendationDetail(recommendationId: string | undefined) {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['replenishment-recommendation', recommendationId],
+        queryFn: () => api.get<ReplenishmentRecommendation>(`/api/v1/replenishment/recommendations/${recommendationId}`),
+        enabled: !!recommendationId,
+    })
+}
+
+export function useRecommendationImpact() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['replenishment-impact'],
+        queryFn: () => api.get<RecommendationImpact>('/api/v1/replenishment/impact'),
+    })
+}
+
+export function useAcceptRecommendation() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ recommendationId, payload }: { recommendationId: string; payload: RecommendationAcceptPayload }) =>
+            api.post<ReplenishmentRecommendation>(
+                `/api/v1/replenishment/recommendations/${recommendationId}/accept`,
+                payload,
+            ),
+        onSuccess: recommendation => {
+            queryClient.invalidateQueries({ queryKey: ['replenishment-queue'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-impact'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-recommendation', recommendation.recommendation_id] })
+        },
+    })
+}
+
+export function useEditRecommendation() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ recommendationId, payload }: { recommendationId: string; payload: RecommendationEditPayload }) =>
+            api.post<ReplenishmentRecommendation>(
+                `/api/v1/replenishment/recommendations/${recommendationId}/edit`,
+                payload,
+            ),
+        onSuccess: recommendation => {
+            queryClient.invalidateQueries({ queryKey: ['replenishment-queue'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-impact'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-recommendation', recommendation.recommendation_id] })
+        },
+    })
+}
+
+export function useRejectRecommendation() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ recommendationId, payload }: { recommendationId: string; payload: RecommendationRejectPayload }) =>
+            api.post<ReplenishmentRecommendation>(
+                `/api/v1/replenishment/recommendations/${recommendationId}/reject`,
+                payload,
+            ),
+        onSuccess: recommendation => {
+            queryClient.invalidateQueries({ queryKey: ['replenishment-queue'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-impact'] })
+            queryClient.invalidateQueries({ queryKey: ['replenishment-recommendation', recommendation.recommendation_id] })
+        },
+    })
+}
+
+// ─── Data Readiness ──────────────────────────────────────────────────────
+
+export function useDataReadiness() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['data-readiness'],
+        queryFn: () => api.get<DataReadiness>('/api/v1/data/readiness'),
+    })
+}
+
+export function useReplenishmentSimulation() {
+    const api = useApi()
+    return useQuery({
+        queryKey: ['replenishment-simulation'],
+        queryFn: () => api.get<ReplenishmentSimulationReport>('/api/v1/simulations/replenishment'),
     })
 }
