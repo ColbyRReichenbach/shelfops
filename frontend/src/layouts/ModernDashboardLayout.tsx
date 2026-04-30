@@ -22,8 +22,8 @@ import { useAlertSummary } from '@/hooks/useShelfOps'
 const primaryNavItems = [
     { to: '/replenishment', icon: ClipboardList, label: 'Replenishment' },
     { to: '/data-readiness', icon: DatabaseZap, label: 'Data Readiness' },
-    { to: '/pilot-impact', icon: LineChart, label: 'Impact' },
-    { to: '/ml-ops', icon: Brain, label: 'Model Performance' },
+    { to: '/pilot-impact', icon: LineChart, label: 'Evidence' },
+    { to: '/ml-ops', icon: Brain, label: 'Model Lab' },
 ]
 
 const secondaryNavItems = [
@@ -57,7 +57,7 @@ export default function ModernDashboardLayout() {
                 }`}
             >
                 {/* Logo Area */}
-                <div className={`flex items-center gap-3 ${isCollapsed ? 'px-4 py-6 justify-center' : 'p-6'}`}>
+                <div className={`flex gap-3 ${isCollapsed ? 'flex-col items-center px-4 py-5' : 'items-center p-6'}`}>
                     <Link
                         to="/replenishment"
                         className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}
@@ -74,8 +74,9 @@ export default function ModernDashboardLayout() {
                         type="button"
                         onClick={() => setIsCollapsed(current => !current)}
                         className={`rounded-xl p-2 text-[#86868b] transition hover:bg-black/5 hover:text-[#1d1d1f] ${
-                            isCollapsed ? 'absolute bottom-6' : 'ml-auto'
+                            isCollapsed ? 'mt-1' : 'ml-auto'
                         }`}
+                        aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                         title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
                     >
                         {isCollapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}

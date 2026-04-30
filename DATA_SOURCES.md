@@ -1,6 +1,6 @@
 # ShelfOps Data Sources
 
-Last updated: 2026-04-19
+Last updated: 2026-04-29
 
 This file defines the active data scope for ShelfOps.
 
@@ -43,9 +43,43 @@ target product:
 
 The active build should use:
 
-- `M5 / Walmart` for the primary benchmark-backed model reset
-- `FreshRetailNet-50K` for stockout-aware evaluation
+- `M5 / Walmart` for the primary benchmark-backed model reset and the public
+  benchmark workspace. M5 sales are the default walkthrough sales, but any
+  inventory, supplier, PO, or replenishment-policy rows derived around it must be
+  labeled `simulated`.
+- `FreshRetailNet-50K` for stockout-aware evaluation and anomaly-detector
+  evidence. Its stockout labels should support anomaly precision/recall,
+  false-positive-rate, and shadow-threshold comparisons.
 - `CSV onboarding` and `Square` for pilot-grade product validation
 
 If a dataset or connector is not listed above, it is not part of the active
 ShelfOps standout path.
+
+## Runtime Workspace Policy
+
+- The default public example workspace should be M5/Walmart benchmark sales, not
+  fabricated sales.
+- Load it with:
+
+  ```bash
+  APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/bootstrap_benchmark_workspace.py --wipe-existing
+  APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/sync_benchmark_evidence_to_db.py
+  ```
+
+  For Neon or any explicit database target, follow
+  [docs/operations/benchmark_workspace_reset.md](./docs/operations/benchmark_workspace_reset.md)
+  so migrations and bootstrap commands use the same async `DATABASE_URL`.
+
+- Operational transactions contain positive M5 sales events only. Zero-demand
+  store-SKU-days remain in benchmark artifacts and are used for model evidence,
+  but they are not inserted as zero-quantity transaction events.
+- Do not call this a measured pilot. Real pilots require authorized CSV/Square
+  merchant data and observed outcomes.
+- FreshRetailNet should appear as model evidence for stockout/anomaly logic, not
+  as the main U.S. retail workspace.
+- FreshRetailNet anomaly shadow records are benchmark/shadow evidence until real
+  cycle-count feedback is recorded through the anomaly outcome flow.
+- Keep provenance visible in UI/API responses: M5 forecasting evidence is
+  `benchmark`; M5 inventory/replenishment replay is `simulated`; FreshRetailNet
+  anomaly/stockout evidence is `benchmark`; CSV/Square merchant outcomes are
+  `measured` only after real outcome windows close.

@@ -113,7 +113,12 @@ class RecommendationService:
         safety_stock = max(1, round(z_score * combined_std * reliability_multiplier * cluster_multiplier))
         reorder_point = max(1, round(forecast_summary.avg_daily_demand * lead_time_days + safety_stock))
 
-        holding_cost_annual = self._resolve_holding_cost_annual(product)
+        base_holding_cost_annual = self._resolve_holding_cost_annual(product)
+        retail_economics = self._resolve_retail_economics(
+            product=product,
+            base_holding_cost_annual=base_holding_cost_annual,
+        )
+        holding_cost_annual = float(retail_economics["effective_holding_cost_annual"])
         annual_demand = forecast_summary.avg_daily_demand * 365
         economic_order_qty = max(
             InventoryOptimizer._calculate_eoq(annual_demand, cost_per_order, holding_cost_annual),
@@ -123,11 +128,19 @@ class RecommendationService:
         quantity_available = inventory.quantity_available if inventory else 0
         quantity_on_order = inventory.quantity_on_order if inventory else 0
         inventory_position = compute_inventory_position(quantity_available, quantity_on_order)
+        perishable_order_cap = self._perishable_order_cap(
+            product=product,
+            forecast_summary=forecast_summary,
+            safety_stock=safety_stock,
+            inventory_position=inventory_position,
+            min_order_qty=min_order_qty,
+        )
         recommended_quantity = compute_recommended_quantity(
             inventory_position=inventory_position,
             reorder_point=reorder_point,
             economic_order_qty=economic_order_qty,
             min_order_qty=min_order_qty,
+            max_order_qty=perishable_order_cap.get("max_order_qty"),
         )
 
         no_order_stockout_risk = classify_no_order_stockout_risk(
@@ -171,6 +184,14 @@ class RecommendationService:
             "holding_cost_annual": round(holding_cost_annual, 4),
             "cost_per_order": cost_per_order,
             "min_order_qty": min_order_qty,
+            "decision_economics": retail_economics,
+            "perishable_order_cap": perishable_order_cap,
+            "order_policy": {
+                "trigger": "order_when_inventory_position_at_or_below_reorder_point",
+                "quantity_rule": "max(reorder_point_gap, economic_order_qty), then supplier constraints",
+                "delivery_cost_role": "cost_per_order increases EOQ when ordering is expensive",
+                "spoilage_role": "perishable shelf life increases effective holding cost and may cap order quantity",
+            },
             "forecast_row_count": len(forecasts),
         }
 
@@ -561,6 +582,64 @@ class RecommendationService:
         if product.unit_cost is not None:
             return float(product.unit_cost) * 0.25
         return 5.0
+
+    def _resolve_retail_economics(
+        self,
+        *,
+        product: Product,
+        base_holding_cost_annual: float,
+    ) -> dict[str, object]:
+        unit_cost = float(product.unit_cost) if product.unit_cost is not None else None
+        shelf_life_days = int(product.shelf_life_days or 0)
+        is_perishable = bool(product.is_perishable or (shelf_life_days > 0 and shelf_life_days <= 45))
+
+        spoilage_cost_annual = 0.0
+        spoilage_confidence = "unavailable"
+        if is_perishable and shelf_life_days > 0 and unit_cost is not None:
+            spoilage_cost_annual = (unit_cost / shelf_life_days) * 365
+            spoilage_confidence = "estimated"
+        elif is_perishable:
+            spoilage_confidence = "provisional"
+
+        effective_holding_cost_annual = max(0.01, float(base_holding_cost_annual) + spoilage_cost_annual)
+        return {
+            "base_holding_cost_annual": round(float(base_holding_cost_annual), 4),
+            "spoilage_cost_annual": round(spoilage_cost_annual, 4),
+            "effective_holding_cost_annual": round(effective_holding_cost_annual, 4),
+            "unit_cost": unit_cost,
+            "shelf_life_days": shelf_life_days or None,
+            "is_perishable": is_perishable,
+            "spoilage_confidence": spoilage_confidence,
+            "cost_confidence": "measured" if unit_cost is not None else "unavailable",
+        }
+
+    def _perishable_order_cap(
+        self,
+        *,
+        product: Product,
+        forecast_summary,
+        safety_stock: int,
+        inventory_position: int,
+        min_order_qty: int,
+    ) -> dict[str, object]:
+        shelf_life_days = int(product.shelf_life_days or 0)
+        is_perishable = bool(product.is_perishable or (shelf_life_days > 0 and shelf_life_days <= 45))
+        if not is_perishable or shelf_life_days <= 0:
+            return {"applied": False, "reason": "not_perishable_or_shelf_life_unavailable", "max_order_qty": None}
+
+        usable_days = max(1, min(shelf_life_days, int(forecast_summary.horizon_days)))
+        max_position = max(0, math.ceil(forecast_summary.avg_daily_demand * usable_days + max(0, int(safety_stock))))
+        max_order_qty = max(0, max_position - max(0, int(inventory_position)))
+        cap_applies = max_order_qty >= max(1, int(min_order_qty or 1))
+        return {
+            "applied": cap_applies,
+            "reason": "perishable_shelf_life_cap" if cap_applies else "cap_below_supplier_minimum_or_no_gap",
+            "max_order_qty": max_order_qty if cap_applies else None,
+            "advisory_max_order_qty": max_order_qty,
+            "shelf_life_days": shelf_life_days,
+            "usable_forecast_days": usable_days,
+            "max_position_before_spoilage_risk": max_position,
+        }
 
     def _load_model_metadata(self, model_version: str) -> dict:
         metadata_path = MODELS_DIR / model_version / "metadata.json"

@@ -1,8 +1,3 @@
-/**
- * Inventory Page — Stock levels overview with status filtering.
- * Agent: full-stack-engineer | Skill: react-dashboard
- */
-
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -10,7 +5,7 @@ import {
     AlertTriangle, XCircle, CheckCircle2, Archive, Warehouse,
 } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useInventory, useInventorySummary, useStores } from '@/hooks/useShelfOps'
+import { useInventory, useInventorySummary, useProducts, useStores } from '@/hooks/useShelfOps'
 
 const STATUS_TABS = [
     { key: '', label: 'All' },
@@ -39,9 +34,9 @@ export default function InventoryPage() {
         category: categoryFilter || undefined,
     })
     const { data: stores = [] } = useStores()
+    const { data: products = [] } = useProducts()
 
-    // Derive unique categories from items
-    const categories = [...new Set(items.map((i) => i.category).filter(Boolean))] as string[]
+    const categories = [...new Set(products.map((product) => product.category).filter(Boolean))] as string[]
 
     return (
         <div className="page-shell animate-fade-in">

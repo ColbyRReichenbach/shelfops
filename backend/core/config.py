@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     square_client_id: str = ""
     square_client_secret: str = ""
     square_webhook_secret: str = ""
+    square_webhook_notification_url: str = ""
     square_environment: str = "sandbox"
     square_oauth_state_ttl_seconds: int = 600
     square_enable_demo_id_synthesis: bool = False

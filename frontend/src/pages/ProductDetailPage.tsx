@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Package, Truck, AlertTriangle, Loader2, AlertCircle } from 'lucide-react'
 import ForecastChart from '@/components/dashboard/ForecastChart'
-import { useProduct, useForecasts, useAlerts } from '@/hooks/useShelfOps'
+import { useProduct, useDemandSeries, useAlerts } from '@/hooks/useShelfOps'
 
 export default function ProductDetailPage() {
     const { productId } = useParams()
@@ -9,8 +9,8 @@ export default function ProductDetailPage() {
 
     const { data: product, isLoading: productLoading, isError: productError } = useProduct(productId)
 
-    const { data: forecasts = [] } = useForecasts(
-        productId ? { product_id: productId } : undefined
+    const { data: demandSeries = [] } = useDemandSeries(
+        productId ? { product_id: productId, history_days: 30, forecast_days: 30 } : undefined
     )
 
     const { data: alerts = [] } = useAlerts(
@@ -18,12 +18,12 @@ export default function ProductDetailPage() {
     )
     const productAlerts = alerts.filter(a => a.product_id === productId)
 
-    // Transform forecast data for the chart
-    const chartData = forecasts.map(f => ({
-        date: f.forecast_date,
-        forecast: Math.round(f.forecasted_demand),
-        lower: f.lower_bound != null ? Math.round(f.lower_bound) : undefined,
-        upper: f.upper_bound != null ? Math.round(f.upper_bound) : undefined,
+    const chartData = demandSeries.map(point => ({
+        date: point.date,
+        actual: point.actual_demand != null ? Math.round(point.actual_demand) : undefined,
+        forecast: point.forecasted_demand != null ? Math.round(point.forecasted_demand) : undefined,
+        lower_bound: point.lower_bound != null ? Math.round(point.lower_bound) : undefined,
+        upper_bound: point.upper_bound != null ? Math.round(point.upper_bound) : undefined,
     }))
 
     if (productLoading) {

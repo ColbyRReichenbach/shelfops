@@ -1,6 +1,6 @@
 # ShelfOps Documentation Index
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: engineers, hiring managers, operators, recruiters
 - Scope: active source-of-truth docs plus clearly labeled planning/spec documents
 - Source of truth: this index, with only the sections below explicitly labeled as current-state docs treated as runtime truth

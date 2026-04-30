@@ -108,7 +108,7 @@ function buildSummary(data: ForecastDriversResponse): string {
     const labels = top.map(
         f => f.friendly_label ?? f.name.replace(/_/g, ' ')
     )
-    return `These are global model drivers. ${labels[0] ?? 'The top feature'}${labels[1] ? ` and ${labels[1]}` : ''} carry the highest overall importance in the current model artifact.`
+    return `Global drivers: ${labels[0] ?? 'top feature'}${labels[1] ? ` and ${labels[1]}` : ''} carry the highest importance in the current model artifact.`
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────

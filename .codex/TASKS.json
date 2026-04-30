@@ -816,7 +816,7 @@
         },
         {
           "id": "P5-04",
-          "title": "Upgrade MLOps into Model Evidence UI",
+          "title": "Upgrade MLOps into Model Lab UI",
           "status": "done",
           "completed_at": "2026-04-19",
           "notes": [
@@ -1018,7 +1018,260 @@
           ]
         }
       ]
+    },
+    {
+      "id": "P7",
+      "name": "Productization hardening",
+      "tasks": [
+        {
+          "id": "P7-01",
+          "title": "Fix productization audit blockers and retail decision economics",
+          "status": "done",
+          "completed_at": "2026-04-28",
+          "notes": [
+            "Fixed the onboarding orchestration test signature drift so the backend suite can exercise dataset snapshot persistence without failing on a stale stub.",
+            "Updated Square webhook validation to use the Square notification URL plus raw body signature format, and added a configurable notification URL for deployed environments.",
+            "Updated Square inventory and order sync to follow cursor pages and use the current inventory counts endpoint path; Square order rows now persist the order timestamp instead of sync time.",
+            "Corrected replenishment quantity policy from reorder_point + EOQ target ordering to a reorder-trigger policy that orders the max of reorder gap and EOQ, then applies supplier and perishable constraints.",
+            "Added explicit decision-economics rationale for order cost, holding cost, spoilage cost, shelf life, and perishable caps, and surfaced that context in the recommendation drawer.",
+            "Renamed inactive SHAP-labeled frontend/API surfaces to artifact-backed model-driver language, while keeping the older API path as a deprecated compatibility alias."
+          ],
+          "files": [
+            "backend/ml/policy.py",
+            "backend/recommendations/service.py",
+            "backend/inventory/optimizer.py",
+            "backend/integrations/square.py",
+            "backend/api/v1/routers/integrations.py",
+            "backend/api/v1/routers/ml_ops.py",
+            "backend/workers/sync.py",
+            "backend/tests/test_square_client.py",
+            "frontend/src/components/replenishment/RecommendationDrawer.tsx",
+            "frontend/src/components/mlops/FeatureImportance.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/types.ts",
+            "CLAIMS.md",
+            "CURRENT_STATE.md",
+            "TECHNICAL.md",
+            "README.md"
+          ],
+          "actions": [
+            "Keep forecasting separate from inventory decision economics.",
+            "Make Square pilot ingest closer to real merchant behavior.",
+            "Expose spoilage and delivery/order-cost tradeoffs where buyers make decisions."
+          ],
+          "acceptance": [
+            "Backend targeted tests pass for recommendations, optimizer economics, Square webhook replay, Square cursor handling, and onboarding orchestration.",
+            "Frontend build succeeds.",
+            "Public docs do not claim Kafka streaming as active core-table ingest or live merchant ROI."
+          ]
+        },
+        {
+          "id": "P7-02",
+          "title": "Use benchmark workspaces and harden anomaly model governance",
+          "status": "done",
+          "started_at": "2026-04-28",
+          "completed_at": "2026-04-28",
+          "notes": [
+            "M5/Walmart is the default public benchmark workspace source for example sales; generated inventory/replenishment scaffolding must remain explicitly simulated.",
+            "FreshRetailNet owns stockout/anomaly-detector evidence because it includes stockout labels and perishable/promo/weather context.",
+            "Anomaly detection is represented as a first-class model family beside demand forecasting, with champion/challenger metadata, benchmark precision/recall/FPR, shadow decisioning, and UI evidence.",
+            "Neon/local runtime was reset to M5 benchmark sales with positive operational transaction rows, simulated inventory/supplier scaffolding, forecast/accuracy rows, reorder points, alerts, recommendations, and recommendation outcomes.",
+            "FreshRetailNet anomaly evidence now syncs into model_versions, anomaly_detection_runs, anomaly_shadow_predictions, and the Model Lab UI. Measured anomaly feedback remains unavailable until real cycle-count outcomes are recorded.",
+            "Root docs and claim docs were reset around the M5/FreshRetailNet benchmark boundary and CSV/Square pilot path."
+          ],
+          "files": [
+            "DATA_SOURCES.md",
+            "CLAIMS.md",
+            "CURRENT_STATE.md",
+            "README.md",
+            "TECHNICAL.md",
+            "MODEL_CARD.md",
+            "MODEL_CARD_STOCKOUT_APPENDIX.md",
+            "backend/ml/anomaly_benchmark.py",
+            "backend/ml/anomaly_feedback.py",
+            "backend/scripts/benchmark_anomaly_detector.py",
+            "backend/scripts/bootstrap_benchmark_workspace.py",
+            "backend/scripts/sync_benchmark_evidence_to_db.py",
+            "backend/models/anomaly_detector/",
+            "backend/reports/freshretailnet_anomaly_benchmark.json",
+            "backend/db/migrations/versions/016_anomaly_feedback_loop.py",
+            "backend/db/models.py",
+            "backend/api/v1/routers/models.py",
+            "frontend/src/pages/MLOpsPage.tsx",
+            "frontend/src/lib/types.ts"
+          ],
+          "actions": [
+            "Replace synthetic walkthrough sales with a bounded M5/Walmart benchmark workspace loader.",
+            "Sync M5/FreshRetailNet dataset snapshots and forecast/anomaly model evidence into runtime model tables.",
+            "Add FreshRetailNet anomaly-detector benchmark evidence with precision, recall, F1, false-positive-rate, and review-rate metrics.",
+            "Expose anomaly model evidence through the model evidence API.",
+            "Show anomaly champion and shadow-testing evidence alongside forecasting in Model Lab."
+          ],
+          "acceptance": [
+            "M5 sales are available through a benchmark workspace loader without presenting simulated inventory as measured.",
+            "Anomaly detector has versioned champion/challenger artifacts and benchmark evidence.",
+            "Model Lab surfaces demand_forecast and anomaly_detector model families.",
+            "FreshRetailNet anomaly metrics are labeled benchmark and not merchant ROI."
+          ]
+        },
+        {
+          "id": "P7-03",
+          "title": "Add decision-aware experiment report for DS rigor",
+          "status": "done",
+          "started_at": "2026-04-28",
+          "completed_at": "2026-04-28",
+          "notes": [
+            "Added an M5-native decision-aware experiment report that combines forecast holdout metrics, split-conformal uncertainty, segment metrics, and simulated replenishment replay in one auditable artifact.",
+            "Replaced the experiment run endpoint's legacy Favorita cycle with the new M5 decision experiment and persisted challenger evidence into the model experiment ledger shape used by the UI.",
+            "Promotion remains shadow-only until measured CSV/Square pilot outcomes are available; M5 replay metrics are explicitly labeled simulated benchmark evidence."
+          ],
+          "files": [
+            "backend/ml/decision_experiment.py",
+            "backend/scripts/run_decision_aware_experiment.py",
+            "backend/api/v1/routers/experiments.py",
+            "backend/tests/test_decision_experiment.py",
+            "backend/tests/test_experiments_api.py",
+            "backend/reports/experiments/m5_decision_aware_experiment.json",
+            "backend/reports/experiments/m5_decision_aware_experiment.md"
+          ],
+          "actions": [
+            "Generate a reproducible champion-vs-challenger experiment artifact from the M5 benchmark workspace.",
+            "Include business proxy metrics from replenishment replay without presenting them as measured merchant ROI.",
+            "Expose the artifact through the existing experiment run workflow so Model Lab can show shadow evidence."
+          ],
+          "acceptance": [
+            "Report includes forecast metrics, uncertainty, segment metrics, decision replay, promotion gates, lineage, and claim boundaries.",
+            "Experiment run endpoint no longer executes the legacy Favorita cycle.",
+            "Targeted backend tests pass for decision report generation and experiment API persistence."
+          ]
+        },
+        {
+          "id": "P7-04",
+          "title": "Add manual-vs-AI experiment governance",
+          "status": "done",
+          "started_at": "2026-04-29",
+          "completed_at": "2026-04-29",
+          "notes": [
+            "Added tenant-scoped context packages that freeze benchmark/model context for reproducible manual and AI-assisted experiment work.",
+            "Added a governed hypothesis backlog with source labels for manual, AI-assisted, and AI-agent proposals.",
+            "Added auditable agent traces covering prompt hashes, allowed tools, generated output, and human review decisions.",
+            "Added a comparison report that keeps manual, AI-assisted, and AI-agent experiment lanes separate with explicit benchmark/simulated claim boundaries.",
+            "Updated the Model Lab workbench so DS users can create context packages, save hypotheses, convert approved hypotheses, and see manual-vs-AI lanes alongside the experiment ledger."
+          ],
+          "files": [
+            "backend/db/models.py",
+            "backend/db/migrations/versions/017_experiment_governance.py",
+            "backend/ml/experiment_governance.py",
+            "backend/api/v1/routers/experiments.py",
+            "backend/tests/test_experiments_api.py",
+            "frontend/src/components/mlops/ExperimentWorkbench.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/types.ts",
+            "CLAIMS.md",
+            "CURRENT_STATE.md",
+            "MODEL_CARD.md"
+          ],
+          "actions": [
+            "Make manual and AI-assisted experiment workflows first-class platform objects instead of ad hoc notes.",
+            "Keep agent-generated hypotheses human-reviewed before they become runnable experiments.",
+            "Expose reproducible context, provenance, and comparison reporting in the internal ML Ops UI."
+          ],
+          "acceptance": [
+            "Context packages, hypotheses, traces, and comparison reports are tenant-scoped.",
+            "Experiment source and context package IDs persist through the experiment ledger and run metadata.",
+            "UI supports context package creation, source-labeled hypotheses, conversion to approved experiments, and lane comparison.",
+            "Claims explicitly state that this is governed AI-assisted DS workflow scaffolding, not autonomous model promotion or measured merchant ROI."
+          ]
+        },
+        {
+          "id": "P7-05",
+          "title": "Add executable experiment specs for UI-driven DS iteration",
+          "status": "done",
+          "started_at": "2026-04-29",
+          "completed_at": "2026-04-29",
+          "notes": [
+            "Added immutable experiment specs as tenant-scoped executable contracts between hypotheses and the M5 decision-aware runner.",
+            "Added curated M5 spec templates for lag/calendar baseline, price-promo lag features, velocity-segmented bias calibration, and conservative slow-mover tuning.",
+            "Experiment specs persist feature windows, LightGBM objective/parameters, calibration strategy, decision replay assumptions, spec hash, and benchmark provenance.",
+            "The experiment run endpoint now resolves the approved spec and passes it into the backend runner so selected templates change feature columns and model parameters.",
+            "Model Lab now exposes a runnable spec selector/materialization flow and marks dataset/objective/feature-set fields as spec-controlled instead of free-form training controls."
+          ],
+          "files": [
+            "backend/ml/experiment_specs.py",
+            "backend/ml/decision_experiment.py",
+            "backend/db/models.py",
+            "backend/db/migrations/versions/018_experiment_specs.py",
+            "backend/api/v1/routers/experiments.py",
+            "backend/tests/test_experiment_specs.py",
+            "backend/tests/test_decision_experiment.py",
+            "backend/tests/test_experiments_api.py",
+            "frontend/src/components/mlops/ExperimentWorkbench.tsx",
+            "frontend/src/hooks/useShelfOps.ts",
+            "frontend/src/lib/types.ts",
+            "CLAIMS.md",
+            "CURRENT_STATE.md",
+            "MODEL_CARD.md",
+            "TECHNICAL.md"
+          ],
+          "actions": [
+            "Create a real backend ExperimentSpec contract rather than treating UI feature/tuning choices as notes.",
+            "Persist spec IDs and hashes through hypotheses, experiments, run metadata, and model lineage.",
+            "Expose spec templates and materialized specs in Model Lab.",
+            "Verify that selected specs alter the actual decision-aware benchmark runner configuration."
+          ],
+          "acceptance": [
+            "Experiment specs are tenant-scoped and immutable once created.",
+            "Backend APIs expose spec templates and persisted specs.",
+            "Runnable experiments use the persisted spec to configure feature columns, LightGBM parameters, calibration, and replay assumptions.",
+            "UI fields no longer imply that free-text lineage changes model execution.",
+            "Targeted backend tests and frontend build pass."
+          ]
+        },
+        {
+          "id": "P7-06",
+          "title": "Extend executable experiment specs to anomaly-detector shadow runs",
+          "status": "done",
+          "started_at": "2026-04-29",
+          "completed_at": "2026-04-29",
+          "notes": [
+            "Added curated FreshRetailNet anomaly spec templates for precision-first, balanced-context, and high-recall review-cap detector profiles.",
+            "Anomaly specs now persist executable stockout detector feature flags, configurable prior-sales lookback windows, detector weights, thresholds, promotion gates, spec hashes, and benchmark provenance.",
+            "The experiment run endpoint now routes approved anomaly_detector experiments through the FreshRetailNet anomaly benchmark runner, registers the challenger model, and persists AnomalyDetectionRun shadow evidence.",
+            "Model Lab now switches spec templates and latest-run metrics by model family, showing anomaly precision, recall, false-positive-rate, and review-rate metrics instead of forecast-only metrics.",
+            "Promotion remains shadow-only for anomaly runs until measured cycle-count or buyer-review feedback is recorded."
+          ],
+          "files": [
+            "backend/ml/experiment_specs.py",
+            "backend/ml/anomaly_benchmark.py",
+            "backend/db/models.py",
+            "backend/db/migrations/versions/019_anomaly_experiment_specs.py",
+            "backend/api/v1/routers/experiments.py",
+            "backend/tests/test_experiment_specs.py",
+            "backend/tests/test_anomaly_benchmark.py",
+            "backend/tests/test_experiments_api.py",
+            "frontend/src/components/mlops/ExperimentWorkbench.tsx",
+            "frontend/src/lib/types.ts",
+            "CLAIMS.md",
+            "CURRENT_STATE.md",
+            "MODEL_CARD_STOCKOUT_APPENDIX.md",
+            "TECHNICAL.md"
+          ],
+          "actions": [
+            "Make anomaly_detector a real executable experiment-spec model family, not just model evidence metadata.",
+            "Ensure selected anomaly specs alter the backend threshold, feature lookback, feature flags, and detector weights used by the benchmark runner.",
+            "Persist anomaly run metrics and lineage into model registry, experiment ledger, and anomaly detection run tables.",
+            "Render model-family-specific latest-run metrics in Model Lab."
+          ],
+          "acceptance": [
+            "Anomaly spec templates are exposed by /api/v1/experiments/spec-templates?model_name=anomaly_detector.",
+            "Runnable anomaly experiments use FreshRetailNet benchmark data and persist benchmark provenance plus claim boundaries.",
+            "Anomaly runs record precision, recall, F1, false-positive-rate, review-rate, threshold, rows scored, and anomalies detected.",
+            "Forecast specs cannot be attached to anomaly experiments.",
+            "Targeted backend tests, ruff checks, and frontend build pass."
+          ]
+        }
+      ]
     }
   ],
-  "data_plan": "Focused data plan: active scope is M5/Walmart as the primary public forecasting benchmark, FreshRetailNet-50K as the secondary stockout/censored-demand benchmark, and CSV + Square as the pilot/product validation path. Dominick's is deferred optional. Favorita, Rossmann, Instacart, Complete Journey, UCI Online Retail, and leaked/unauthorized data are out of active scope."
+  "data_plan": "Focused data plan: active scope is M5/Walmart as the primary public forecasting benchmark and example benchmark workspace, FreshRetailNet-50K as the secondary stockout/censored-demand/anomaly benchmark, and CSV + Square as the measured pilot/product validation path. Dominick's is deferred optional. Favorita, Rossmann, Instacart, Complete Journey, UCI Online Retail, and leaked/unauthorized data are out of active scope."
 }

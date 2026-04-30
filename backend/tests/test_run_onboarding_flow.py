@@ -53,7 +53,9 @@ dq_thresholds:
         lambda features_df, dataset_name, version: {"xgboost": {"metrics": {"mae": 1.0, "mape": 0.1}}},
     )
     monkeypatch.setattr(
-        run_onboarding_flow, "save_models", lambda ensemble_result, version, dataset_name, promote: None
+        run_onboarding_flow,
+        "save_models",
+        lambda ensemble_result, version, dataset_name, promote, dataset_snapshot=None: None,
     )
     monkeypatch.setattr(run_onboarding_flow, "_next_version", lambda: "v-test")
 

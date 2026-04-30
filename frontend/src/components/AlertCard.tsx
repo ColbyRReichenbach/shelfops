@@ -1,8 +1,3 @@
-/**
- * Alert Card — Displays a single alert with severity badge and action buttons.
- * Agent: full-stack-engineer | Skill: react-dashboard + alert-systems
- */
-
 import { AlertTriangle, CheckCircle, Clock, XCircle } from 'lucide-react'
 import type { Alert } from '@/lib/types'
 

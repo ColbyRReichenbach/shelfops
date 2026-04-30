@@ -1,0 +1,35 @@
+{
+  "version": "a2",
+  "model_name": "anomaly_detector",
+  "architecture": "stockout_risk_policy",
+  "objective": "stockout_and_inventory_integrity_anomaly_detection",
+  "dataset_id": "freshretailnet_50k",
+  "dataset_snapshot_id": "dsnap_80ba1c489deb6f33",
+  "source_type": "benchmark",
+  "feature_set_id": "freshretailnet_stockout_context_v1",
+  "feature_tier": "stockout_context",
+  "forecast_grain": "store_product_daily",
+  "segment_strategy": "store_product_category",
+  "evaluation_window_days": 5,
+  "threshold": 0.35,
+  "precision": 0.5052,
+  "recall": 0.1601,
+  "f1": 0.2431,
+  "false_positive_rate": 0.1194,
+  "review_rate": 0.137,
+  "rows_eval": 142856,
+  "positive_rate": 0.4324,
+  "benchmark_report_path": "backend/reports/freshretailnet_anomaly_benchmark.json",
+  "claim_boundary": "Benchmark anomaly evidence only. Buyer outcomes require real cycle-count feedback.",
+  "promotion_reason": "shadow_candidate_higher_recall_with_more_review_volume",
+  "promotion_decision": {
+    "decision": "continue_shadow_review",
+    "reason": "Higher recall is useful for stockout discovery, but review-rate and false-positive-rate are too high to promote without buyer/cycle-count feedback."
+  },
+  "limitations": [
+    "FreshRetailNet is not U.S.-based and does not prove SMB merchant ROI.",
+    "The benchmark target is stockout-hour status, not buyer-confirmed anomaly outcome.",
+    "Cycle-count savings require real merchant feedback before they can be labeled measured."
+  ],
+  "provenance": "benchmark"
+}

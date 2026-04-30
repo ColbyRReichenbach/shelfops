@@ -152,9 +152,9 @@ async def test_create_recommendation_persists_deterministic_fixture(test_db):
     assert recommendation.reorder_point == 28
     assert recommendation.safety_stock == 8
     assert recommendation.economic_order_qty == 28
-    assert recommendation.recommended_quantity == 46
+    assert recommendation.recommended_quantity == 28
     assert recommendation.estimated_unit_cost == 2.5
-    assert recommendation.estimated_total_cost == 115.0
+    assert recommendation.estimated_total_cost == 70.0
     assert recommendation.source_type == "vendor_direct"
     assert recommendation.source_id == supplier.supplier_id
     assert recommendation.source_name == "Primary Vendor"
@@ -164,14 +164,46 @@ async def test_create_recommendation_persists_deterministic_fixture(test_db):
     assert recommendation.lead_time_demand_mean == 20.0
     assert recommendation.lead_time_demand_upper == 25.0
     assert recommendation.no_order_stockout_risk == "high"
-    assert recommendation.order_overstock_risk == "high"
+    assert recommendation.order_overstock_risk == "medium"
     assert recommendation.recommendation_rationale["interval_coverage"] is not None
+    assert recommendation.recommendation_rationale["order_policy"]["trigger"] == (
+        "order_when_inventory_position_at_or_below_reorder_point"
+    )
+    assert recommendation.recommendation_rationale["decision_economics"]["spoilage_cost_annual"] == 0.0
 
     result = await test_db.execute(select(ReplenishmentRecommendation))
     persisted = result.scalar_one()
     assert persisted.forecast_model_version == "v3"
     assert persisted.policy_version == "replenishment_v1"
-    assert persisted.recommended_quantity == 46
+    assert persisted.recommended_quantity == 28
+
+
+@pytest.mark.asyncio
+async def test_perishable_product_uses_spoilage_economics_and_cap(test_db):
+    store, product, _supplier = await _seed_recommendation_fixture(test_db)
+    product.is_perishable = True
+    product.shelf_life_days = 5
+    await test_db.commit()
+
+    service = RecommendationService(test_db)
+
+    recommendation = await service.create_recommendation(
+        customer_id=CUSTOMER_ID,
+        store_id=store.store_id,
+        product_id=product.product_id,
+        horizon_days=7,
+        model_version="v3",
+    )
+
+    assert recommendation.economic_order_qty == 16
+    assert recommendation.recommended_quantity == 18
+    assert recommendation.estimated_total_cost == 45.0
+    economics = recommendation.recommendation_rationale["decision_economics"]
+    cap = recommendation.recommendation_rationale["perishable_order_cap"]
+    assert economics["is_perishable"] is True
+    assert economics["spoilage_cost_annual"] > 0
+    assert cap["applied"] is True
+    assert cap["max_order_qty"] == 18
 
 
 @pytest.mark.asyncio

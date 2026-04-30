@@ -1,8 +1,3 @@
-/**
- * Skeleton — Loading placeholder with shimmer animation.
- * Agent: full-stack-engineer | Skill: react-dashboard
- */
-
 export function Skeleton({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
     return (
         <div

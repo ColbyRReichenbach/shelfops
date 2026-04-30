@@ -144,3 +144,17 @@ class TestForecastsAPI:
         assert "date" in data[0]
         assert "avg_mae" in data[0]
         assert "total_actual_demand" in data[0]
+
+    async def test_demand_series_joins_actuals_and_forecasts(self, client: AsyncClient, seeded_forecasts):
+        """Demand series endpoint returns historical sales and forecast rows for charting."""
+        product_id = str(seeded_forecasts["product"].product_id)
+        resp = await client.get(
+            f"/api/v1/forecasts/demand-series?product_id={product_id}&history_days=10&forecast_days=10"
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) >= 5
+        assert any(point["actual_demand"] is not None for point in data)
+        assert any(point["forecasted_demand"] is not None for point in data)
+        assert any(point["forecast_count"] > 0 for point in data)
+        assert any(point["transaction_count"] > 0 for point in data)

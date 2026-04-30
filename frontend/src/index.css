@@ -17,9 +17,9 @@
   --apple-red: #ff3b30;
   --apple-orange: #ff9500;
   --apple-border: rgba(0, 0, 0, 0.04);
-  --apple-shadow-card: 0 4px 20px rgba(0, 0, 0, 0.03);
-  --apple-shadow-lift: 0 16px 40px rgba(15, 23, 42, 0.08);
-  --apple-shadow-hero: 0 18px 60px rgba(0, 0, 0, 0.06);
+  --apple-shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04);
+  --apple-shadow-lift: 0 8px 20px rgba(15, 23, 42, 0.08);
+  --apple-shadow-hero: 0 1px 3px rgba(15, 23, 42, 0.04);
 }
 
 @layer base {
@@ -30,10 +30,7 @@
   body {
     @apply text-[#1d1d1f] font-sans antialiased;
     font-family: var(--font-sans-apple);
-    background:
-      radial-gradient(circle at top left, rgba(0, 113, 227, 0.08), transparent 28%),
-      radial-gradient(circle at top right, rgba(52, 199, 89, 0.06), transparent 24%),
-      linear-gradient(180deg, #f9fafc 0%, #f5f5f7 18%, #f3f4f7 100%);
+    background: #f5f5f7;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
@@ -67,30 +64,30 @@
 @layer components {
   /* Apple-style Card Surface */
   .card {
-    @apply rounded-[24px] bg-white p-6 border border-black/[0.02] transition-all duration-200;
+    @apply rounded-lg bg-white p-5 border border-black/[0.04] transition-all duration-200;
     box-shadow: var(--apple-shadow-card);
   }
 
   .card-compact {
-    @apply rounded-[16px] bg-white p-4 border border-black/[0.02];
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    @apply rounded-lg bg-white p-4 border border-black/[0.04];
+    box-shadow: var(--apple-shadow-card);
   }
 
   /* Buttons */
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-full px-5 py-2.5 text-sm font-medium text-white transition-all duration-200 active:scale-[0.98];
-    background: linear-gradient(180deg, #0b7bf0 0%, #0071e3 100%);
-    box-shadow: 0 2px 10px rgba(0,113,227,0.2);
+    @apply inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-medium text-white transition-all duration-200 active:scale-[0.98];
+    background: #0071e3;
+    box-shadow: none;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-full border border-black/5 bg-white px-5 py-2.5 text-sm font-medium text-[#1d1d1f] transition-all duration-200 active:scale-[0.98];
-    box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    @apply inline-flex items-center justify-center rounded-lg border border-black/10 bg-white px-4 py-2 text-sm font-medium text-[#1d1d1f] transition-all duration-200 active:scale-[0.98];
+    box-shadow: none;
   }
 
   .btn-primary:hover {
-    background: linear-gradient(180deg, #1483f3 0%, #0077ed 100%);
-    box-shadow: 0 10px 24px rgba(0,113,227,0.22);
+    background: #0068d1;
+    box-shadow: none;
   }
 
   .btn-secondary:hover {
@@ -133,50 +130,54 @@
   }
 
   .page-shell {
-    @apply space-y-6 p-6 lg:p-8;
+    @apply space-y-4 p-4 lg:p-6;
   }
 
   .hero-panel {
-    @apply relative overflow-hidden rounded-[32px] p-8;
+    @apply relative overflow-hidden rounded-lg border border-black/[0.04] bg-white p-5;
     box-shadow: var(--apple-shadow-hero);
   }
 
+  .hero-panel h1 {
+    @apply mt-3 text-2xl font-semibold leading-tight lg:text-3xl;
+  }
+
+  .hero-panel p {
+    @apply mt-2;
+  }
+
+  .hero-panel > .mt-8 {
+    @apply mt-4;
+  }
+
   .hero-panel-blue {
-    background:
-      radial-gradient(circle at top left, rgba(0,113,227,0.18), transparent 40%),
-      linear-gradient(135deg, #ffffff, #f6fbff);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
   }
 
   .hero-panel-blue-soft {
-    background:
-      radial-gradient(circle at top left, rgba(0,113,227,0.18), transparent 42%),
-      linear-gradient(135deg, #ffffff, #f3f8ff);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
   }
 
   .hero-panel-green {
-    background:
-      radial-gradient(circle at top left, rgba(52,199,89,0.18), transparent 40%),
-      linear-gradient(135deg, #ffffff, #f6fff9);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfffc 100%);
   }
 
   .hero-panel-neutral {
-    background:
-      radial-gradient(circle at top left, rgba(29,29,31,0.06), transparent 38%),
-      linear-gradient(135deg, #ffffff, #f8f9fb);
+    background: linear-gradient(180deg, #ffffff 0%, #fbfbfd 100%);
   }
 
   .hero-chip {
-    @apply inline-flex items-center gap-2 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold uppercase;
-    letter-spacing: 0.22em;
+    @apply inline-flex items-center gap-2 rounded-md bg-[#f5f5f7] px-2.5 py-1 text-xs font-semibold uppercase;
+    letter-spacing: 0;
   }
 
   .hero-stat-card {
-    @apply rounded-[24px] border border-white/80 bg-white/90 p-5;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.04);
+    @apply rounded-lg border border-black/[0.04] bg-white p-4;
+    box-shadow: var(--apple-shadow-card);
   }
 
   .surface-muted {
-    @apply rounded-[18px] border border-black/5 bg-[#f5f5f7];
+    @apply rounded-lg border border-black/5 bg-[#f5f5f7];
   }
 }
 

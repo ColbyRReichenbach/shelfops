@@ -166,6 +166,25 @@ def _verify_square_oauth_state(state: str) -> str:
     return customer_id
 
 
+def _square_webhook_notification_url(request: Request) -> str:
+    configured = str(settings.square_webhook_notification_url or "").strip()
+    return configured or str(request.url)
+
+
+def _verify_square_webhook_signature(signature: str, body: bytes, notification_url: str) -> bool:
+    if not signature:
+        return False
+    signed_payload = notification_url.encode("utf-8") + body
+    expected = base64.b64encode(
+        hmac.new(
+            settings.square_webhook_secret.encode("utf-8"),
+            signed_payload,
+            hashlib.sha256,
+        ).digest()
+    ).decode("utf-8")
+    return hmac.compare_digest(signature, expected)
+
+
 # ─── Schemas ────────────────────────────────────────────────────────────────
 
 
@@ -315,12 +334,8 @@ async def square_webhook(
 
     # Verify signature after payload is durably stored.
     if settings.square_webhook_secret:
-        expected = hmac.new(
-            settings.square_webhook_secret.encode(),
-            body,
-            hashlib.sha256,
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
+        notification_url = _square_webhook_notification_url(request)
+        if not _verify_square_webhook_signature(signature, body, notification_url):
             event_log.status = "invalid_signature"
             event_log.last_error = "invalid_square_signature"
             await db.commit()

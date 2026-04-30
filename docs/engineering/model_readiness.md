@@ -1,6 +1,6 @@
 # ShelfOps Model Readiness
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: ML engineers and reviewers
 - Scope: current readiness state by model/component family
 - Source of truth: backend ML modules and associated tests
@@ -23,7 +23,8 @@
 | Contract profiles and mapper | `implemented` | Profile-driven mapping and DQ gates are active. |
 | Explainability export path | `implemented` | Feature importance and report paths are implemented. |
 | File registry parity with DB promotion lifecycle | `implemented` | Runtime retrain flow synchronizes file artifacts with DB lifecycle state. |
-| Anomaly detection calibration | `partial` | Logic exists; sustained labeled telemetry is still limited. |
+| FreshRetailNet anomaly benchmark path | `implemented` | Champion/challenger evidence, immutable specs, run persistence, and shadow records exist. |
+| Measured anomaly feedback | `partial` | Cycle-count or buyer-review outcome persistence exists, but real pilot outcomes are not yet available. |
 | Feedback loop depth | `partial` | Outcome flow exists; richer closed-loop calibration remains. |
 | Broad enterprise onboarding operations | `blocked` | Non-GA by product policy. |
 

@@ -4,7 +4,7 @@ Forecasts Router — Demand forecast endpoints.
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -52,6 +52,16 @@ class AccuracyTrendPoint(BaseModel):
     date: date
     avg_mae: float | None
     total_actual_demand: float
+
+
+class DemandSeriesPoint(BaseModel):
+    date: date
+    actual_demand: float | None = None
+    forecasted_demand: float | None = None
+    lower_bound: float | None = None
+    upper_bound: float | None = None
+    forecast_count: int = 0
+    transaction_count: int = 0
 
 
 class ModelDriverFeature(BaseModel):
@@ -200,6 +210,112 @@ async def list_forecasts(
     query = query.order_by(DemandForecast.forecast_date.desc()).offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.get("/demand-series", response_model=list[DemandSeriesPoint])
+async def get_demand_series(
+    store_id: UUID | None = None,
+    product_id: UUID | None = None,
+    history_days: int = Query(30, ge=1, le=365),
+    forecast_days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_tenant_db),
+):
+    """Return daily historical sales joined with forecast demand for charting."""
+    today = date.today()
+
+    actual_anchor_query = select(func.max(Transaction.timestamp)).where(Transaction.transaction_type == "sale")
+    forecast_anchor_query = select(func.min(DemandForecast.forecast_date)).where(
+        DemandForecast.forecast_date >= today - timedelta(days=1)
+    )
+    fallback_forecast_anchor_query = select(func.min(DemandForecast.forecast_date))
+
+    if store_id:
+        actual_anchor_query = actual_anchor_query.where(Transaction.store_id == store_id)
+        forecast_anchor_query = forecast_anchor_query.where(DemandForecast.store_id == store_id)
+        fallback_forecast_anchor_query = fallback_forecast_anchor_query.where(DemandForecast.store_id == store_id)
+    if product_id:
+        actual_anchor_query = actual_anchor_query.where(Transaction.product_id == product_id)
+        forecast_anchor_query = forecast_anchor_query.where(DemandForecast.product_id == product_id)
+        fallback_forecast_anchor_query = fallback_forecast_anchor_query.where(DemandForecast.product_id == product_id)
+
+    actual_anchor = (await db.execute(actual_anchor_query)).scalar_one_or_none()
+    forecast_anchor = (await db.execute(forecast_anchor_query)).scalar_one_or_none()
+    if forecast_anchor is None:
+        forecast_anchor = (await db.execute(fallback_forecast_anchor_query)).scalar_one_or_none()
+
+    history_end = _normalize_date_value(actual_anchor) if actual_anchor is not None else today
+    history_start = history_end - timedelta(days=history_days)
+    forecast_start = forecast_anchor or today
+    forecast_end = forecast_start + timedelta(days=forecast_days)
+    history_start_dt = datetime.combine(history_start, time.min)
+    history_end_dt = datetime.combine(history_end, time.max)
+
+    forecast_query = (
+        select(
+            DemandForecast.forecast_date.label("series_date"),
+            func.sum(DemandForecast.forecasted_demand).label("forecasted_demand"),
+            func.sum(DemandForecast.lower_bound).label("lower_bound"),
+            func.sum(DemandForecast.upper_bound).label("upper_bound"),
+            func.count(DemandForecast.forecast_id).label("forecast_count"),
+        )
+        .where(DemandForecast.forecast_date >= forecast_start)
+        .where(DemandForecast.forecast_date <= forecast_end)
+        .group_by(DemandForecast.forecast_date)
+    )
+
+    transaction_date = func.date(Transaction.timestamp)
+    transaction_query = (
+        select(
+            transaction_date.label("series_date"),
+            func.sum(Transaction.quantity).label("actual_demand"),
+            func.count(Transaction.transaction_id).label("transaction_count"),
+        )
+        .where(Transaction.transaction_type == "sale")
+        .where(Transaction.timestamp >= history_start_dt)
+        .where(Transaction.timestamp <= history_end_dt)
+        .group_by(transaction_date)
+    )
+
+    if store_id:
+        forecast_query = forecast_query.where(DemandForecast.store_id == store_id)
+        transaction_query = transaction_query.where(Transaction.store_id == store_id)
+    if product_id:
+        forecast_query = forecast_query.where(DemandForecast.product_id == product_id)
+        transaction_query = transaction_query.where(Transaction.product_id == product_id)
+
+    forecast_rows = (await db.execute(forecast_query)).all()
+    transaction_rows = (await db.execute(transaction_query)).all()
+
+    forecast_by_date = {
+        _normalize_date_value(row.series_date): {
+            "forecasted_demand": float(row.forecasted_demand or 0),
+            "lower_bound": float(row.lower_bound) if row.lower_bound is not None else None,
+            "upper_bound": float(row.upper_bound) if row.upper_bound is not None else None,
+            "forecast_count": int(row.forecast_count or 0),
+        }
+        for row in forecast_rows
+    }
+    actual_by_date = {
+        _normalize_date_value(row.series_date): {
+            "actual_demand": float(row.actual_demand or 0),
+            "transaction_count": int(row.transaction_count or 0),
+        }
+        for row in transaction_rows
+    }
+
+    series_dates = sorted(set(forecast_by_date.keys()) | set(actual_by_date.keys()))
+    return [
+        DemandSeriesPoint(
+            date=series_date,
+            actual_demand=actual_by_date.get(series_date, {}).get("actual_demand"),
+            forecasted_demand=forecast_by_date.get(series_date, {}).get("forecasted_demand"),
+            lower_bound=forecast_by_date.get(series_date, {}).get("lower_bound"),
+            upper_bound=forecast_by_date.get(series_date, {}).get("upper_bound"),
+            forecast_count=int(forecast_by_date.get(series_date, {}).get("forecast_count", 0)),
+            transaction_count=int(actual_by_date.get(series_date, {}).get("transaction_count", 0)),
+        )
+        for series_date in series_dates
+    ]
 
 
 @router.get("/accuracy", response_model=list[AccuracySummary])

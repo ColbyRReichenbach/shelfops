@@ -5,6 +5,105 @@ import { ArrowUpRight, ArrowDownRight, Filter, Loader2, AlertCircle, BarChart3, 
 import { useForecasts, useProducts, useStores } from '@/hooks/useShelfOps'
 import ModelDriversPanel from '@/components/forecasts/ModelDriversPanel'
 
+interface ForecastTooltipPayload {
+    payload: {
+        demand?: number
+        lower?: number
+        upper?: number
+        lines?: number
+    }
+}
+
+interface CategoryTooltipPayload {
+    payload: {
+        name: string
+        value: number
+        share: number
+    }
+}
+
+function formatShortDate(value: string) {
+    return new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function formatLongDate(value: string) {
+    return new Date(`${value}T00:00:00`).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+    })
+}
+
+function ForecastTrendTooltip({
+    active,
+    label,
+    payload,
+}: {
+    active?: boolean
+    label?: string
+    payload?: ForecastTooltipPayload[]
+}) {
+    if (!active || !payload?.length || !label) return null
+    const point = payload[0]?.payload
+    if (!point) return null
+
+    return (
+        <div className="rounded-[10px] border border-white/10 bg-[#1d1d1f]/90 px-3 py-2 text-xs text-white shadow-lg backdrop-blur">
+            <p className="mb-2 font-semibold">{formatLongDate(label)}</p>
+            <div className="space-y-1.5">
+                <div className="flex min-w-[180px] items-center justify-between gap-4">
+                    <span className="flex items-center gap-2 text-white/75">
+                        <span className="h-2 w-2 rounded-full bg-[#0071e3]" />
+                        Forecast demand
+                    </span>
+                    <span className="font-semibold">{(point.demand ?? 0).toLocaleString()} units</span>
+                </div>
+                {point.lower != null && point.upper != null && (
+                    <div className="flex min-w-[180px] items-center justify-between gap-4">
+                        <span className="flex items-center gap-2 text-white/75">
+                            <span className="h-2 w-2 rounded-full bg-[#8bbcff]" />
+                            Forecast range
+                        </span>
+                        <span className="font-semibold">{point.lower.toLocaleString()}-{point.upper.toLocaleString()}</span>
+                    </div>
+                )}
+                {point.lines != null && (
+                    <p className="pt-1 text-[11px] text-white/55">{point.lines.toLocaleString()} store-SKU forecast rows</p>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function CategoryTooltip({
+    active,
+    payload,
+}: {
+    active?: boolean
+    payload?: CategoryTooltipPayload[]
+}) {
+    if (!active || !payload?.length) return null
+    const point = payload[0]?.payload
+    if (!point) return null
+
+    return (
+        <div className="rounded-[10px] border border-white/10 bg-[#1d1d1f]/90 px-3 py-2 text-xs text-white shadow-lg backdrop-blur">
+            <p className="mb-2 font-semibold">{point.name}</p>
+            <div className="space-y-1.5">
+                <div className="flex min-w-[170px] items-center justify-between gap-4">
+                    <span className="text-white/75">Forecast</span>
+                    <span className="font-semibold">{point.value.toLocaleString()} units</span>
+                </div>
+                <div className="flex min-w-[170px] items-center justify-between gap-4">
+                    <span className="text-white/75">Share</span>
+                    <span className="font-semibold">{point.share}%</span>
+                </div>
+            </div>
+        </div>
+    )
+}
+
 export default function ForecastsPage() {
     const [activeCategory, setActiveCategory] = useState('All')
     const [windowDays, setWindowDays] = useState<14 | 30 | 60>(14)
@@ -49,10 +148,11 @@ export default function ForecastsPage() {
         return Array.from(byDate.entries())
             .sort(([a], [b]) => a.localeCompare(b))
             .map(([date, totals]) => ({
-                date: new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+                date,
                 demand: Math.round(totals.demand),
                 lower: Math.round(totals.lower),
                 upper: Math.round(totals.upper),
+                range: [Math.round(totals.lower), Math.round(totals.upper)] as [number, number],
                 lines: totals.count,
             }))
     }, [forecasts, productMap, activeCategory])
@@ -272,48 +372,37 @@ export default function ForecastsPage() {
                             <div className="h-[300px]">
                                 {trendData.length > 0 ? (
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                        <AreaChart data={trendData} margin={{ top: 10, right: 16, left: 0, bottom: 20 }}>
                                             <defs>
                                                 <linearGradient id="colorDemand" x1="0" y1="0" x2="0" y2="1">
                                                     <stop offset="5%" stopColor="#0071e3" stopOpacity={0.2} />
                                                     <stop offset="95%" stopColor="#0071e3" stopOpacity={0} />
                                                 </linearGradient>
-                                                <linearGradient id="colorRange" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#34c759" stopOpacity={0.16} />
-                                                    <stop offset="95%" stopColor="#34c759" stopOpacity={0.02} />
-                                                </linearGradient>
                                             </defs>
                                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e5ea" strokeOpacity={0.05} vertical={false} />
-                                            <XAxis dataKey="date" tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} dy={10} />
-                                            <YAxis tick={{ fill: '#86868b', fontSize: 11, opacity: 0.6 }} axisLine={false} tickLine={false} />
+                                            <XAxis
+                                                dataKey="date"
+                                                tick={{ fill: '#86868b', fontSize: 11 }}
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tickFormatter={formatShortDate}
+                                                interval="preserveStartEnd"
+                                                minTickGap={36}
+                                                dy={8}
+                                            />
+                                            <YAxis tick={{ fill: '#86868b', fontSize: 11 }} axisLine={false} tickLine={false} width={48} />
                                             <Tooltip
-                                                contentStyle={{
-                                                    backgroundColor: 'rgba(29,29,31,0.8)',
-                                                    backdropFilter: 'blur(12px)',
-                                                    border: '1px solid rgba(255,255,255,0.1)',
-                                                    borderRadius: '16px',
-                                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                                                    fontSize: '12px',
-                                                    color: '#ffffff'
-                                                }}
+                                                content={<ForecastTrendTooltip />}
+                                                cursor={{ stroke: '#c7c7cc', strokeWidth: 1 }}
                                             />
                                             <Area
                                                 type="monotone"
-                                                dataKey="upper"
-                                                stroke="#34c759"
-                                                strokeOpacity={0.28}
-                                                strokeWidth={1.5}
-                                                fill="url(#colorRange)"
-                                                name="Upper range"
-                                            />
-                                            <Area
-                                                type="monotone"
-                                                dataKey="lower"
-                                                stroke="#34c759"
-                                                strokeOpacity={0.18}
-                                                strokeWidth={1}
-                                                fill="#f8f8fb"
-                                                name="Lower range"
+                                                dataKey="range"
+                                                stroke="none"
+                                                fill="#0071e3"
+                                                fillOpacity={0.1}
+                                                name="Forecast range"
+                                                activeDot={false}
                                             />
                                             <Area
                                                 type="monotone"
@@ -321,7 +410,7 @@ export default function ForecastsPage() {
                                                 stroke="#0071e3"
                                                 strokeWidth={3}
                                                 fill="url(#colorDemand)"
-                                                name="Demand"
+                                                name="Forecast demand"
                                             />
                                         </AreaChart>
                                     </ResponsiveContainer>
@@ -349,16 +438,7 @@ export default function ForecastsPage() {
                                             <YAxis dataKey="name" type="category" width={80} tick={{ fill: '#86868b', fontSize: 11 }} axisLine={false} tickLine={false} />
                                             <Tooltip
                                                 cursor={{ fill: 'rgba(0,0,0,0.02)' }}
-                                                contentStyle={{
-                                                    backgroundColor: 'rgba(29,29,31,0.8)',
-                                                    backdropFilter: 'blur(12px)',
-                                                    border: '1px solid rgba(255,255,255,0.1)',
-                                                    borderRadius: '16px',
-                                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                                                    fontSize: '12px',
-                                                    color: '#ffffff'
-                                                }}
-                                                formatter={(value: number, _name, payload) => [`${value.toLocaleString()} units (${payload?.payload?.share ?? 0}%)`, 'Forecast']}
+                                                content={<CategoryTooltip />}
                                             />
                                             <Bar dataKey="value" barSize={24} radius={[0, 6, 6, 0]}>
                                                 {categoryData.map((_, index) => (

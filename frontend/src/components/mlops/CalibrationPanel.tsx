@@ -44,7 +44,7 @@ export default function CalibrationPanel({ evidence, effectiveness }: Calibratio
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
                 <div className="rounded-[20px] bg-[#f5f5f7] p-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#86868b]">How To Read It</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#86868b]">Operating Notes</p>
                     <div className="mt-4 space-y-3 text-sm text-[#6e6e73]">
                         <p>This model stores calibrated demand ranges alongside its point forecasts.</p>
                         <p>If live coverage drifts away from the stored benchmark level, review the latest data mix and retraining cadence.</p>

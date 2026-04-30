@@ -25,28 +25,28 @@ const CSV_SECTIONS: Array<{
         fileType: 'stores',
         label: 'Stores',
         description: 'Required first. Used to resolve store_name references in transaction and inventory rows.',
-        placeholder: 'name,city,state,zip_code\nDowntown,Minneapolis,MN,55401',
+        placeholder: 'name,address,city,state,zip_code,timezone',
     },
     {
         key: 'products_csv',
         fileType: 'products',
         label: 'Products',
         description: 'Required before transaction and inventory validation so SKU references can resolve.',
-        placeholder: 'sku,name,category,unit_cost,unit_price\nSKU-001,Sparkling Water,Beverages,2.5,4.5',
+        placeholder: 'sku,name,category,subcategory,brand,unit_cost,unit_price,shelf_life_days,is_perishable,is_seasonal',
     },
     {
         key: 'transactions_csv',
         fileType: 'transactions',
         label: 'Transactions',
         description: 'Historical sales are the main readiness driver. Include at least 90 days when possible.',
-        placeholder: 'date,store_name,sku,quantity,unit_price\n2024-01-01,Downtown,SKU-001,4,4.5',
+        placeholder: 'date,store_name,sku,quantity,unit_price',
     },
     {
         key: 'inventory_csv',
         fileType: 'inventory',
         label: 'Inventory',
         description: 'Optional for onboarding, but needed for live replenishment and closeout accuracy.',
-        placeholder: 'timestamp,store_name,sku,quantity_on_hand,quantity_on_order,quantity_reserved\n2024-04-05T09:00:00,Downtown,SKU-001,25,3,1',
+        placeholder: 'timestamp,store_name,sku,quantity_on_hand,quantity_on_order,quantity_reserved,quantity_available,source',
     },
 ]
 

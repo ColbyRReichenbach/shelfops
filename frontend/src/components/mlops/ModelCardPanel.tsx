@@ -78,8 +78,17 @@ export default function ModelCardPanel({
                                         <p className="mt-1 text-xs text-[#6e6e73]">{row.source} · {row.note}</p>
                                     </div>
                                     <div className="text-right text-sm">
-                                        <p className="font-semibold text-[#1d1d1f]">WAPE {(row.wape * 100).toFixed(1)}%</p>
-                                        <p className="text-xs text-[#6e6e73]">MASE {row.mase.toFixed(3)}</p>
+                                        {row.wape !== null && row.wape !== undefined ? (
+                                            <>
+                                                <p className="font-semibold text-[#1d1d1f]">WAPE {(row.wape * 100).toFixed(1)}%</p>
+                                                <p className="text-xs text-[#6e6e73]">MASE {row.mase !== null && row.mase !== undefined ? row.mase.toFixed(3) : '—'}</p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="font-semibold text-[#1d1d1f]">Precision {formatPercent(row.precision)}</p>
+                                                <p className="text-xs text-[#6e6e73]">Recall {formatPercent(row.recall)}</p>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </div>
@@ -113,7 +122,7 @@ export default function ModelCardPanel({
                 <div className="rounded-[20px] border border-[#ffcc00]/25 bg-[#ffcc00]/10 p-5">
                     <div className="flex items-center gap-2">
                         <ShieldAlert className="h-4 w-4 text-[#8a6a00]" />
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8a6a00]">How To Read These Results</p>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8a6a00]">Claim Boundary</p>
                     </div>
                     <p className="mt-4 text-sm text-[#6e6e73]">{evidence.claim_boundary}</p>
                     <div className="mt-4 space-y-3">
@@ -180,6 +189,13 @@ function formatNumber(value: number | null) {
         return '—'
     }
     return value.toLocaleString()
+}
+
+function formatPercent(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+        return '—'
+    }
+    return `${(value * 100).toFixed(1)}%`
 }
 
 function formatStatusLabel(value: string) {

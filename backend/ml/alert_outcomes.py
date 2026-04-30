@@ -180,6 +180,24 @@ async def record_anomaly_outcome(
         }
     )
     anomaly.anomaly_metadata = anomaly_metadata
+    shadow_prediction_id = anomaly_metadata.get("anomaly_shadow_prediction_id")
+    if shadow_prediction_id:
+        try:
+            from ml.anomaly_feedback import record_shadow_prediction_outcome
+
+            await record_shadow_prediction_outcome(
+                db,
+                customer_id=customer_id,
+                prediction_id=uuid.UUID(str(shadow_prediction_id)),
+                outcome=outcome,
+            )
+        except (TypeError, ValueError):
+            logger.warning(
+                "anomaly_outcome.invalid_shadow_prediction_id",
+                customer_id=str(customer_id),
+                anomaly_id=str(anomaly_id),
+                shadow_prediction_id=shadow_prediction_id,
+            )
 
     await db.commit()
 

@@ -34,7 +34,7 @@ A historical weight sweep on the old seed dataset logged the following result. T
 
 **The LSTM is actively dragging down every metric.** The current production default (65/35) produces MAE 19% worse than pure XGBoost. Every additional point of LSTM weight makes the ensemble worse in a perfectly linear degradation. The system already flagged this — the `model_strategy_cycle` recommendation was `single_xgboost`, but it was held as challenger because business metrics were incomplete.
 
-**The current champion (v1) has MAE 41.98, MAPE 0.286** — trained on only 27 rows of Favorita cold-start data. That is not a usable model.
+**The historical champion at the time of this review (v1) had MAE 41.98, MAPE 0.286** — trained on only 27 rows of Favorita cold-start data. That was not a usable model and has since been superseded by the M5-backed `v3` champion documented in root `MODEL_CARD.md`.
 
 ### 1.2 MAPE Is Misleading Us
 

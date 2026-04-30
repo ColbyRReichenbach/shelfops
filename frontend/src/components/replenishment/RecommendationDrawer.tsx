@@ -32,6 +32,13 @@ export default function RecommendationDrawer({
     if (!isOpen || !recommendation) {
         return null
     }
+    const economics = asRecord(recommendation.recommendation_rationale.decision_economics)
+    const perishableCap = asRecord(recommendation.recommendation_rationale.perishable_order_cap)
+    const orderPolicy = asRecord(recommendation.recommendation_rationale.order_policy)
+    const costPerOrder = asNumber(recommendation.recommendation_rationale.cost_per_order)
+    const holdingCost = asNumber(economics.effective_holding_cost_annual)
+    const spoilageCost = asNumber(economics.spoilage_cost_annual)
+    const shelfLifeDays = asNumber(economics.shelf_life_days)
 
     return (
         <div className="fixed inset-y-0 right-0 z-[60] flex w-full justify-end bg-[#1d1d1f]/20 backdrop-blur-[2px]">
@@ -96,6 +103,33 @@ export default function RecommendationDrawer({
                             <MetricTile
                                 label="Coverage quality"
                                 value={`${recommendation.interval_method ?? 'unavailable'} · ${recommendation.calibration_status ?? 'unknown'}`}
+                            />
+                        </div>
+                    </section>
+
+                    <section className="card-compact space-y-4">
+                        <div className="flex items-center gap-2">
+                            <CircleDollarSign className="h-4 w-4 text-[#0071e3]" />
+                            <h3 className="text-base font-semibold text-[#1d1d1f]">Decision Economics</h3>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <MetricTile
+                                label="Order trigger"
+                                value={formatPolicyValue(orderPolicy.trigger, 'Inventory at or below reorder point')}
+                            />
+                            <MetricTile
+                                label="Quantity rule"
+                                value={formatPolicyValue(orderPolicy.quantity_rule, 'Reorder gap plus supplier constraints')}
+                            />
+                            <MetricTile label="Delivery/order cost" value={formatCurrency(costPerOrder)} />
+                            <MetricTile label="Holding + spoilage cost" value={formatCurrency(holdingCost)} />
+                            <MetricTile
+                                label="Shelf life"
+                                value={shelfLifeDays === null ? 'Not constrained' : `${shelfLifeDays.toLocaleString()} days`}
+                            />
+                            <MetricTile
+                                label="Spoilage cap"
+                                value={formatSpoilageCap(perishableCap, spoilageCost)}
                             />
                         </div>
                     </section>
@@ -236,4 +270,37 @@ function formatBand(lower: number | null, upper: number | null) {
         return 'Unavailable'
     }
     return `${lower.toFixed(1)} to ${upper.toFixed(1)}`
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {}
+}
+
+function asNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value
+    }
+    if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number(value)
+        return Number.isFinite(parsed) ? parsed : null
+    }
+    return null
+}
+
+function formatPolicyValue(value: unknown, fallback: string) {
+    return typeof value === 'string' && value.trim() ? value.replace(/_/g, ' ') : fallback
+}
+
+function formatSpoilageCap(cap: Record<string, unknown>, spoilageCost: number | null) {
+    const applied = cap.applied === true
+    const advisoryMax = asNumber(cap.advisory_max_order_qty)
+    if (applied && advisoryMax !== null) {
+        return `Capped near ${advisoryMax.toLocaleString()} units`
+    }
+    if (spoilageCost !== null && spoilageCost > 0) {
+        return 'Priced into EOQ'
+    }
+    return 'Not active'
 }

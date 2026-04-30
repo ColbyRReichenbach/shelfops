@@ -1,6 +1,6 @@
 # ShelfOps Data Contract Specification
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: data engineering, onboarding, ML engineering
 - Scope: contract schema, semantic controls, and validation gates
 - Source of truth: `backend/ml/contract_profiles.py`, `backend/ml/contract_mapper.py`
@@ -38,3 +38,6 @@ DQ thresholds are enforced during validation and onboarding promotion checks (`i
 
 - CLI validator: `backend/scripts/validate_customer_contract.py` (`implemented`)
 - Onboarding flow: `backend/scripts/run_onboarding_flow.py` (`implemented`)
+- Product CSV onboarding API: `POST /api/v1/data/csv/validate` and
+  `POST /api/v1/data/csv/ingest` for stores, products, transactions, and
+  inventory snapshots (`implemented`)

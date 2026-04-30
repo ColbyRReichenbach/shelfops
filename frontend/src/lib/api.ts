@@ -1,8 +1,3 @@
-/**
- * API Client — Wraps fetch with auth token injection and error handling.
- * Agent: full-stack-engineer | Skill: react-dashboard
- */
-
 import { useAuth0 } from '@auth0/auth0-react'
 
 function resolveApiBaseUrl(): string {

@@ -37,6 +37,17 @@ def _coerce_uuid(value: Any) -> uuid.UUID | None:
         return None
 
 
+def _parse_square_timestamp(*values: Any, fallback: datetime) -> datetime:
+    for value in values:
+        if not value:
+            continue
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            continue
+    return fallback
+
+
 def _build_square_id_map(raw_mapping: Any) -> dict[str, uuid.UUID]:
     if not isinstance(raw_mapping, dict):
         return {}
@@ -610,6 +621,11 @@ def sync_square_transactions(self, customer_id: str):
                 for order in orders:
                     order_id = order.get("id", "")
                     location_id = order.get("location_id", "")
+                    order_timestamp = _parse_square_timestamp(
+                        order.get("closed_at"),
+                        order.get("created_at"),
+                        fallback=now,
+                    )
                     store_uuid = _resolve_external_uuid(location_id, location_map)
                     if store_uuid is None:
                         skipped_unmapped_store += 1
@@ -643,7 +659,7 @@ def sync_square_transactions(self, customer_id: str):
                             customer_id=customer_uuid,
                             store_id=store_uuid,
                             product_id=product_uuid,
-                            timestamp=now,
+                            timestamp=order_timestamp,
                             quantity=quantity,
                             unit_price=unit_price,
                             total_amount=total,

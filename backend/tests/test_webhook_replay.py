@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -11,6 +12,17 @@ from sqlalchemy import select
 
 from api.v1.routers.integrations import settings
 from db.models import Integration, WebhookEventLog
+
+
+def _square_signature(raw_body: str) -> str:
+    notification_url = "http://test/api/v1/integrations/square/webhook"
+    return base64.b64encode(
+        hmac.new(
+            settings.square_webhook_secret.encode(),
+            f"{notification_url}{raw_body}".encode(),
+            hashlib.sha256,
+        ).digest()
+    ).decode()
 
 
 @pytest.fixture
@@ -46,7 +58,7 @@ async def test_square_webhook_is_persisted_before_processing(client, seeded_squa
     )
 
     raw_body = json.dumps({"type": "inventory.count.updated", "merchant_id": "MERCHANT123"})
-    signature = hmac.new(settings.square_webhook_secret.encode(), raw_body.encode(), hashlib.sha256).hexdigest()
+    signature = _square_signature(raw_body)
     response = await client.post(
         "/api/v1/integrations/square/webhook",
         content=raw_body,
@@ -72,7 +84,7 @@ async def test_failed_webhook_can_be_replayed(client, seeded_square_integration,
     )
 
     raw_body = json.dumps({"type": "inventory.count.updated", "merchant_id": "MERCHANT123"})
-    signature = hmac.new(settings.square_webhook_secret.encode(), raw_body.encode(), hashlib.sha256).hexdigest()
+    signature = _square_signature(raw_body)
     response = await client.post(
         "/api/v1/integrations/square/webhook",
         content=raw_body,

@@ -52,8 +52,37 @@ Interpretation:
 - the conservative stockout-aware adjustment improves stockout-window sensitivity
 - this is methodology evidence, not business-impact evidence
 
+## Anomaly Detector Evidence
+
+Source: [backend/reports/freshretailnet_anomaly_benchmark.json](/Users/colbyreichenbach/Downloads/shelfops_project/backend/reports/freshretailnet_anomaly_benchmark.json)
+
+- Active anomaly champion: `anomaly_detector:a1`
+- Shadow challenger: `anomaly_detector:a2`
+- Evaluation rows after prior-window feature readiness: `142,856`
+- Champion threshold: `0.55`
+- Champion precision: `0.7409`
+- Champion recall: `0.0799`
+- Champion false-positive rate: `0.0213`
+- Champion review rate: `0.0466`
+- Challenger threshold: `0.35`
+- Challenger precision: `0.5052`
+- Challenger recall: `0.1601`
+- Challenger false-positive rate: `0.1194`
+- Challenger review rate: `0.1370`
+
+Interpretation:
+
+- `a1` stays champion because low false-positive workload matters for SMB cycle counts.
+- `a2` remains in shadow because it catches more labeled stockout events but asks the operator to review more items.
+- Model Lab can now run FreshRetailNet anomaly experiments from immutable spec
+  templates. The spec controls detector feature flags, prior-sales lookback,
+  score weights, threshold, promotion gates, and lineage hash.
+- The runtime database now persists anomaly detection runs and shadow-prediction rows so real cycle-count feedback can later update measured anomaly precision.
+- Current anomaly feedback provenance is `benchmark` / `unavailable`, not measured merchant feedback.
+
 ## Claim Boundaries
 
 - FreshRetailNet is a secondary evidence track. It does not replace the active M5-backed champion.
 - The recovered-demand comparison is estimated against a conservative proxy, not against directly observed true latent demand.
 - The stockout-aware benchmark should be shown separately from M5 forecasting evidence rather than blended into the champion headline metrics.
+- FreshRetailNet anomaly labels support benchmark precision/recall/FPR claims only. They do not prove U.S. SMB shelf availability, shrink reduction, or buyer ROI.

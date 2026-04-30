@@ -91,13 +91,14 @@ export default function ProductsPage() {
     const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
     const { data: products = [], isLoading, isError, error } = useProducts(categoryFilter || undefined, statusFilter || undefined)
+    const { data: allProducts = [] } = useProducts()
     const createProduct = useCreateProduct()
     const updateProduct = useUpdateProduct()
     const deleteProduct = useDeleteProduct()
 
     const categories = useMemo(
-        () => [...new Set(products.map(product => product.category).filter(Boolean))] as string[],
-        [products],
+        () => [...new Set(allProducts.map(product => product.category).filter(Boolean))] as string[],
+        [allProducts],
     )
 
     const filteredProducts = useMemo(
@@ -216,7 +217,7 @@ export default function ProductsPage() {
                                 {editingProduct ? 'Edit Product' : 'Create Product'}
                             </h2>
                             <p className="mt-1 text-sm text-[#86868b]">
-                                Save catalog changes directly to the production API.
+                                Save catalog attributes used by forecasting, replenishment, and shelf-life controls.
                             </p>
                         </div>
                         <button

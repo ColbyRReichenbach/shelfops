@@ -1,6 +1,6 @@
 # ShelfOps Product Roadmap
 
-- Last verified date: April 19, 2026
+- Last verified date: April 29, 2026
 - Audience: builders, reviewers, stakeholders
 - Scope: current pilot-productization roadmap aligned to the replenishment-first ShelfOps plan
 - Source of truth: `.codex/ROADMAP.md`, `.codex/TASKS.json`, and `docs/product/known_issues.md`
@@ -11,13 +11,14 @@
 2. The public benchmark path is reset onto M5 plus a separate FreshRetailNet stockout appendix. `done`
 3. The replenishment decision loop now exists end to end: recommendation generation, buyer decisions, PO linkage, and measured or estimated impact. `done`
 4. CSV onboarding, Square mapping confirmation, webhook replay, and replenishment replay simulation now exist as pilot-readiness infrastructure. `done`
-5. Frontend priority surfaces now center on Replenishment Queue, Data Readiness, Pilot Impact, and Model Evidence. `done`
+5. Frontend priority surfaces now center on Replenishment Queue, Data Readiness, Evidence, and Model Lab. `done`
+6. The default walkthrough workspace now uses M5/Walmart benchmark sales, and FreshRetailNet anomaly champion/shadow evidence is persisted in runtime tables. `done`
 
 ## Now
 
 1. Keep the repo truth surface strict: archive stale collateral, remove dead demo-only code, and avoid unsupported claims.
 2. Harden pilot execution around real merchant onboarding, recommendation review, and operational observability.
-3. Continue replacing legacy benchmark or experiment paths that still assume old demo datasets.
+3. Turn persisted anomaly shadow predictions into measured cycle-count feedback once real merchant review outcomes exist.
 
 ## Next
 

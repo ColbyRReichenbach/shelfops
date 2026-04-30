@@ -76,6 +76,9 @@ function ModelCard({ model }: { model: MLModel }) {
     const wape = Number(metrics.wape ?? NaN)
     const mase = Number(metrics.mase ?? NaN)
     const biasPct = Number(metrics.bias_pct ?? NaN)
+    const precision = Number(metrics.precision ?? NaN)
+    const recall = Number(metrics.recall ?? NaN)
+    const falsePositiveRate = Number(metrics.false_positive_rate ?? NaN)
 
     return (
         <div className={`card border ${config.border} shadow-sm p-4 ${config.bg}/30`}>
@@ -121,6 +124,24 @@ function ModelCard({ model }: { model: MLModel }) {
                         <p className={`font-mono font-semibold ${biasPct > 0 ? 'text-[#ff3b30]' : biasPct < 0 ? 'text-[#0071e3]' : 'text-[#1d1d1f]'}`}>
                             {(biasPct * 100).toFixed(1)}%
                         </p>
+                    </div>
+                )}
+                {!Number.isNaN(precision) && (
+                    <div>
+                        <p className="text-[#86868b]">Precision</p>
+                        <p className="font-mono font-semibold text-[#1d1d1f]">{(precision * 100).toFixed(1)}%</p>
+                    </div>
+                )}
+                {!Number.isNaN(recall) && (
+                    <div>
+                        <p className="text-[#86868b]">Recall</p>
+                        <p className="font-mono font-semibold text-[#1d1d1f]">{(recall * 100).toFixed(1)}%</p>
+                    </div>
+                )}
+                {!Number.isNaN(falsePositiveRate) && (
+                    <div>
+                        <p className="text-[#86868b]">FPR</p>
+                        <p className="font-mono font-semibold text-[#1d1d1f]">{(falsePositiveRate * 100).toFixed(1)}%</p>
                     </div>
                 )}
                 {model.routing_weight !== null && (

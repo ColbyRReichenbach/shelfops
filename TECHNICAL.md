@@ -34,7 +34,7 @@ Core runtime layers:
 | Forecasting | LightGBM | Active forecasting architecture |
 | Validation | Pandera | Data-contract gates |
 | Tracking | MLflow | Experiment and artifact tracking |
-| Explainability | SHAP | Forecast explanation artifacts |
+| Explainability | Artifact-backed model drivers | Global feature-importance evidence, not local SHAP unless explicitly implemented |
 | Frontend | React 18 + TypeScript + Vite + Tailwind | Product UI and evidence UI |
 
 ## Data And Evidence
@@ -44,6 +44,8 @@ Active scope:
 - `M5 / Walmart` as the primary public forecasting benchmark
 - `FreshRetailNet-50K` as the stockout-aware secondary benchmark
 - `CSV onboarding` and `Square` as the pilot/product validation paths
+- default local walkthrough data comes from M5 sales plus explicitly simulated
+  inventory/supplier/replenishment scaffolding
 
 Supporting docs:
 
@@ -65,8 +67,13 @@ Primary backend capabilities:
 - recommendation outcome computation with provenance labels
 - simulation endpoints for benchmark replay
 - CSV validate/ingest/readiness endpoints
-- Square mapping preview, mapping confirmation, webhook log, dead-letter, and replay
+- Square mapping preview, mapping confirmation, cursor-aware order/inventory sync,
+  webhook notification-url signature validation, webhook log, dead-letter, and replay
 - model lifecycle, experiment, runtime health, and effectiveness endpoints
+- experiment-spec endpoints for curated, immutable M5 forecast and FreshRetailNet
+  anomaly benchmark run recipes
+- model evidence endpoint for both `demand_forecast` and `anomaly_detector`,
+  including anomaly run and shadow-prediction feedback summaries
 
 Important files:
 
@@ -89,6 +96,22 @@ Active ML direction:
 - calibrated split-conformal intervals on the active public champion
 - segment reporting and promotion evidence
 - file-backed champion artifacts plus runtime model-state APIs
+- anomaly detector champion/challenger evidence from FreshRetailNet, with
+  persisted run and shadow-prediction tables for later cycle-count feedback
+- immutable M5 experiment specs that bind feature windows, LightGBM
+  hyperparameters, calibration strategy, decision replay assumptions, and spec
+  hashes to each runnable decision-aware experiment
+- immutable FreshRetailNet anomaly specs that bind detector feature flags,
+  prior-sales lookback, score weights, threshold, promotion gates, and spec
+  hashes to each stockout-anomaly shadow run
+
+Active replenishment-policy direction:
+
+- forecasts estimate demand and uncertainty
+- reorder points and safety stock convert demand into service-level risk
+- supplier order cost drives EOQ and delivery-frequency tradeoffs
+- holding cost and perishable shelf life reduce order quantities when spoilage risk is material
+- buyer accept/edit/reject decisions are captured separately from measured or estimated outcomes
 
 Important files:
 
@@ -98,10 +121,15 @@ Important files:
 - `backend/ml/evaluation.py`
 - `backend/ml/segments.py`
 - `backend/ml/replenishment_simulation.py`
+- `backend/ml/experiment_specs.py`
+- `backend/ml/anomaly_benchmark.py`
+- `backend/ml/anomaly_feedback.py`
 - `backend/ml/dataset_snapshots.py`
 - `backend/models/v3/metadata.json`
+- `backend/models/anomaly_detector/`
 - `backend/reports/m5_subset20_benchmark.json`
 - `backend/reports/m5_subset20_holdout_eval.json`
+- `backend/reports/freshretailnet_anomaly_benchmark.json`
 
 ## Frontend Product Surfaces
 
@@ -130,6 +158,8 @@ The repo relies on tenant-scoped session context rather than trusting the UI to 
 ```bash
 docker compose up db redis
 (cd backend && PYTHONPATH=. alembic upgrade head)
+APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/bootstrap_benchmark_workspace.py --wipe-existing
+APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/sync_benchmark_evidence_to_db.py
 PYTHONPATH=backend uvicorn api.main:app --reload
 PYTHONPATH=backend celery -A workers.celery_app worker --loglevel=info
 cd frontend && npm install && npm run dev

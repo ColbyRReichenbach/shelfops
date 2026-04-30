@@ -108,6 +108,16 @@ export interface Forecast {
     created_at: string
 }
 
+export interface DemandSeriesPoint {
+    date: string
+    actual_demand: number | null
+    forecasted_demand: number | null
+    lower_bound: number | null
+    upper_bound: number | null
+    forecast_count: number
+    transaction_count: number
+}
+
 export interface ForecastAccuracy {
     store_id: string
     product_id: string
@@ -315,10 +325,68 @@ export interface ActiveModelEvidence {
     benchmark_rows: Array<{
         label: string
         source: string
-        wape: number
-        mase: number
+        wape?: number | null
+        mase?: number | null
+        precision?: number | null
+        recall?: number | null
+        f1?: number | null
+        false_positive_rate?: number | null
+        review_rate?: number | null
         note: string
     }>
+    benchmark_metrics?: {
+        precision?: number | null
+        recall?: number | null
+        f1?: number | null
+        false_positive_rate?: number | null
+        review_rate?: number | null
+        positive_rate?: number | null
+        rows_eval?: number | null
+    }
+    shadow?: {
+        challenger_version?: string | null
+        status?: string | null
+        precision?: number | null
+        recall?: number | null
+        f1?: number | null
+        false_positive_rate?: number | null
+        review_rate?: number | null
+        decision?: Record<string, unknown> | null
+    }
+    feedback?: {
+        runs_total: number
+        latest_run: {
+            run_id: string
+            model_version: string
+            run_type: string
+            dataset_id: string | null
+            dataset_snapshot_id: string | null
+            threshold: number | null
+            status: string
+            rows_scored: number
+            anomalies_detected: number
+            precision: number | null
+            recall: number | null
+            f1: number | null
+            false_positive_rate: number | null
+            review_rate: number | null
+            provenance: string
+            started_at: string | null
+            completed_at: string | null
+        } | null
+        shadow_predictions: number
+        champion_flags: number
+        challenger_flags: number
+        disagreements: number
+        disagreement_rate: number | null
+        outcomes_recorded: number
+        true_positives: number
+        false_positives: number
+        measured_precision: number | null
+        feedback_provenance: string
+        shadow_provenance: string
+    }
+    evaluation_protocol?: string | null
     limitations: string[]
     claim_boundary: string
 }
@@ -366,6 +434,8 @@ export type ExperimentStatus =
     | 'completed'
     | 'rejected'
 
+export type ExperimentSource = 'manual' | 'ai_assisted' | 'ai_agent'
+
 export interface ExperimentResults {
     baseline_mae?: number | null
     experimental_mae?: number | null
@@ -373,10 +443,28 @@ export interface ExperimentResults {
     experimental_wape?: number | null
     baseline_mase?: number | null
     experimental_mase?: number | null
+    baseline_precision?: number | null
+    experimental_precision?: number | null
+    baseline_recall?: number | null
+    experimental_recall?: number | null
+    baseline_f1?: number | null
+    experimental_f1?: number | null
+    baseline_false_positive_rate?: number | null
+    experimental_false_positive_rate?: number | null
+    baseline_review_rate?: number | null
+    experimental_review_rate?: number | null
     overstock_dollars_delta?: number | null
     opportunity_cost_stockout_delta?: number | null
     overall_business_safe?: boolean | null
     decision?: string | null
+    run_report?: {
+        baseline?: {
+            holdout_metrics?: Record<string, number | string | boolean | null>
+        }
+        challenger?: {
+            holdout_metrics?: Record<string, number | string | boolean | null>
+        }
+    } | null
     promotion_comparison?: {
         promoted?: boolean
         reason?: string
@@ -391,6 +479,9 @@ export interface ExperimentLedgerEntry {
     hypothesis: string
     experiment_type: ExperimentType
     model_name: string
+    experiment_source: ExperimentSource
+    context_package_id: string | null
+    experiment_spec_id: string | null
     status: ExperimentStatus
     proposed_by: string
     approved_by: string | null
@@ -409,6 +500,12 @@ export interface ProposeExperimentPayload {
     hypothesis: string
     experiment_type: ExperimentType
     model_name: string
+    experiment_source?: ExperimentSource
+    context_package_id?: string | null
+    hypothesis_id?: string | null
+    experiment_spec_id?: string | null
+    spec_template_id?: string | null
+    spec_overrides?: Record<string, unknown>
     lineage_metadata?: Record<string, unknown>
 }
 
@@ -417,6 +514,10 @@ export interface ProposeExperimentResponse {
     experiment_id: string
     message: string
     baseline_version: string | null
+    experiment_source?: ExperimentSource
+    context_package_id?: string | null
+    experiment_spec_id?: string | null
+    experiment_spec_hash?: string | null
 }
 
 export interface ApproveExperimentPayload {
@@ -428,8 +529,11 @@ export interface RunExperimentPayload {
     experimentId: string
     dataDir?: string
     holdoutDays?: number
+    calibrationDays?: number
     maxRows?: number
+    maxSeries?: number
     maxChallengers?: number
+    experimentSpecId?: string | null
 }
 
 export interface ExperimentRunExecution {
@@ -464,16 +568,171 @@ export interface ExperimentRunExecution {
             experiment_name: string
             hypothesis: string
             experiment_type: ExperimentType
+            model_name: string
             decision: string
             decision_rationale: string
         }
     }
 }
 
-export interface SHAPFeature {
+export interface ExperimentContextPackage {
+    context_package_id: string
+    package_name: string
+    model_name: string
+    baseline_version: string | null
+    dataset_id: string | null
+    dataset_snapshot_id: string | null
+    package_type: 'manual_vs_ai' | 'manual' | 'ai_agent' | 'benchmark'
+    artifact_uri: string | null
+    context_metadata: Record<string, unknown>
+    allowed_experiment_types: ExperimentType[]
+    created_by: string
+    created_at: string
+}
+
+export interface ExperimentSpecTemplate {
+    template_id: string
+    spec_name: string
+    model_name: string
+    dataset_id: string
+    experiment_type: ExperimentType
+    feature_set_id: string
+    objective: string
+    calibration_strategy: string
+    provenance: string
+    claim_boundary: string
+    spec_hash: string
+    spec: Record<string, unknown>
+}
+
+export interface ExperimentSpec {
+    experiment_spec_id: string
+    context_package_id: string | null
+    model_name: string
+    dataset_id: string
+    template_id: string
+    spec_name: string
+    spec_version: string
+    spec_hash: string
+    spec: Record<string, unknown>
+    spec_metadata: Record<string, unknown>
+    created_by: string
+    created_at: string
+}
+
+export interface CreateExperimentSpecPayload {
+    template_id: string
+    spec_name?: string | null
+    context_package_id?: string | null
+    overrides?: Record<string, unknown>
+}
+
+export interface CreateExperimentContextPackagePayload {
+    package_name?: string | null
+    model_name: string
+    baseline_version?: string | null
+    dataset_id?: string | null
+    package_type?: 'manual_vs_ai' | 'manual' | 'ai_agent' | 'benchmark'
+    allowed_experiment_types?: ExperimentType[] | null
+    notes?: string | null
+}
+
+export interface ExperimentHypothesis {
+    hypothesis_id: string
+    context_package_id: string | null
+    experiment_spec_id: string | null
+    experiment_id: string | null
+    model_name: string
+    experiment_source: ExperimentSource
+    title: string
+    hypothesis: string
+    experiment_type: ExperimentType
+    domain_rationale: string | null
+    expected_metric_movement: Record<string, unknown>
+    risk_notes: string | null
+    status: 'proposed' | 'approved' | 'rejected' | 'converted' | 'archived'
+    generated_by: string
+    reviewed_by: string | null
+    reviewed_at: string | null
+    hypothesis_metadata: Record<string, unknown>
+    created_at: string
+}
+
+export interface CreateExperimentHypothesisPayload {
+    title: string
+    hypothesis: string
+    experiment_type: ExperimentType
+    model_name: string
+    experiment_source: ExperimentSource
+    context_package_id?: string | null
+    experiment_spec_id?: string | null
+    spec_template_id?: string | null
+    spec_overrides?: Record<string, unknown>
+    domain_rationale?: string | null
+    expected_metric_movement?: Record<string, unknown>
+    risk_notes?: string | null
+    hypothesis_metadata?: Record<string, unknown>
+}
+
+export interface ReviewExperimentHypothesisPayload {
+    hypothesisId: string
+    decision: 'approve' | 'reject'
+    rationale?: string | null
+    convertToExperiment?: boolean
+}
+
+export interface ExperimentAgentTrace {
+    trace_id: string
+    context_package_id: string | null
+    hypothesis_id: string | null
+    experiment_id: string | null
+    agent_name: string
+    agent_model: string | null
+    trace_type: 'hypothesis_generation' | 'experiment_plan' | 'interpretation' | 'execution_review'
+    prompt_hash: string | null
+    prompt_preview: string | null
+    input_context: Record<string, unknown>
+    tool_allowlist: string[]
+    generated_output: Record<string, unknown>
+    human_decision: 'pending' | 'approved' | 'rejected' | 'edited' | 'not_required'
+    human_decision_by: string | null
+    human_decision_at: string | null
+    human_decision_rationale: string | null
+    trace_metadata: Record<string, unknown>
+    created_at: string
+}
+
+export interface ExperimentComparisonReport {
+    model_name: string
+    context_package_id: string | null
+    generated_at: string
+    claim_boundary: {
+        provenance: string
+        business_impact: string
+        promotion: string
+    }
+    summary: {
+        hypotheses: number
+        experiments: number
+        agent_traces: number
+    }
+    lanes: Array<{
+        source: ExperimentSource
+        hypotheses: number
+        experiments: number
+        agent_traces: number
+        status_counts: Record<string, number>
+        latest_experiments: Array<Record<string, unknown>>
+    }>
+    context_package: ExperimentContextPackage | null
+}
+
+export interface ModelDriverFeature {
     name: string
     importance: number
 }
+
+export type SHAPFeature = ModelDriverFeature
 
 export interface MLHealth {
     status: string

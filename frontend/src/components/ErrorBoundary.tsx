@@ -1,8 +1,3 @@
-/**
- * Error Boundary — Catches render errors and shows a fallback UI.
- * Agent: full-stack-engineer | Skill: react-dashboard
- */
-
 import { Component } from 'react'
 import type { ReactNode, ErrorInfo } from 'react'
 import { AlertCircle, RefreshCcw } from 'lucide-react'

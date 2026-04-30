@@ -38,9 +38,9 @@ class TestReplenishmentAPI:
         assert data[0]["forecast_model_version"] == "v3"
         assert data[0]["policy_version"] == "replenishment_v1"
         assert data[0]["interval_method"] == "split_conformal"
-        assert data[0]["recommended_quantity"] == 46
+        assert data[0]["recommended_quantity"] == 28
         assert data[0]["no_order_stockout_risk"] == "high"
-        assert data[0]["order_overstock_risk"] == "high"
+        assert data[0]["order_overstock_risk"] == "medium"
 
     async def test_get_recommendation_detail(self, client, test_db):
         recommendation = await _create_open_recommendation(test_db)
@@ -90,13 +90,13 @@ class TestReplenishmentAPI:
 
         po_result = await test_db.execute(select(PurchaseOrder))
         purchase_order = po_result.scalar_one()
-        assert purchase_order.quantity == 46
+        assert purchase_order.quantity == 28
         assert purchase_order.status == "approved"
 
         decision_result = await test_db.execute(select(PODecision))
         decision = decision_result.scalar_one()
         assert decision.decision_type == "approved"
-        assert decision.final_qty == 46
+        assert decision.final_qty == 28
 
     async def test_edit_recommendation_creates_edited_purchase_order(self, client, test_db):
         recommendation = await _create_open_recommendation(test_db)

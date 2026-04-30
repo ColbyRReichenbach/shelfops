@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="AI-powered retail inventory intelligence platform",
+    description="Retail inventory decision platform",
     lifespan=lifespan,
 )
 

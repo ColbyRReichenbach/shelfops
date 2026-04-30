@@ -1088,9 +1088,9 @@ Show:
 - trainability status,
 - recommendation eligibility status.
 
-### 8.5 Model Evidence page
+### 8.5 Model Lab page
 
-Upgrade `MLOpsPage` or create `ModelEvidencePage`.
+Upgrade `MLOpsPage` as the internal `Model Lab` surface.
 
 Show:
 
@@ -1754,7 +1754,7 @@ Acceptance:
 - No metric appears without provenance label.
 - Simulation results are not visually presented as real pilot results.
 
-#### Task 5.4: Model Evidence UI
+#### Task 5.4: Model Lab UI
 
 Files:
 
@@ -1767,7 +1767,7 @@ frontend/src/components/mlops/SegmentMetricsTable.tsx
 
 Actions:
 
-- Upgrade MLOps page into evidence surface.
+- Upgrade MLOps page into the Model Lab evidence surface.
 - Add model card, baseline comparison, calibration, and promotion gates.
 
 Acceptance:

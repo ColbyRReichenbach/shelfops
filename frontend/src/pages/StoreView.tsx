@@ -192,7 +192,7 @@ export default function StoreView() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">
                                 {editingStore ? 'Edit Store' : 'Create Store'}
                             </h2>
-                            <p className="mt-1 text-sm text-[#86868b]">Persist store metadata directly to the live API.</p>
+                            <p className="mt-1 text-sm text-[#86868b]">Save store metadata used by inventory, replenishment, and alert routing.</p>
                         </div>
                         <button
                             onClick={closeForm}

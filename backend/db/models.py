@@ -592,6 +592,80 @@ class Anomaly(Base):
     )
 
 
+class AnomalyDetectionRun(Base):
+    """Auditable anomaly model scoring or benchmark replay run."""
+
+    __tablename__ = "anomaly_detection_runs"
+
+    run_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    model_name = Column(String(50), nullable=False, default="anomaly_detector")
+    model_version = Column(String(50), nullable=False)
+    run_type = Column(String(30), nullable=False)
+    dataset_id = Column(String(100), nullable=True)
+    dataset_snapshot_id = Column(String(100), nullable=True)
+    threshold = Column(Float, nullable=True)
+    status = Column(String(20), nullable=False, default="completed")
+    rows_scored = Column(Integer, nullable=False, default=0)
+    anomalies_detected = Column(Integer, nullable=False, default=0)
+    precision = Column(Float, nullable=True)
+    recall = Column(Float, nullable=True)
+    f1 = Column(Float, nullable=True)
+    false_positive_rate = Column(Float, nullable=True)
+    review_rate = Column(Float, nullable=True)
+    provenance = Column(String(20), nullable=False, default="benchmark")
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    run_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_anomaly_runs_customer_model", "customer_id", "model_name", "started_at"),
+        CheckConstraint(
+            "run_type IN ('scheduled', 'manual', 'benchmark_replay', 'shadow')",
+            name="ck_anomaly_run_type",
+        ),
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="ck_anomaly_run_status"),
+        CheckConstraint(
+            "provenance IN ('measured', 'estimated', 'simulated', 'benchmark', 'provisional', 'unavailable')",
+            name="ck_anomaly_run_provenance",
+        ),
+        CheckConstraint("rows_scored >= 0", name="ck_anomaly_run_rows_nonnegative"),
+        CheckConstraint("anomalies_detected >= 0", name="ck_anomaly_run_detected_nonnegative"),
+    )
+
+
+class AnomalyShadowPrediction(Base):
+    """Champion/challenger anomaly prediction pair with optional review outcome."""
+
+    __tablename__ = "anomaly_shadow_predictions"
+
+    prediction_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("anomaly_detection_runs.run_id"), nullable=True)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    detected_for_date = Column(Date, nullable=False)
+    champion_version = Column(String(50), nullable=False)
+    challenger_version = Column(String(50), nullable=False)
+    champion_score = Column(Float, nullable=False)
+    challenger_score = Column(Float, nullable=False)
+    champion_flag = Column(Boolean, nullable=False, default=False)
+    challenger_flag = Column(Boolean, nullable=False, default=False)
+    actual_outcome = Column(String(30), nullable=True)
+    outcome_recorded_at = Column(DateTime, nullable=True)
+    prediction_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_anomaly_shadow_customer_date", "customer_id", "detected_for_date"),
+        Index("ix_anomaly_shadow_run", "run_id"),
+        CheckConstraint(
+            "actual_outcome IS NULL OR actual_outcome IN ('true_positive', 'false_positive', 'resolved', 'investigating')",
+            name="ck_anomaly_shadow_outcome",
+        ),
+    )
+
+
 # ─── 16. EDI Transaction Log ──────────────────────────────────────────────
 
 
@@ -1242,7 +1316,171 @@ class MLAlert(Base):
     __table_args__ = (Index("ix_ml_alerts_customer_status", "customer_id", "status", "created_at"),)
 
 
-# ─── 34. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
+# ─── 34. Experiment Governance (Context, Hypotheses, Agent Traces) ─────────
+
+
+class ExperimentContextPackage(Base):
+    """
+    Immutable-ish context bundle used to keep manual and AI-assisted DS work
+    reproducible against the same benchmark, champion, claims, and controls.
+    """
+
+    __tablename__ = "experiment_context_packages"
+
+    context_package_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    package_name = Column(String(255), nullable=False)
+    model_name = Column(String(50), nullable=False)
+    baseline_version = Column(String(50), nullable=True)
+    dataset_id = Column(String(100), nullable=True)
+    dataset_snapshot_id = Column(String(100), nullable=True)
+    package_type = Column(String(30), nullable=False, default="manual_vs_ai")
+    artifact_uri = Column(String(500), nullable=True)
+    context_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    allowed_experiment_types = Column(JSONB_TYPE, nullable=False, default=list)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "package_type IN ('manual_vs_ai', 'manual', 'ai_agent', 'benchmark')",
+            name="ck_experiment_context_package_type",
+        ),
+        Index("ix_experiment_context_customer_model", "customer_id", "model_name", "created_at"),
+        Index("ix_experiment_context_customer_created", "customer_id", "created_at"),
+    )
+
+
+class ExperimentSpec(Base):
+    """
+    Immutable executable model experiment recipe.
+
+    Specs are the bridge between a DS hypothesis and the actual runner inputs:
+    feature windows, LightGBM objective/parameters, calibration strategy,
+    decision replay assumptions, promotion gates, and provenance.
+    """
+
+    __tablename__ = "experiment_specs"
+
+    experiment_spec_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    model_name = Column(String(50), nullable=False)
+    dataset_id = Column(String(100), nullable=False)
+    template_id = Column(String(100), nullable=False)
+    spec_name = Column(String(255), nullable=False)
+    spec_version = Column(String(40), nullable=False)
+    spec_hash = Column(String(64), nullable=False)
+    spec = Column(JSONB_TYPE, nullable=False)
+    spec_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "model_name IN ('demand_forecast', 'anomaly_detector')",
+            name="ck_experiment_spec_model_name",
+        ),
+        CheckConstraint(
+            "dataset_id IN ('m5_walmart', 'freshretailnet_50k')",
+            name="ck_experiment_spec_dataset_id",
+        ),
+        Index("ix_experiment_specs_customer_model", "customer_id", "model_name", "created_at"),
+        Index("ix_experiment_specs_context", "context_package_id", "created_at"),
+        Index("ix_experiment_specs_hash", "customer_id", "spec_hash"),
+    )
+
+
+class ExperimentHypothesis(Base):
+    """Governed hypothesis backlog for human and agent-proposed experiment ideas."""
+
+    __tablename__ = "experiment_hypotheses"
+
+    hypothesis_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    experiment_spec_id = Column(UUID(as_uuid=True), ForeignKey("experiment_specs.experiment_spec_id"), nullable=True)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("model_experiments.experiment_id"), nullable=True)
+    model_name = Column(String(50), nullable=False)
+    experiment_source = Column(String(20), nullable=False, default="manual")
+    title = Column(String(255), nullable=False)
+    hypothesis = Column(Text, nullable=False)
+    experiment_type = Column(String(50), nullable=False)
+    domain_rationale = Column(Text, nullable=True)
+    expected_metric_movement = Column(JSONB_TYPE, nullable=False, default=dict)
+    risk_notes = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="proposed")
+    generated_by = Column(String(255), nullable=False)
+    reviewed_by = Column(String(255), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    hypothesis_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "experiment_source IN ('manual', 'ai_assisted', 'ai_agent')",
+            name="ck_experiment_hypothesis_source",
+        ),
+        CheckConstraint(
+            "status IN ('proposed', 'approved', 'rejected', 'converted', 'archived')",
+            name="ck_experiment_hypothesis_status",
+        ),
+        Index("ix_experiment_hypotheses_customer_model", "customer_id", "model_name", "status", "created_at"),
+        Index("ix_experiment_hypotheses_context", "context_package_id", "status"),
+        Index("ix_experiment_hypotheses_spec", "experiment_spec_id", "status"),
+    )
+
+
+class ExperimentAgentTrace(Base):
+    """
+    Auditable record of agent/LLM inputs, allowed tools, generated output, and
+    the human decision applied to that output.
+    """
+
+    __tablename__ = "experiment_agent_traces"
+
+    trace_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    hypothesis_id = Column(UUID(as_uuid=True), ForeignKey("experiment_hypotheses.hypothesis_id"), nullable=True)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("model_experiments.experiment_id"), nullable=True)
+    agent_name = Column(String(100), nullable=False)
+    agent_model = Column(String(100), nullable=True)
+    trace_type = Column(String(30), nullable=False)
+    prompt_hash = Column(String(64), nullable=True)
+    prompt_preview = Column(Text, nullable=True)
+    input_context = Column(JSONB_TYPE, nullable=False, default=dict)
+    tool_allowlist = Column(JSONB_TYPE, nullable=False, default=list)
+    generated_output = Column(JSONB_TYPE, nullable=False, default=dict)
+    human_decision = Column(String(30), nullable=False, default="pending")
+    human_decision_by = Column(String(255), nullable=True)
+    human_decision_at = Column(DateTime, nullable=True)
+    human_decision_rationale = Column(Text, nullable=True)
+    trace_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "trace_type IN ('hypothesis_generation', 'experiment_plan', 'interpretation', 'execution_review')",
+            name="ck_experiment_agent_trace_type",
+        ),
+        CheckConstraint(
+            "human_decision IN ('pending', 'approved', 'rejected', 'edited', 'not_required')",
+            name="ck_experiment_agent_trace_human_decision",
+        ),
+        Index("ix_experiment_agent_traces_customer", "customer_id", "created_at"),
+        Index("ix_experiment_agent_traces_context", "context_package_id", "trace_type"),
+        Index("ix_experiment_agent_traces_hypothesis", "hypothesis_id", "trace_type"),
+    )
+
+
+# ─── 35. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
 
 
 class ModelExperiment(Base):
@@ -1271,6 +1509,11 @@ class ModelExperiment(Base):
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     baseline_version = Column(String(20), nullable=True)  # Champion version at experiment start
     experimental_version = Column(String(20), nullable=True)  # Version produced by experiment
+    experiment_source = Column(String(20), nullable=False, default="manual")
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    experiment_spec_id = Column(UUID(as_uuid=True), ForeignKey("experiment_specs.experiment_spec_id"), nullable=True)
     status = Column(String(20), nullable=False, default="proposed")
     proposed_by = Column(String(255), nullable=False)  # User ID or email
     approved_by = Column(String(255), nullable=True)
@@ -1280,10 +1523,18 @@ class ModelExperiment(Base):
     approved_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),)
+    __table_args__ = (
+        CheckConstraint(
+            "experiment_source IN ('manual', 'ai_assisted', 'ai_agent')",
+            name="ck_model_experiments_source",
+        ),
+        Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),
+        Index("ix_model_experiments_context", "context_package_id", "experiment_source"),
+        Index("ix_model_experiments_spec", "experiment_spec_id", "status"),
+    )
 
 
-# ─── 35. Integration Sync Log ──────────────────────────────────────────────
+# ─── 36. Integration Sync Log ──────────────────────────────────────────────
 
 
 class IntegrationSyncLog(Base):

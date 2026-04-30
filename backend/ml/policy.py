@@ -15,12 +15,20 @@ def compute_recommended_quantity(
     reorder_point: int,
     economic_order_qty: int,
     min_order_qty: int,
+    max_order_qty: int | None = None,
 ) -> int:
-    target_position = max(0, int(reorder_point)) + max(0, int(economic_order_qty))
-    raw_quantity = max(0, target_position - max(0, int(inventory_position)))
+    inventory = max(0, int(inventory_position))
+    trigger_point = max(0, int(reorder_point))
+    if inventory > trigger_point:
+        return 0
+
+    reorder_gap = max(0, trigger_point - inventory)
+    raw_quantity = max(reorder_gap, max(0, int(economic_order_qty)))
     if raw_quantity <= 0:
         return 0
     constrained = max(int(min_order_qty or 1), raw_quantity)
+    if max_order_qty is not None and max_order_qty >= int(min_order_qty or 1):
+        constrained = min(constrained, max(0, int(max_order_qty)))
     return int(constrained)
 
 

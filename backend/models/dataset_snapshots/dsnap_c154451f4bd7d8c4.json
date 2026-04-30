@@ -1,0 +1,18 @@
+{
+  "claim_boundaries_ref": "data_registry/datasets.yaml",
+  "content_hash": "c154451f4bd7d8c44cd1f719781a0476bfa1f02045123f3810c144d52a9523d7",
+  "created_at": "2026-04-30T00:36:43.779653+00:00",
+  "dataset_id": "smb_onboarding",
+  "date_max": "2026-01-01",
+  "date_min": "2026-01-01",
+  "forecast_grain": "dataset_specific",
+  "frequency": "unknown",
+  "geography": "tenant_defined",
+  "implementation_status": "pilot_validation_active",
+  "product_count": 1,
+  "row_count": 1,
+  "schema_version": "v1",
+  "snapshot_id": "dsnap_c154451f4bd7d8c4",
+  "source_type": "csv",
+  "store_count": 1
+}

@@ -89,22 +89,26 @@ class SquareClient:
         return all_objects
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    async def get_inventory_counts(self, location_ids: list[str]) -> list[dict]:
-        """Fetch inventory counts for given locations."""
-        body = {"location_ids": location_ids} if location_ids else {}
+    async def _fetch_inventory_counts_page(self, location_ids: list[str], cursor: str | None = None) -> dict:
+        """Fetch one Square inventory-count page."""
+        body = {"location_ids": location_ids, "limit": 1000} if location_ids else {"limit": 1000}
+        if cursor:
+            body["cursor"] = cursor
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{SQUARE_BASE_URL}/inventory/batch-retrieve-counts",
+                f"{SQUARE_BASE_URL}/inventory/counts/batch-retrieve",
                 headers=self.headers,
                 json=body,
             )
             response.raise_for_status()
-            return response.json().get("counts", [])
+            return response.json()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10))
-    async def get_orders(self, location_ids: list[str], cursor: str | None = None) -> list[dict]:
-        """Fetch orders (transactions) from Square."""
-        body = {"location_ids": location_ids} if location_ids else {}
+    async def _fetch_orders_page(self, location_ids: list[str], cursor: str | None = None) -> dict:
+        """Fetch one Square orders page."""
+        body: dict = {"limit": 1000}
+        if location_ids:
+            body["location_ids"] = location_ids
         if cursor:
             body["cursor"] = cursor
         async with httpx.AsyncClient() as client:
@@ -114,8 +118,31 @@ class SquareClient:
                 json=body,
             )
             response.raise_for_status()
-            payload = response.json()
-            return payload.get("orders", [])
+            return response.json()
+
+    async def get_inventory_counts(self, location_ids: list[str]) -> list[dict]:
+        """Fetch all current inventory counts for given locations."""
+        counts: list[dict] = []
+        cursor: str | None = None
+        while True:
+            payload = await self._fetch_inventory_counts_page(location_ids, cursor)
+            counts.extend(payload.get("counts", []))
+            cursor = payload.get("cursor")
+            if not cursor:
+                break
+        return counts
+
+    async def get_orders(self, location_ids: list[str]) -> list[dict]:
+        """Fetch all orders for given locations, following Square cursors."""
+        orders: list[dict] = []
+        cursor: str | None = None
+        while True:
+            payload = await self._fetch_orders_page(location_ids, cursor)
+            orders.extend(payload.get("orders", []))
+            cursor = payload.get("cursor")
+            if not cursor:
+                break
+        return orders
 
 
 def map_location_to_store(location: dict, customer_id: str) -> dict:

@@ -1,19 +1,16 @@
-/**
- * React Query hooks for ShelfOps API endpoints.
- * Replaces all MOCK_ data with live API calls.
- */
-
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '@/lib/api'
 import type {
     Product, Store, Alert, AlertSummary,
-    Forecast, ForecastAccuracy, Integration,
+    Forecast, ForecastAccuracy, DemandSeriesPoint, Integration,
     InventoryItem, InventorySummary,
     ProductMutationPayload, StoreMutationPayload,
     ActiveModelEvidence, MLModel, BacktestEntry, ExperimentRun,
     ExperimentLedgerEntry, ProposeExperimentPayload, ProposeExperimentResponse, ApproveExperimentPayload,
-    RunExperimentPayload, ExperimentRunExecution,
-    SHAPFeature, MLHealth, MLEffectiveness, ModelHistoryEntry, RuntimeModelHealth, SyncHealthResponse,
+    RunExperimentPayload, ExperimentRunExecution, ExperimentContextPackage, CreateExperimentContextPackagePayload,
+    ExperimentHypothesis, CreateExperimentHypothesisPayload, ReviewExperimentHypothesisPayload,
+    ExperimentComparisonReport, ExperimentSpec, ExperimentSpecTemplate, CreateExperimentSpecPayload,
+    ModelDriverFeature, MLHealth, MLEffectiveness, ModelHistoryEntry, RuntimeModelHealth, SyncHealthResponse,
     ReplenishmentRecommendation, RecommendationImpact, RecommendationAcceptPayload, RecommendationEditPayload,
     RecommendationRejectPayload, RecommendationQueueGenerationResult, CsvIngestResponse, CsvOnboardingPayload,
     CsvValidationResponse, DataReadiness, ReplenishmentSimulationReport, SquareMappingConfirmPayload,
@@ -250,6 +247,26 @@ export function useForecasts(filters?: {
     })
 }
 
+export function useDemandSeries(filters?: {
+    store_id?: string
+    product_id?: string
+    history_days?: number
+    forecast_days?: number
+}) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (filters?.store_id) params.set('store_id', filters.store_id)
+    if (filters?.product_id) params.set('product_id', filters.product_id)
+    if (filters?.history_days) params.set('history_days', String(filters.history_days))
+    if (filters?.forecast_days) params.set('forecast_days', String(filters.forecast_days))
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['demand-series', filters],
+        queryFn: () => api.get<DemandSeriesPoint[]>(`/api/v1/forecasts/demand-series${qs ? `?${qs}` : ''}`),
+    })
+}
+
 // ─── Integrations ─────────────────────────────────────────────────────────
 
 export function useIntegrations() {
@@ -381,22 +398,26 @@ export function useMLModels(modelName?: string, status?: string) {
     })
 }
 
-export function useActiveModelEvidence() {
+export function useActiveModelEvidence(modelName = 'demand_forecast') {
     const api = useApi()
+    const params = new URLSearchParams()
+    params.set('model_name', modelName)
     return useQuery({
-        queryKey: ['active-model-evidence'],
-        queryFn: () => api.get<ActiveModelEvidence>('/api/v1/ml/models/evidence/active'),
+        queryKey: ['active-model-evidence', modelName],
+        queryFn: () => api.get<ActiveModelEvidence>(`/api/v1/ml/models/evidence/active?${params.toString()}`),
     })
 }
 
-export function useModelSHAP(version: string) {
+export function useModelDrivers(version: string) {
     const api = useApi()
     return useQuery({
-        queryKey: ['ml-shap', version],
-        queryFn: () => api.get<{ version: string; features: SHAPFeature[] }>(`/api/v1/ml/models/${version}/shap`),
+        queryKey: ['ml-model-drivers', version],
+        queryFn: () => api.get<{ version: string; features: ModelDriverFeature[] }>(`/api/v1/ml/models/${version}/feature-importance`),
         enabled: !!version,
     })
 }
+
+export const useModelSHAP = useModelDrivers
 
 export function useBacktests(days = 90, modelName?: string) {
     const api = useApi()
@@ -443,6 +464,141 @@ export function useExperimentLedger(filters?: {
     })
 }
 
+export function useExperimentContextPackages(modelName?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (modelName) params.set('model_name', modelName)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-context-packages', modelName],
+        queryFn: () => api.get<ExperimentContextPackage[]>(`/api/v1/experiments/context-packages${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useExperimentSpecTemplates(modelName?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (modelName) params.set('model_name', modelName)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-spec-templates', modelName],
+        queryFn: () => api.get<ExperimentSpecTemplate[]>(`/api/v1/experiments/spec-templates${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useExperimentSpecs(filters?: {
+    modelName?: string
+    contextPackageId?: string | null
+    limit?: number
+}) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (filters?.modelName) params.set('model_name', filters.modelName)
+    if (filters?.contextPackageId) params.set('context_package_id', filters.contextPackageId)
+    if (filters?.limit) params.set('limit', String(filters.limit))
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-specs', filters],
+        queryFn: () => api.get<ExperimentSpec[]>(`/api/v1/experiments/specs${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useCreateExperimentSpec() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: CreateExperimentSpecPayload) =>
+            api.post<ExperimentSpec>('/api/v1/experiments/specs', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-specs'] })
+        },
+    })
+}
+
+export function useCreateExperimentContextPackage() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: CreateExperimentContextPackagePayload) =>
+            api.post<ExperimentContextPackage>('/api/v1/experiments/context-packages', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-context-packages'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
+        },
+    })
+}
+
+export function useExperimentHypotheses(filters?: {
+    modelName?: string
+    contextPackageId?: string | null
+    status?: string
+    limit?: number
+}) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (filters?.modelName) params.set('model_name', filters.modelName)
+    if (filters?.contextPackageId) params.set('context_package_id', filters.contextPackageId)
+    if (filters?.status) params.set('status', filters.status)
+    if (filters?.limit) params.set('limit', String(filters.limit))
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-hypotheses', filters],
+        queryFn: () => api.get<ExperimentHypothesis[]>(`/api/v1/experiments/hypotheses${qs ? `?${qs}` : ''}`),
+    })
+}
+
+export function useCreateExperimentHypothesis() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: (payload: CreateExperimentHypothesisPayload) =>
+            api.post<ExperimentHypothesis>('/api/v1/experiments/hypotheses', payload),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-hypotheses'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
+        },
+    })
+}
+
+export function useReviewExperimentHypothesis() {
+    const api = useApi()
+    const queryClient = useQueryClient()
+
+    return useMutation({
+        mutationFn: ({ hypothesisId, decision, rationale, convertToExperiment }: ReviewExperimentHypothesisPayload) =>
+            api.patch(`/api/v1/experiments/hypotheses/${hypothesisId}/review`, {
+                decision,
+                rationale,
+                convert_to_experiment: convertToExperiment,
+            }),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['experiment-hypotheses'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
+        },
+    })
+}
+
+export function useExperimentComparisonReport(contextPackageId?: string | null, modelName?: string) {
+    const api = useApi()
+    const params = new URLSearchParams()
+    if (contextPackageId) params.set('context_package_id', contextPackageId)
+    if (modelName) params.set('model_name', modelName)
+    const qs = params.toString()
+
+    return useQuery({
+        queryKey: ['experiment-comparison-report', contextPackageId, modelName],
+        queryFn: () => api.get<ExperimentComparisonReport>(`/api/v1/experiments/comparison-report${qs ? `?${qs}` : ''}`),
+    })
+}
+
 export function useProposeExperiment() {
     const api = useApi()
     const queryClient = useQueryClient()
@@ -474,11 +630,14 @@ export function useRunExperiment() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: ({ experimentId, dataDir, holdoutDays, maxRows, maxChallengers }: RunExperimentPayload) =>
+        mutationFn: ({ experimentId, dataDir, holdoutDays, calibrationDays, maxRows, maxSeries, maxChallengers, experimentSpecId }: RunExperimentPayload) =>
             api.post<ExperimentRunExecution>(`/api/v1/experiments/${experimentId}/run`, {
                 data_dir: dataDir,
+                experiment_spec_id: experimentSpecId,
                 holdout_days: holdoutDays,
+                calibration_days: calibrationDays,
                 max_rows: maxRows,
+                max_series: maxSeries,
                 max_challengers: maxChallengers,
             }),
         onSuccess: () => {

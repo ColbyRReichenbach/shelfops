@@ -64,6 +64,16 @@
 - No claim in this model card should be interpreted as proof of real buyer ROI, PO optimization accuracy, or stockout prevention impact in a live merchant environment.
 - Any future business-impact claims must come from explicitly labeled simulation or pilot data, not from this benchmark alone.
 
+## Runtime Workspace
+
+- The default benchmark workspace is loaded by `backend/scripts/bootstrap_benchmark_workspace.py`.
+- Operational `transactions` rows contain positive M5 sales events only. Zero-demand M5 store-SKU-days remain in benchmark artifacts and model training/evaluation files; they are not represented as zero-quantity transactions because the runtime transaction table models events.
+- Inventory, supplier, reorder-point, alert, recommendation, and historical outcome rows created around M5 are app scaffolding for walkthrough and policy testing. Treat those rows as `simulated` or `provisional`, not measured merchant outcomes.
+- Runtime model evidence is synced with `backend/scripts/sync_benchmark_evidence_to_db.py`, which also seeds FreshRetailNet anomaly champion/challenger records and anomaly shadow-prediction persistence.
+- Decision-aware benchmark experiments can be regenerated with `backend/scripts/run_decision_aware_experiment.py`; these reports combine forecast holdout metrics, uncertainty, segment metrics, and simulated replenishment replay, and remain shadow evidence until measured pilot outcomes exist.
+- Manual and AI-assisted DS work can be governed through experiment context packages, source-labeled hypotheses, agent traces, and manual-vs-AI comparison reports. These are audit artifacts for reproducible experimentation, not proof of autonomous production promotion.
+- Model Lab can persist immutable experiment specs for both current model families. M5 forecast specs bind feature windows, LightGBM objective/parameters, calibration strategy, and decision replay assumptions; FreshRetailNet anomaly specs bind detector feature flags, prior-sales lookback, score weights, thresholds, and promotion gates.
+
 ## Notes
 
 - The repo previously pointed at a weaker demo-era champion. `v3` replaces that as the active file-based champion because it is M5-backed, uses real row counts, includes a dataset snapshot, and clears the public baseline comparison on the recorded holdout check.

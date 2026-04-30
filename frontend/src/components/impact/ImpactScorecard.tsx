@@ -89,5 +89,8 @@ function mapTone(label: string) {
     if (label === 'provisional') {
         return 'provisional'
     }
+    if (label === 'benchmark') {
+        return 'benchmark'
+    }
     return 'neutral'
 }

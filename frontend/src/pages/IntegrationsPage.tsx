@@ -65,8 +65,7 @@ const STATUS_CONFIG: Record<string, { icon: typeof CheckCircle2; color: string; 
 }
 
 const CONNECTABLE_PROVIDER_KEYS = new Set(['square'])
-const ROADMAP_PROVIDER_KEYS = new Set(['shopify', 'lightspeed', 'clover'])
-const MANAGED_PROVIDER_KEYS = new Set([...CONNECTABLE_PROVIDER_KEYS, ...ROADMAP_PROVIDER_KEYS])
+const MANAGED_PROVIDER_KEYS = new Set([...CONNECTABLE_PROVIDER_KEYS])
 
 function IntegrationCard({ integration }: { integration: Integration }) {
     const disconnect = useDisconnectIntegration()
@@ -154,16 +153,11 @@ function IntegrationCard({ integration }: { integration: Integration }) {
 
 function AvailableProviderCard({ provider, providerKey }: { provider: typeof PROVIDER_META[string]; providerKey: string }) {
     const connectUrl = providerKey === 'square' ? '/api/v1/integrations/square/connect' : '#'
-    const isLiveProvider = CONNECTABLE_PROVIDER_KEYS.has(providerKey)
 
     return (
         <motion.div
             whileHover={{ y: -2 }}
-            className={`card p-5 ${
-                isLiveProvider
-                    ? 'border-dashed border-black/10 hover:border-[#0071e3]/30'
-                    : 'border-black/5 bg-[#f5f5f7]/50'
-            }`}
+            className="card border-dashed border-black/10 p-5 hover:border-[#0071e3]/30"
         >
             <div className="flex items-start justify-between">
                 <div className="flex items-start gap-4">
@@ -175,16 +169,10 @@ function AvailableProviderCard({ provider, providerKey }: { provider: typeof PRO
                         <p className="mt-0.5 max-w-sm text-xs text-[#86868b]">{provider.description}</p>
                     </div>
                 </div>
-                {isLiveProvider ? (
-                    <a href={connectUrl} className="btn-secondary h-8 gap-1 px-3 text-xs">
-                        Connect
-                        <ExternalLink className="h-3 w-3" />
-                    </a>
-                ) : (
-                    <span className="rounded-full bg-[#86868b]/10 px-3 py-1.5 text-xs font-medium text-[#86868b]">
-                        Roadmap only
-                    </span>
-                )}
+                <a href={connectUrl} className="btn-secondary h-8 gap-1 px-3 text-xs">
+                    Connect
+                    <ExternalLink className="h-3 w-3" />
+                </a>
             </div>
         </motion.div>
     )
@@ -237,7 +225,6 @@ export default function IntegrationsPage() {
         ([key]) => MANAGED_PROVIDER_KEYS.has(key) && !connectedProviders.has(key),
     )
     const connectableProviders = availableProviders.filter(([key]) => CONNECTABLE_PROVIDER_KEYS.has(key))
-    const roadmapProviders = availableProviders.filter(([key]) => ROADMAP_PROVIDER_KEYS.has(key))
 
     const unmappedLocationCount = mappingPreview
         ? mappingPreview.locations.filter(location => !locationMappings[location.external_id]).length
@@ -302,7 +289,7 @@ export default function IntegrationsPage() {
                         Use a live integration when you want recurring syncs for products, transactions, and inventory without manual uploads.
                     </p>
                     <p className="text-xs text-[#86868b]">
-                        Square is available today. Additional providers remain visible here for roadmap planning.
+                        Square is available for recurring catalog, order, and inventory sync.
                     </p>
                 </div>
 
@@ -477,7 +464,7 @@ export default function IntegrationsPage() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">Webhook Recovery</h2>
                         </div>
                         <p className="text-sm text-[#6e6e73]">
-                            Failed Square webhook deliveries are held here for operator review and replay instead of disappearing into backend-only logs.
+                            Review failed Square webhook deliveries and replay them after the source issue is resolved.
                         </p>
 
                         {deadLettersLoading ? (
@@ -523,19 +510,6 @@ export default function IntegrationsPage() {
                         ) : null}
                     </section>
 
-                    {roadmapProviders.length > 0 ? (
-                        <div className="space-y-3">
-                            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#86868b]">
-                                Roadmap Providers
-                            </h2>
-                            <p className="text-xs text-[#86868b]">
-                                These providers are visible for planning only and are not interactive in production until OAuth and sync flows exist end to end.
-                            </p>
-                            {roadmapProviders.map(([key, provider]) => (
-                                <AvailableProviderCard key={key} providerKey={key} provider={provider} />
-                            ))}
-                        </div>
-                    ) : null}
                 </>
             )}
         </div>

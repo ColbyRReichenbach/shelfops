@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,7 +111,7 @@ def _build_benchmark_rows(
     return [row for row in rows if row.get("wape") is not None and row.get("mase") is not None]
 
 
-def _active_model_evidence_payload() -> dict[str, Any]:
+def _active_forecast_model_evidence_payload() -> dict[str, Any]:
     champion = _load_json(MODELS_DIR / "champion.json")
     if not isinstance(champion, dict):
         raise HTTPException(status_code=404, detail="Active champion artifact not found")
@@ -186,6 +186,121 @@ def _active_model_evidence_payload() -> dict[str, Any]:
     }
 
 
+def _active_anomaly_model_evidence_payload() -> dict[str, Any]:
+    champion = _load_json(MODELS_DIR / "anomaly_detector" / "champion.json")
+    if not isinstance(champion, dict):
+        raise HTTPException(status_code=404, detail="Active anomaly champion artifact not found")
+
+    version = champion.get("version")
+    if not version:
+        raise HTTPException(status_code=404, detail="Anomaly champion version missing from artifact")
+
+    metadata = _load_json(MODELS_DIR / "anomaly_detector" / str(version) / "metadata.json")
+    if not isinstance(metadata, dict):
+        raise HTTPException(status_code=404, detail=f"Metadata for anomaly champion {version} not found")
+
+    benchmark_report = _load_json(ROOT_DIR / str(metadata.get("benchmark_report_path", "")))
+    results = benchmark_report.get("results", []) if isinstance(benchmark_report, dict) else []
+    benchmark_rows = [
+        {
+            "label": str(row.get("model_name", "detector")).replace("_", " "),
+            "source": "FreshRetailNet benchmark",
+            "precision": row.get("precision"),
+            "recall": row.get("recall"),
+            "f1": row.get("f1"),
+            "false_positive_rate": row.get("false_positive_rate"),
+            "review_rate": row.get("review_rate"),
+            "note": f"{row.get('status', 'candidate')} profile at threshold {row.get('threshold')}",
+        }
+        for row in results
+    ]
+    champion_row = next((row for row in results if row.get("status") == "champion"), {})
+    challenger_row = next((row for row in results if row.get("status") == "challenger"), {})
+
+    return {
+        "version": version,
+        "model_name": metadata.get("model_name"),
+        "architecture": metadata.get("architecture"),
+        "objective": metadata.get("objective"),
+        "promoted_at": champion.get("promoted_at"),
+        "promotion_reason": metadata.get("promotion_reason") or champion.get("promotion_reason"),
+        "dataset_id": metadata.get("dataset_id"),
+        "dataset_snapshot_id": metadata.get("dataset_snapshot_id"),
+        "rows_trained": None,
+        "stores": None,
+        "products": None,
+        "categories": None,
+        "series_selected": None,
+        "subset_strategy": None,
+        "coverage_start": (benchmark_report or {}).get("date_min") if isinstance(benchmark_report, dict) else None,
+        "coverage_end": (benchmark_report or {}).get("date_max") if isinstance(benchmark_report, dict) else None,
+        "feature_tier": metadata.get("feature_tier"),
+        "feature_count": None,
+        "interval_method": None,
+        "calibration_status": "threshold_evaluated",
+        "interval_coverage": None,
+        "cv": {
+            "mae": None,
+            "wape": None,
+            "mase": None,
+            "bias_pct": None,
+        },
+        "holdout": {
+            "cutoff": None,
+            "mae": None,
+            "wape": None,
+            "mase": None,
+            "bias_pct": None,
+        },
+        "benchmark_rows": benchmark_rows,
+        "benchmark_metrics": {
+            "precision": metadata.get("precision") or champion_row.get("precision"),
+            "recall": metadata.get("recall") or champion_row.get("recall"),
+            "f1": metadata.get("f1") or champion_row.get("f1"),
+            "false_positive_rate": metadata.get("false_positive_rate") or champion_row.get("false_positive_rate"),
+            "review_rate": metadata.get("review_rate") or champion_row.get("review_rate"),
+            "positive_rate": metadata.get("positive_rate") or (benchmark_report or {}).get("positive_rate")
+            if isinstance(benchmark_report, dict)
+            else None,
+            "rows_eval": metadata.get("rows_eval") or (benchmark_report or {}).get("rows_eval")
+            if isinstance(benchmark_report, dict)
+            else None,
+        },
+        "shadow": {
+            "challenger_version": (benchmark_report or {}).get("challenger_version")
+            if isinstance(benchmark_report, dict)
+            else None,
+            "status": "shadow_testing",
+            "precision": challenger_row.get("precision"),
+            "recall": challenger_row.get("recall"),
+            "f1": challenger_row.get("f1"),
+            "false_positive_rate": challenger_row.get("false_positive_rate"),
+            "review_rate": challenger_row.get("review_rate"),
+            "decision": (benchmark_report or {}).get("promotion_decision")
+            if isinstance(benchmark_report, dict)
+            else metadata.get("promotion_decision"),
+        },
+        "evaluation_protocol": (benchmark_report or {}).get("evaluation_protocol")
+        if isinstance(benchmark_report, dict)
+        else None,
+        "limitations": metadata.get("limitations")
+        or [
+            "Benchmark anomaly evidence only.",
+            "Buyer outcomes require real cycle-count feedback.",
+        ],
+        "claim_boundary": metadata.get("claim_boundary")
+        or "Benchmark anomaly evidence only. Buyer outcomes require real cycle-count feedback.",
+    }
+
+
+def _active_model_evidence_payload(model_name: str = "demand_forecast") -> dict[str, Any]:
+    if model_name == "demand_forecast":
+        return _active_forecast_model_evidence_payload()
+    if model_name == "anomaly_detector":
+        return _active_anomaly_model_evidence_payload()
+    raise HTTPException(status_code=404, detail=f"Evidence artifact for model_name={model_name} not found")
+
+
 def _resolve_customer_id(user: dict) -> uuid.UUID:
     raw = user.get("customer_id")
     if not raw:
@@ -216,11 +331,16 @@ def _is_admin_user(user: dict) -> bool:
 
 @router.get("/evidence/active")
 async def get_active_model_evidence(
+    model_name: str = Query("demand_forecast"),
     user: dict = Depends(get_current_user),
     db: AsyncSession = Depends(get_tenant_db),
 ) -> dict[str, Any]:
-    del user, db
-    return _active_model_evidence_payload()
+    payload = _active_model_evidence_payload(model_name=model_name)
+    if model_name == "anomaly_detector":
+        from ml.anomaly_feedback import summarize_anomaly_feedback
+
+        payload["feedback"] = await summarize_anomaly_feedback(db, customer_id=_resolve_customer_id(user))
+    return payload
 
 
 @router.get("/health")

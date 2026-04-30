@@ -1,10 +1,10 @@
 # ShelfOps — Strategy Brainstorm
 
-- Last verified date: March 10, 2026
+- Last verified date: April 29, 2026
 - Audience: builders and planners
 - Scope: open ideas, unresolved questions, and future strategy threads
-- Status: **Active planning document — not a source of truth for current runtime behavior**
-- Source of truth: verify all current-state claims against `docs/README.md`, active docs, and code before reusing them externally
+- Status: **Historical planning notes — not a source of truth for current runtime behavior**
+- Source of truth: verify all current-state claims against root `CURRENT_STATE.md`, `CLAIMS.md`, `DATA_SOURCES.md`, `.codex/ROADMAP.md`, and code before reusing them externally
 - Started: February 24, 2026
 - Purpose: Capture all open ideas, questions, and strategy threads before splitting into
   specific specs, runbooks, or improvement plans. Nothing here is a commitment yet.
@@ -20,10 +20,11 @@
 
 ---
 
-## 0. What Already Exists (Ground Truth)
+## 0. Historical Starting Audit (Not Current Truth)
 
-Before brainstorming forward, a quick audit of what is actually in the codebase and docs.
-Knowing this prevents us from designing things that are already built.
+This section reflects an earlier planning audit and may be stale. Verify any
+runtime, model, or promotion claim against the root truth docs and code before
+using it externally.
 
 ### Feedback Loop — Already Built
 

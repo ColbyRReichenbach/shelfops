@@ -1,17 +1,21 @@
 # ShelfOps Executive Overview
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: recruiters, hiring managers, business stakeholders
 - Scope: concise product and readiness narrative
-- Source of truth: `docs/product/production_readiness.md`, `docs/product/decision_log.md`
+- Source of truth: root `CURRENT_STATE.md`, `CLAIMS.md`, `MODEL_CARD.md`, and `.codex/ROADMAP.md`
 
 ## What ShelfOps Is
 
-ShelfOps is an inventory intelligence platform designed for SMB launch-candidate use with enterprise-style integration design.
+ShelfOps is an inventory decision control plane designed for SMB and mid-market launch-candidate workflows, with enterprise-style integration patterns kept as architecture proof rather than a GA claim.
 
 ## Capability Summary
 
 - Demand forecasting and decision support: `implemented`
+- M5/Walmart benchmark workspace and forecast evidence: `implemented`
+- FreshRetailNet anomaly champion/shadow evidence: `implemented`
+- Governed manual-vs-AI experiment logging and immutable forecast/anomaly specs: `implemented`
+- Measured merchant outcome proof: `blocked until pilot data exists`
 - Contract-driven onboarding for heterogeneous source schemas: `implemented`
 - Enterprise integration validation harness (EDI/SFTP/event): `implemented`
 - Broad enterprise onboarding availability: `blocked`
@@ -21,6 +25,8 @@ ShelfOps is an inventory intelligence platform designed for SMB launch-candidate
 Current readiness is pre-production hardening for SMB launch-candidate workflows.
 
 Enterprise integration paths are in production code and validated in deterministic tests, but enterprise onboarding is not commercially available (non-GA).
+
+Public metrics should be read as benchmark, simulated, provisional, or unavailable unless a real merchant pilot has produced measured outcomes.
 
 ## Why SMB-First
 

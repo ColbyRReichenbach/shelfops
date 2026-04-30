@@ -6,7 +6,9 @@ Use this checklist before outreach, live walkthroughs, or a first pilot kickoff.
 
 - `docker compose up -d db redis redpanda api` succeeds without manual port workarounds.
 - `./scripts/setup_production.sh` finishes cleanly.
-- `./scripts/bootstrap_sample_merchant.sh` loads the canonical walkthrough tenant without ad hoc SQL or notebooks.
+- `backend/scripts/bootstrap_benchmark_workspace.py --wipe-existing` loads the canonical M5 walkthrough tenant without ad hoc SQL or notebooks.
+- `backend/scripts/sync_benchmark_evidence_to_db.py` syncs M5 forecast evidence plus FreshRetailNet anomaly champion/shadow evidence.
+- `docs/operations/benchmark_workspace_reset.md` reflects the current reset path and expected row-level readiness checks.
 - `cd frontend && npm run dev` renders the app without console-breaking API errors.
 
 ## 2. Canonical Walkthrough State
@@ -15,7 +17,7 @@ Use this checklist before outreach, live walkthroughs, or a first pilot kickoff.
 - Replenishment shows a meaningful queue with risk and interval context.
 - Impact shows recent recommendation activity plus scenario comparison.
 - Operations shows alerts, sync freshness, and model runtime health.
-- Model Performance shows an active champion, recent backtests, and forecast quality summaries.
+- Model Lab shows the M5 forecast champion, FreshRetailNet anomaly champion/challenger state, and feedback provenance.
 
 ## 3. Onboarding Story
 
@@ -38,6 +40,7 @@ Before outreach, keep the public story simple:
 
 - benchmark-backed forecast foundation on M5
 - stockout-aware methodology track on FreshRetailNet
+- anomaly shadow testing and cycle-count feedback persistence, with measured feedback marked unavailable until real outcomes exist
 - human-reviewed replenishment workflow
 - labeled measured, estimated, provisional, and simulated outputs
 
@@ -48,7 +51,7 @@ Do not expand the benchmark list unless there is a specific gap that matters for
 The current model is good enough for pre-pilot positioning if:
 
 - the active champion remains benchmark-backed and internally consistent
-- forecast ranges and segment quality are visible in Model Performance
+- forecast ranges, segment quality, and anomaly shadow metrics are visible in Model Lab
 - the product stays honest about what is measured versus modeled
 
 Pre-pilot model work should focus on:
@@ -80,8 +83,13 @@ Use this when you need a clean walkthrough-ready tenant:
 ```bash
 docker compose up -d db redis redpanda api
 ./scripts/setup_production.sh
-./scripts/bootstrap_sample_merchant.sh
+APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/bootstrap_benchmark_workspace.py --wipe-existing
+APP_ENV=local DEBUG=true PYTHONPATH=backend python3 backend/scripts/sync_benchmark_evidence_to_db.py
 cd frontend && npm run dev
 ```
 
+For Neon or another explicit database, use the `DATABASE_URL` flow in
+[docs/operations/benchmark_workspace_reset.md](./docs/operations/benchmark_workspace_reset.md).
+
 That path should stay stable. If it drifts, fix the product flow instead of creating a second demo app.
+Do not present the M5 scaffold as a measured pilot; it is a benchmark walkthrough.
