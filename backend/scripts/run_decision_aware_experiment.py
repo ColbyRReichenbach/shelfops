@@ -191,8 +191,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--challenger-version", default="e_m5_decision_v1")
     parser.add_argument("--experiment-name", default=DEFAULT_EXPERIMENT_NAME)
     parser.add_argument("--hypothesis", default=DEFAULT_HYPOTHESIS)
+    parser.add_argument(
+        "--validation-mode",
+        choices=["quick_screen", "extended_backtest", "promotion_gate"],
+        default="quick_screen",
+    )
     parser.add_argument("--holdout-days", type=int, default=28)
     parser.add_argument("--calibration-days", type=int, default=28)
+    parser.add_argument("--rolling-window-count", type=int, default=0)
+    parser.add_argument("--rolling-window-days", type=int, default=28)
+    parser.add_argument("--rolling-stride-days", type=int, default=28)
     parser.add_argument("--max-rows", type=int, default=120_000)
     parser.add_argument("--max-series", type=int, default=60)
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
@@ -209,8 +217,12 @@ def main() -> int:
         challenger_version=args.challenger_version,
         experiment_name=args.experiment_name,
         hypothesis=args.hypothesis,
+        validation_mode=args.validation_mode,
         holdout_days=args.holdout_days,
         calibration_days=args.calibration_days,
+        rolling_window_count=args.rolling_window_count,
+        rolling_window_days=args.rolling_window_days,
+        rolling_stride_days=args.rolling_stride_days,
         max_rows=args.max_rows,
         max_series=args.max_series,
     )
@@ -230,6 +242,8 @@ def main() -> int:
         "baseline_wape": report["baseline"]["holdout_metrics"].get("wape"),
         "challenger_wape": report["challenger"]["holdout_metrics"].get("wape"),
         "benchmark_gates_passed": report["promotion_comparison"].get("benchmark_gates_passed"),
+        "validation_mode": report.get("validation", {}).get("mode"),
+        "rolling_windows": (report.get("rolling_validation") or {}).get("completed_windows"),
         "decision": report["promotion_comparison"].get("decision"),
         "persistence": persistence,
     }

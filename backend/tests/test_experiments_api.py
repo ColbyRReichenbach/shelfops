@@ -269,6 +269,50 @@ async def test_complete_experiment_requires_reviewable_state(client, seeded_db, 
 
 
 @pytest.mark.asyncio
+async def test_complete_experiment_persists_submitted_metrics(client, seeded_db, test_db):
+    from db.models import ModelExperiment
+
+    customer_id = seeded_db["customer_id"]
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="manual_completion_metrics_test",
+        hypothesis="External shadow results should remain queryable after completion.",
+        experiment_type="feature_set",
+        model_name="demand_forecast",
+        status="shadow_testing",
+        proposed_by="seed@shelfops.com",
+        baseline_version="vbase",
+        experimental_version="ecandidate",
+        results={"lineage_metadata": {"dataset_id": "m5_walmart", "metric_provenance": "benchmark"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.post(
+        f"/api/v1/experiments/{experiment.experiment_id}/complete",
+        json={
+            "decision": "reject",
+            "decision_rationale": "WAPE improved, but business replay regressed.",
+            "results": {
+                "baseline_wape": 0.2,
+                "experimental_wape": 0.18,
+                "baseline_mase": 0.42,
+                "experimental_mase": 0.39,
+                "overall_business_safe": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["results"]
+    assert payload["baseline_wape"] == pytest.approx(0.2)
+    assert payload["experimental_wape"] == pytest.approx(0.18)
+    assert payload["baseline_mase"] == pytest.approx(0.42)
+    assert payload["experimental_mase"] == pytest.approx(0.39)
+    assert payload["decision_payload"]["decision"] == "reject"
+
+
+@pytest.mark.asyncio
 async def test_run_experiment_requires_approval(client, seeded_db, test_db):
     from db.models import ModelExperiment
 
@@ -360,6 +404,12 @@ async def test_experiment_spec_materializes_and_drives_run_config(client, seeded
         captured_config["model_config"] = config.model_config
         captured_config["experiment_spec_id"] = config.experiment_spec_id
         captured_config["experiment_spec_hash"] = config.experiment_spec_hash
+        captured_config["validation_mode"] = config.validation_mode
+        captured_config["holdout_days"] = config.holdout_days
+        captured_config["calibration_days"] = config.calibration_days
+        captured_config["rolling_window_count"] = config.rolling_window_count
+        captured_config["rolling_window_days"] = config.rolling_window_days
+        captured_config["rolling_stride_days"] = config.rolling_stride_days
         comparison = {
             "promoted": False,
             "benchmark_gates_passed": True,
@@ -391,6 +441,24 @@ async def test_experiment_spec_materializes_and_drives_run_config(client, seeded
             "decision_replay": {"results": {"challenger": {"combined_cost_proxy": 1200.0, "service_level": 0.91}}},
             "promotion_comparison": comparison,
             "comparison": comparison,
+            "validation": {
+                "mode": config.validation_mode,
+                "holdout_days": config.holdout_days,
+                "calibration_days": config.calibration_days,
+                "rolling_window_count": config.rolling_window_count,
+                "rolling_window_days": config.rolling_window_days,
+                "rolling_stride_days": config.rolling_stride_days,
+            },
+            "rolling_validation": {
+                "mode": config.validation_mode,
+                "completed_windows": config.rolling_window_count,
+                "requested_windows": config.rolling_window_count,
+                "rolling_window_days": config.rolling_window_days,
+                "rolling_stride_days": config.rolling_stride_days,
+                "summary_metrics": {"baseline_avg_wape": 0.2, "challenger_avg_wape": 0.19},
+                "gate_checks": {"temporal_validation_gate": True},
+                "windows": [],
+            },
             "overall_business_safe": True,
             "experiment": {
                 "experiment_name": "api_spec_run",
@@ -409,19 +477,35 @@ async def test_experiment_spec_materializes_and_drives_run_config(client, seeded
 
     response = await client.post(
         f"/api/v1/experiments/{experiment.experiment_id}/run",
-        json={"experiment_spec_id": spec_payload["experiment_spec_id"]},
+        json={
+            "experiment_spec_id": spec_payload["experiment_spec_id"],
+            "validation_mode": "extended_backtest",
+            "holdout_days": 35,
+            "calibration_days": 21,
+            "rolling_window_count": 4,
+            "rolling_window_days": 28,
+            "rolling_stride_days": 14,
+        },
     )
     assert response.status_code == 200
     assert captured_config["experiment_spec_id"] == spec_payload["experiment_spec_id"]
     assert captured_config["experiment_spec_hash"] == spec_payload["spec_hash"]
     assert captured_config["feature_config"]["lag_days"] == [1, 7, 14, 28, 56]
     assert captured_config["model_config"]["hyperparameters"]["n_estimators"] == 55
+    assert captured_config["validation_mode"] == "extended_backtest"
+    assert captured_config["holdout_days"] == 35
+    assert captured_config["calibration_days"] == 21
+    assert captured_config["rolling_window_count"] == 4
+    assert captured_config["rolling_window_days"] == 28
+    assert captured_config["rolling_stride_days"] == 14
 
     await test_db.refresh(experiment)
     lineage = (experiment.results or {})["lineage_metadata"]
     assert lineage["experiment_spec_id"] == spec_payload["experiment_spec_id"]
     assert lineage["experiment_spec_hash"] == spec_payload["spec_hash"]
     assert lineage["feature_set_id"] == "m5_api_price_promo_v1"
+    assert (experiment.results or {})["execution"]["validation_mode"] == "extended_backtest"
+    assert (experiment.results or {})["execution"]["rolling_window_count"] == 4
 
 
 @pytest.mark.asyncio
@@ -755,6 +839,48 @@ async def test_anomaly_experiment_run_uses_spec_and_persists_shadow_evidence(
     assert candidate.status == "challenger"
     assert candidate.metrics["precision"] == pytest.approx(0.43)
     assert candidate.metrics["promotion_comparison"]["gate_checks"]["measured_cycle_count_feedback_gate"] is False
+
+
+@pytest.mark.asyncio
+async def test_anomaly_experiment_rejects_forecast_temporal_validation(client, seeded_db, test_db):
+    from db.models import ModelExperiment, ModelVersion
+
+    customer_id = seeded_db["customer_id"]
+    test_db.add(
+        ModelVersion(
+            customer_id=customer_id,
+            model_name="anomaly_detector",
+            version="a1",
+            status="champion",
+            metrics={"precision": 0.55, "recall": 0.1, "provenance": "benchmark"},
+            smoke_test_passed=True,
+            promoted_at=datetime.utcnow(),
+        )
+    )
+    experiment = ModelExperiment(
+        customer_id=customer_id,
+        experiment_name="anomaly_extended_backtest_reject",
+        hypothesis="Forecast temporal validation controls should not run against anomaly specs.",
+        experiment_type="post_processing",
+        model_name="anomaly_detector",
+        status="approved",
+        proposed_by="test@shelfops.com",
+        approved_by="reviewer@shelfops.com",
+        approved_at=datetime.utcnow(),
+        results={"lineage_metadata": {"dataset_id": "freshretailnet_50k"}},
+    )
+    test_db.add(experiment)
+    await test_db.commit()
+
+    response = await client.post(
+        f"/api/v1/experiments/{experiment.experiment_id}/run",
+        json={"validation_mode": "extended_backtest", "rolling_window_count": 3},
+    )
+
+    assert response.status_code == 400
+    assert "Temporal forecast validation modes" in response.json()["detail"]
+    await test_db.refresh(experiment)
+    assert experiment.status == "approved"
 
 
 @pytest.mark.asyncio

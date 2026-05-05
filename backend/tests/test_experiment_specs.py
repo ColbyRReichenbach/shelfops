@@ -15,7 +15,11 @@ def test_experiment_spec_templates_are_executable_and_hashed():
     assert {row["template_id"] for row in templates} >= {
         "m5_lag_price_calendar_v1",
         "m5_price_promo_lag_v1",
+        "m5_price_movement_proxy_v1",
         "m5_velocity_segmented_bias_v1",
+        "m5_activation_aware_window_v1",
+        "m5_segment_gated_activation_window_v1",
+        "m5_segment_routed_activation_window_v1",
     }
     for row in templates:
         assert row["dataset_id"] == "m5_walmart"
@@ -60,6 +64,68 @@ def test_materialized_experiment_spec_overrides_are_bounded_and_change_hash():
     kwargs = decision_config_kwargs_from_spec(challenger)
     assert kwargs["feature_set_id"] == "m5_manual_depth_test_v1"
     assert kwargs["feature_config"]["lag_days"] == [1, 7, 21, 42]
+
+
+def test_activation_aware_spec_carries_dataset_window_contract():
+    spec = materialize_experiment_spec(template_id="m5_activation_aware_window_v1")
+
+    assert spec["experiment_type"] == "data_window"
+    assert spec["dataset_config"]["activation_policy"] == "exclude_pre_first_price"
+    assert spec["dataset_config"]["activation_marker"] == "first_available_sell_price"
+    assert spec["dataset_config"]["primary_metric_filter"] == "active_holdout_rows"
+    assert spec["dataset_config"]["guardrail_metric_filter"] == "canonical_holdout"
+
+    kwargs = decision_config_kwargs_from_spec(spec)
+    assert kwargs["dataset_config"]["training_policy"] == "exclude_pre_activation_from_train"
+    assert kwargs["dataset_config"]["calibration_policy"] == "exclude_pre_activation_from_calibration"
+
+
+def test_price_movement_proxy_spec_uses_true_m5_price_fields_not_promo_labels():
+    spec = materialize_experiment_spec(template_id="m5_price_movement_proxy_v1")
+
+    assert spec["experiment_type"] == "feature_set"
+    assert spec["feature_config"]["include_price"] is True
+    assert spec["feature_config"]["include_price_momentum"] is True
+    assert spec["feature_config"]["include_promotion"] is False
+    assert spec["feature_config"]["include_promo_price_interaction"] is False
+    assert "explicit promotion/ad exposure labels" in spec["claim_boundary"]
+
+    kwargs = decision_config_kwargs_from_spec(spec)
+    assert kwargs["feature_set_id"] == "m5_price_movement_proxy_v1"
+    assert kwargs["feature_config"]["include_price_momentum"] is True
+    assert kwargs["feature_config"]["include_promotion"] is False
+
+
+def test_segment_gated_activation_spec_carries_dataset_window_contract():
+    spec = materialize_experiment_spec(template_id="m5_segment_gated_activation_window_v1")
+
+    assert spec["experiment_type"] == "data_window"
+    assert spec["dataset_config"]["activation_policy"] == "segment_gated_pre_first_price"
+    assert spec["dataset_config"]["activation_marker"] == "first_available_sell_price"
+    assert spec["dataset_config"]["training_policy"] == "exclude_pre_activation_for_eligible_segments"
+    assert spec["dataset_config"]["calibration_policy"] == "exclude_pre_activation_for_eligible_segments"
+    assert spec["dataset_config"]["activation_eligible_velocity_segments"] == ["medium", "slow"]
+    assert spec["dataset_config"]["activation_protected_velocity_segments"] == ["fast"]
+    assert spec["dataset_config"]["activation_include_late_activation"] is True
+
+    kwargs = decision_config_kwargs_from_spec(spec)
+    assert kwargs["dataset_config"]["activation_policy"] == "segment_gated_pre_first_price"
+    assert kwargs["segmentation_config"]["strategy"] == "segment_gated_activation_category_velocity_bias_calibration"
+
+
+def test_segment_routed_activation_spec_carries_policy_routing_contract():
+    spec = materialize_experiment_spec(template_id="m5_segment_routed_activation_window_v1")
+
+    assert spec["experiment_type"] == "data_window"
+    assert spec["dataset_config"]["activation_policy"] == "segment_routed_pre_first_price"
+    assert spec["dataset_config"]["training_policy"] == "exclude_pre_activation_for_eligible_segments"
+    assert spec["dataset_config"]["prediction_routing_policy"] == "eligible_activation_else_champion"
+    assert spec["dataset_config"]["calibration_scope"] == "eligible_segments_only"
+    assert spec["dataset_config"]["activation_protected_velocity_segments"] == ["fast"]
+
+    kwargs = decision_config_kwargs_from_spec(spec)
+    assert kwargs["dataset_config"]["activation_policy"] == "segment_routed_pre_first_price"
+    assert kwargs["segmentation_config"]["strategy"] == "segment_routed_activation_policy_with_eligible_bias_calibration"
 
 
 def test_materialized_anomaly_spec_overrides_are_bounded_and_change_hash():

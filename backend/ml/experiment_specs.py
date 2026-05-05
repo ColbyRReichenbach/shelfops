@@ -25,6 +25,23 @@ _DEFAULT_GATES = {
     "measured_pilot_outcome_required_for_promotion": True,
 }
 
+_DEFAULT_DATASET_CONFIG = {
+    "activation_policy": "none",
+    "activation_marker": "none",
+    "training_policy": "canonical_train_rows",
+    "calibration_policy": "canonical_calibration_rows",
+    "primary_metric_filter": "all_holdout_rows",
+    "guardrail_metric_filter": "canonical_holdout",
+    "preserve_canonical_holdout": True,
+    "activation_eligible_velocity_segments": [],
+    "activation_protected_velocity_segments": [],
+    "activation_include_late_activation": False,
+    "activation_include_intermittent": False,
+    "activation_intermittent_zero_rate_min": 0.8,
+    "prediction_routing_policy": "none",
+    "calibration_scope": "all_segments",
+}
+
 _BASE_HYPERPARAMETERS = {
     "n_estimators": 180,
     "learning_rate": 0.05,
@@ -44,8 +61,10 @@ def _template(
     feature_set_id: str,
     feature_config: dict[str, Any],
     model_config: dict[str, Any] | None = None,
+    dataset_config: dict[str, Any] | None = None,
     calibration_config: dict[str, Any] | None = None,
     segmentation_config: dict[str, Any] | None = None,
+    claim_boundary: str | None = None,
 ) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -58,6 +77,7 @@ def _template(
         "experiment_type": experiment_type,
         "feature_set_id": feature_set_id,
         "feature_config": feature_config,
+        "dataset_config": dataset_config or dict(_DEFAULT_DATASET_CONFIG),
         "model_config": model_config
         or {
             "architecture": "lightgbm",
@@ -77,7 +97,7 @@ def _template(
         "decision_config": dict(_DEFAULT_DECISION_CONFIG),
         "promotion_gates": dict(_DEFAULT_GATES),
         "provenance": "benchmark",
-        "claim_boundary": "M5/Walmart benchmark execution only. No measured merchant ROI.",
+        "claim_boundary": claim_boundary or "M5/Walmart benchmark execution only. No measured merchant ROI.",
     }
 
 
@@ -120,6 +140,29 @@ EXPERIMENT_SPEC_TEMPLATES: dict[str, dict[str, Any]] = {
             "include_intermittency": False,
         },
     ),
+    "m5_price_movement_proxy_v1": _template(
+        template_id="m5_price_movement_proxy_v1",
+        spec_name="M5 sell-price movement proxy challenger",
+        experiment_type="feature_set",
+        feature_set_id="m5_price_movement_proxy_v1",
+        feature_config={
+            "lag_days": [1, 7, 14, 28],
+            "rolling_windows": [7, 28],
+            "rolling_nonzero_windows": [28],
+            "include_calendar": True,
+            "include_product_codes": True,
+            "include_price": True,
+            "include_price_momentum": True,
+            "include_promotion": False,
+            "include_promo_price_interaction": False,
+            "include_holiday": True,
+            "include_intermittency": False,
+        },
+        claim_boundary=(
+            "M5/Walmart benchmark execution only. Sell-price movement is used as a proxy signal; "
+            "M5 does not provide explicit promotion/ad exposure labels or measured merchant ROI."
+        ),
+    ),
     "m5_velocity_segmented_bias_v1": _template(
         template_id="m5_velocity_segmented_bias_v1",
         spec_name="M5 velocity-segmented bias calibration",
@@ -150,6 +193,158 @@ EXPERIMENT_SPEC_TEMPLATES: dict[str, dict[str, Any]] = {
         calibration_config={
             "strategy": "category_velocity_bias",
             "clip_range": [0.7, 1.3],
+        },
+    ),
+    "m5_activation_aware_window_v1": _template(
+        template_id="m5_activation_aware_window_v1",
+        spec_name="M5 activation-aware training window",
+        experiment_type="data_window",
+        feature_set_id="m5_activation_aware_window_v1",
+        feature_config={
+            "lag_days": [1, 7, 14, 28],
+            "rolling_windows": [7, 14, 28],
+            "rolling_nonzero_windows": [14, 28],
+            "include_calendar": True,
+            "include_product_codes": True,
+            "include_price": True,
+            "include_price_momentum": False,
+            "include_promotion": True,
+            "include_promo_price_interaction": False,
+            "include_holiday": True,
+            "include_intermittency": True,
+        },
+        dataset_config={
+            "activation_policy": "exclude_pre_first_price",
+            "activation_marker": "first_available_sell_price",
+            "training_policy": "exclude_pre_activation_from_train",
+            "calibration_policy": "exclude_pre_activation_from_calibration",
+            "primary_metric_filter": "active_holdout_rows",
+            "guardrail_metric_filter": "canonical_holdout",
+            "preserve_canonical_holdout": True,
+        },
+        model_config={
+            "architecture": "lightgbm",
+            "objective": "poisson",
+            "hyperparameters": {
+                **_BASE_HYPERPARAMETERS,
+                "n_estimators": 200,
+                "num_leaves": 47,
+                "min_child_samples": 16,
+            },
+        },
+        calibration_config={
+            "strategy": "category_velocity_bias",
+            "clip_range": [0.75, 1.25],
+        },
+        segmentation_config={
+            "strategy": "activation_aware_category_velocity_bias_calibration",
+            "velocity_quantiles": [0.33, 0.66],
+        },
+    ),
+    "m5_segment_gated_activation_window_v1": _template(
+        template_id="m5_segment_gated_activation_window_v1",
+        spec_name="M5 segment-gated activation window",
+        experiment_type="data_window",
+        feature_set_id="m5_segment_gated_activation_window_v1",
+        feature_config={
+            "lag_days": [1, 7, 14, 28],
+            "rolling_windows": [7, 14, 28],
+            "rolling_nonzero_windows": [14, 28],
+            "include_calendar": True,
+            "include_product_codes": True,
+            "include_price": True,
+            "include_price_momentum": False,
+            "include_promotion": True,
+            "include_promo_price_interaction": False,
+            "include_holiday": True,
+            "include_intermittency": True,
+        },
+        dataset_config={
+            "activation_policy": "segment_gated_pre_first_price",
+            "activation_marker": "first_available_sell_price",
+            "training_policy": "exclude_pre_activation_for_eligible_segments",
+            "calibration_policy": "exclude_pre_activation_for_eligible_segments",
+            "primary_metric_filter": "active_holdout_rows",
+            "guardrail_metric_filter": "canonical_holdout",
+            "preserve_canonical_holdout": True,
+            "activation_eligible_velocity_segments": ["slow", "medium"],
+            "activation_protected_velocity_segments": ["fast"],
+            "activation_include_late_activation": True,
+            "activation_include_intermittent": False,
+            "activation_intermittent_zero_rate_min": 0.8,
+            "prediction_routing_policy": "none",
+            "calibration_scope": "all_segments",
+        },
+        model_config={
+            "architecture": "lightgbm",
+            "objective": "poisson",
+            "hyperparameters": {
+                **_BASE_HYPERPARAMETERS,
+                "n_estimators": 200,
+                "num_leaves": 47,
+                "min_child_samples": 16,
+            },
+        },
+        calibration_config={
+            "strategy": "category_velocity_bias",
+            "clip_range": [0.75, 1.25],
+        },
+        segmentation_config={
+            "strategy": "segment_gated_activation_category_velocity_bias_calibration",
+            "velocity_quantiles": [0.33, 0.66],
+        },
+    ),
+    "m5_segment_routed_activation_window_v1": _template(
+        template_id="m5_segment_routed_activation_window_v1",
+        spec_name="M5 segment-routed activation policy",
+        experiment_type="data_window",
+        feature_set_id="m5_segment_routed_activation_window_v1",
+        feature_config={
+            "lag_days": [1, 7, 14, 28],
+            "rolling_windows": [7, 14, 28],
+            "rolling_nonzero_windows": [14, 28],
+            "include_calendar": True,
+            "include_product_codes": True,
+            "include_price": True,
+            "include_price_momentum": False,
+            "include_promotion": True,
+            "include_promo_price_interaction": False,
+            "include_holiday": True,
+            "include_intermittency": True,
+        },
+        dataset_config={
+            "activation_policy": "segment_routed_pre_first_price",
+            "activation_marker": "first_available_sell_price",
+            "training_policy": "exclude_pre_activation_for_eligible_segments",
+            "calibration_policy": "exclude_pre_activation_for_eligible_segments",
+            "primary_metric_filter": "active_holdout_rows",
+            "guardrail_metric_filter": "canonical_holdout",
+            "preserve_canonical_holdout": True,
+            "activation_eligible_velocity_segments": ["slow", "medium"],
+            "activation_protected_velocity_segments": ["fast"],
+            "activation_include_late_activation": True,
+            "activation_include_intermittent": False,
+            "activation_intermittent_zero_rate_min": 0.8,
+            "prediction_routing_policy": "eligible_activation_else_champion",
+            "calibration_scope": "eligible_segments_only",
+        },
+        model_config={
+            "architecture": "lightgbm",
+            "objective": "poisson",
+            "hyperparameters": {
+                **_BASE_HYPERPARAMETERS,
+                "n_estimators": 200,
+                "num_leaves": 47,
+                "min_child_samples": 16,
+            },
+        },
+        calibration_config={
+            "strategy": "category_velocity_bias",
+            "clip_range": [0.75, 1.25],
+        },
+        segmentation_config={
+            "strategy": "segment_routed_activation_policy_with_eligible_bias_calibration",
+            "velocity_quantiles": [0.33, 0.66],
         },
     ),
     "m5_slow_mover_conservative_v1": _template(
@@ -355,6 +550,20 @@ _ALLOWED_OVERRIDE_PATHS = {
     ("feature_config", "include_weather"),
     ("feature_config", "include_category_segments"),
     ("feature_config", "lookback_days"),
+    ("dataset_config", "activation_policy"),
+    ("dataset_config", "activation_marker"),
+    ("dataset_config", "training_policy"),
+    ("dataset_config", "calibration_policy"),
+    ("dataset_config", "primary_metric_filter"),
+    ("dataset_config", "guardrail_metric_filter"),
+    ("dataset_config", "preserve_canonical_holdout"),
+    ("dataset_config", "activation_eligible_velocity_segments"),
+    ("dataset_config", "activation_protected_velocity_segments"),
+    ("dataset_config", "activation_include_late_activation"),
+    ("dataset_config", "activation_include_intermittent"),
+    ("dataset_config", "activation_intermittent_zero_rate_min"),
+    ("dataset_config", "prediction_routing_policy"),
+    ("dataset_config", "calibration_scope"),
     ("model_config", "objective"),
     ("model_config", "threshold"),
     ("calibration_config", "strategy"),
@@ -416,6 +625,19 @@ def _bounded_float(value: Any, *, field_name: str, minimum: float, maximum: floa
     return number
 
 
+def _velocity_segment_list(values: Any, *, field_name: str) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list):
+        raise ValueError(f"{field_name} must be a list")
+    allowed = {"slow", "medium", "fast"}
+    normalized = sorted({str(value).strip().lower() for value in values if str(value).strip()})
+    unsupported = [value for value in normalized if value not in allowed]
+    if unsupported:
+        raise ValueError(f"{field_name} contains unsupported velocity segments: {unsupported}")
+    return normalized
+
+
 def validate_experiment_spec(spec: dict[str, Any]) -> dict[str, Any]:
     """Validate and normalize a ShelfOps executable experiment spec."""
     normalized = copy.deepcopy(spec)
@@ -450,6 +672,109 @@ def validate_experiment_spec(spec: dict[str, Any]) -> dict[str, Any]:
     if normalized["model_name"] == "demand_forecast":
         if "calibration_config" not in normalized or "decision_config" not in normalized:
             raise ValueError("Demand forecast specs require calibration_config and decision_config")
+        dataset_config = {
+            **_DEFAULT_DATASET_CONFIG,
+            **dict(normalized.get("dataset_config") or {}),
+        }
+        activation_policy = str(dataset_config.get("activation_policy", "none")).strip().lower()
+        if activation_policy not in {
+            "none",
+            "exclude_pre_first_price",
+            "segment_gated_pre_first_price",
+            "segment_routed_pre_first_price",
+        }:
+            raise ValueError(
+                "dataset_config.activation_policy must be one of: none, exclude_pre_first_price, "
+                "segment_gated_pre_first_price, segment_routed_pre_first_price"
+            )
+        activation_marker = str(dataset_config.get("activation_marker", "none")).strip().lower()
+        if activation_marker not in {"none", "first_available_sell_price"}:
+            raise ValueError("dataset_config.activation_marker must be one of: none, first_available_sell_price")
+        training_policy = str(dataset_config.get("training_policy", "canonical_train_rows")).strip().lower()
+        if training_policy not in {
+            "canonical_train_rows",
+            "exclude_pre_activation_from_train",
+            "exclude_pre_activation_for_eligible_segments",
+        }:
+            raise ValueError(
+                "dataset_config.training_policy must be one of: canonical_train_rows, "
+                "exclude_pre_activation_from_train, exclude_pre_activation_for_eligible_segments"
+            )
+        calibration_policy = str(dataset_config.get("calibration_policy", "canonical_calibration_rows")).strip().lower()
+        if calibration_policy not in {
+            "canonical_calibration_rows",
+            "exclude_pre_activation_from_calibration",
+            "exclude_pre_activation_for_eligible_segments",
+        }:
+            raise ValueError(
+                "dataset_config.calibration_policy must be one of: canonical_calibration_rows, "
+                "exclude_pre_activation_from_calibration, exclude_pre_activation_for_eligible_segments"
+            )
+        primary_filter = str(dataset_config.get("primary_metric_filter", "all_holdout_rows")).strip().lower()
+        if primary_filter not in {"all_holdout_rows", "active_holdout_rows"}:
+            raise ValueError("dataset_config.primary_metric_filter must be one of: all_holdout_rows, active_holdout_rows")
+        guardrail_filter = str(dataset_config.get("guardrail_metric_filter", "canonical_holdout")).strip().lower()
+        if guardrail_filter != "canonical_holdout":
+            raise ValueError("dataset_config.guardrail_metric_filter must be canonical_holdout")
+        if activation_policy in {
+            "exclude_pre_first_price",
+            "segment_gated_pre_first_price",
+            "segment_routed_pre_first_price",
+        } and (activation_marker != "first_available_sell_price"):
+            raise ValueError("Activation-aware specs must use first_available_sell_price as the activation marker")
+        if activation_policy in {"segment_gated_pre_first_price", "segment_routed_pre_first_price"}:
+            if training_policy != "exclude_pre_activation_for_eligible_segments":
+                raise ValueError(
+                    "Segment activation specs must use exclude_pre_activation_for_eligible_segments training"
+                )
+            if calibration_policy != "exclude_pre_activation_for_eligible_segments":
+                raise ValueError(
+                    "Segment activation specs must use exclude_pre_activation_for_eligible_segments calibration"
+                )
+        prediction_routing_policy = str(dataset_config.get("prediction_routing_policy", "none")).strip().lower()
+        if prediction_routing_policy not in {"none", "eligible_activation_else_champion"}:
+            raise ValueError(
+                "dataset_config.prediction_routing_policy must be one of: none, eligible_activation_else_champion"
+            )
+        calibration_scope = str(dataset_config.get("calibration_scope", "all_segments")).strip().lower()
+        if calibration_scope not in {"all_segments", "eligible_segments_only"}:
+            raise ValueError("dataset_config.calibration_scope must be one of: all_segments, eligible_segments_only")
+        if activation_policy == "segment_routed_pre_first_price":
+            if prediction_routing_policy != "eligible_activation_else_champion":
+                raise ValueError("Segment-routed activation specs must route eligible activation predictions")
+            if calibration_scope != "eligible_segments_only":
+                raise ValueError("Segment-routed activation specs must calibrate eligible segments only")
+        dataset_config.update(
+            {
+                "activation_policy": activation_policy,
+                "activation_marker": activation_marker,
+                "training_policy": training_policy,
+                "calibration_policy": calibration_policy,
+                "primary_metric_filter": primary_filter,
+                "guardrail_metric_filter": guardrail_filter,
+                "preserve_canonical_holdout": bool(dataset_config.get("preserve_canonical_holdout", True)),
+                "activation_eligible_velocity_segments": _velocity_segment_list(
+                    dataset_config.get("activation_eligible_velocity_segments"),
+                    field_name="dataset_config.activation_eligible_velocity_segments",
+                ),
+                "activation_protected_velocity_segments": _velocity_segment_list(
+                    dataset_config.get("activation_protected_velocity_segments"),
+                    field_name="dataset_config.activation_protected_velocity_segments",
+                ),
+                "activation_include_late_activation": bool(dataset_config.get("activation_include_late_activation")),
+                "activation_include_intermittent": bool(dataset_config.get("activation_include_intermittent")),
+                "activation_intermittent_zero_rate_min": _bounded_float(
+                    dataset_config.get("activation_intermittent_zero_rate_min", 0.8),
+                    field_name="dataset_config.activation_intermittent_zero_rate_min",
+                    minimum=0.0,
+                    maximum=1.0,
+                ),
+                "prediction_routing_policy": prediction_routing_policy,
+                "calibration_scope": calibration_scope,
+            }
+        )
+        normalized["dataset_config"] = dataset_config
+
         feature_config["lag_days"] = _bounded_int_list(
             feature_config.get("lag_days"), field_name="feature_config.lag_days"
         )
@@ -661,6 +986,8 @@ def default_template_for_experiment_type(experiment_type: str | None, model_name
     if model_name == "anomaly_detector":
         return "freshretailnet_balanced_context_v1"
     normalized = str(experiment_type or "").strip().lower()
+    if normalized == "data_window":
+        return "m5_activation_aware_window_v1"
     if normalized == "segmentation":
         return "m5_velocity_segmented_bias_v1"
     if normalized == "hyperparameter_tuning":
@@ -686,6 +1013,7 @@ def decision_config_kwargs_from_spec(
         "spec_name": normalized["spec_name"],
         "feature_set_id": normalized["feature_set_id"],
         "feature_config": normalized["feature_config"],
+        "dataset_config": normalized["dataset_config"],
         "model_config": normalized["model_config"],
         "calibration_config": normalized["calibration_config"],
         "segmentation_config": normalized.get("segmentation_config") or {},

@@ -86,8 +86,12 @@ class CompleteExperimentRequest(BaseModel):
 class RunExperimentRequest(BaseModel):
     data_dir: str = DEFAULT_FORECAST_DATA_DIR
     experiment_spec_id: str | None = None
-    holdout_days: int = Field(default=28, ge=7, le=60)
-    calibration_days: int = Field(default=28, ge=7, le=60)
+    validation_mode: Literal["quick_screen", "extended_backtest", "promotion_gate"] = "quick_screen"
+    holdout_days: int = Field(default=28, ge=7, le=365)
+    calibration_days: int = Field(default=28, ge=7, le=180)
+    rolling_window_count: int | None = Field(default=None, ge=0, le=12)
+    rolling_window_days: int = Field(default=28, ge=7, le=90)
+    rolling_stride_days: int = Field(default=28, ge=7, le=90)
     max_rows: int = Field(default=50_000, ge=10_000, le=250_000)
     max_series: int = Field(default=60, ge=2, le=250)
     max_challengers: int = Field(default=0, ge=0, le=10)
@@ -1411,6 +1415,7 @@ async def complete_experiment(
         {
             **existing_results,
             "lineage_metadata": lineage_metadata,
+            **decision_payload,
             "decision_payload": decision_payload,
         }
     )
@@ -1590,9 +1595,26 @@ async def run_experiment(
     if not exp.experiment_spec_id:
         exp.experiment_spec_id = spec.experiment_spec_id
 
+    if exp.model_name == "anomaly_detector" and (
+        request.validation_mode != "quick_screen" or request.rolling_window_count not in {None, 0}
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Anomaly detector experiments use the FreshRetailNet benchmark split. "
+                "Temporal forecast validation modes are only supported for demand_forecast experiments."
+            ),
+        )
+
     exp.status = "in_progress"
     await db.commit()
 
+    default_rolling_windows = {"quick_screen": 0, "extended_backtest": 3, "promotion_gate": 6}
+    rolling_window_count = (
+        request.rolling_window_count
+        if request.rolling_window_count is not None
+        else default_rolling_windows[request.validation_mode]
+    )
     lineage_metadata = dict((exp.results or {}).get("lineage_metadata") or {})
     if exp.model_name == "anomaly_detector":
         spec_config_kwargs = anomaly_config_kwargs_from_spec(
@@ -1645,8 +1667,12 @@ async def run_experiment(
                 "hypothesis": exp.hypothesis,
                 "experiment_type": exp.experiment_type,
                 **spec_config_kwargs,
+                "validation_mode": request.validation_mode,
                 "holdout_days": request.holdout_days,
                 "calibration_days": request.calibration_days,
+                "rolling_window_count": rolling_window_count,
+                "rolling_window_days": request.rolling_window_days,
+                "rolling_stride_days": request.rolling_stride_days,
                 "max_rows": request.max_rows,
                 "max_series": request.max_series,
             }
@@ -1667,6 +1693,8 @@ async def run_experiment(
             "segment_metrics": report["challenger"].get("segment_metrics"),
             "decision_replay": report["decision_replay"]["results"].get("challenger"),
             "promotion_comparison": report.get("promotion_comparison"),
+            "rolling_validation": report.get("rolling_validation"),
+            "validation": report.get("validation"),
             "report_artifact": output_json,
         }
 
@@ -1734,8 +1762,12 @@ async def run_experiment(
         "ran_by": actor,
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "data_dir": str(data_dir if exp.model_name == "anomaly_detector" else request.data_dir),
+        "validation_mode": request.validation_mode,
         "holdout_days": request.holdout_days,
         "calibration_days": request.calibration_days,
+        "rolling_window_count": rolling_window_count,
+        "rolling_window_days": request.rolling_window_days,
+        "rolling_stride_days": request.rolling_stride_days,
         "max_rows": request.max_rows,
         "max_series": request.max_series,
         "max_challengers": request.max_challengers,
