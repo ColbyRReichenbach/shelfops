@@ -70,6 +70,19 @@ class RecommendationPolicyResponse(BaseModel):
     incremental_overstock_cost_confidence: str
 
 
+class DecisionFeedbackResponse(BaseModel):
+    measurement_basis: str
+    total_decisions: int
+    total_decisions_confidence: str
+    accepted_decisions: int
+    edited_decisions: int
+    rejected_decisions: int
+    closed_outcome_labels: int
+    closed_outcome_labels_confidence: str
+    training_readiness: str
+    training_readiness_confidence: str
+
+
 class RecommendationImpactResponse(BaseModel):
     as_of_date: str
     total_recommendations: int
@@ -82,6 +95,7 @@ class RecommendationImpactResponse(BaseModel):
     provisional_outcomes_confidence: str
     forecast_closeout: ForecastCloseoutResponse
     recommendation_policy: RecommendationPolicyResponse
+    decision_feedback: DecisionFeedbackResponse
 
 
 @router.get("/queue", response_model=list[RecommendationResponse])

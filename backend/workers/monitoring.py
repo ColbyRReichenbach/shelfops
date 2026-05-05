@@ -138,7 +138,7 @@ async def summarize_recommendation_impact(
     customer_id: uuid.UUID,
     as_of_date=None,
 ):
-    from db.models import Product, PurchaseOrder, RecommendationOutcome, ReplenishmentRecommendation
+    from db.models import Product, PurchaseOrder, RecommendationDecision, RecommendationOutcome, ReplenishmentRecommendation
     from recommendations.outcomes import compute_decision_policy_impact
 
     analysis_date = as_of_date or datetime.utcnow().date()
@@ -154,6 +154,12 @@ async def summarize_recommendation_impact(
     )
     outcomes = outcomes_result.scalars().all()
     recommendation_by_id = {row.recommendation_id: row for row in recommendations}
+
+    decisions_result = await db.execute(
+        select(RecommendationDecision).where(RecommendationDecision.customer_id == customer_id)
+    )
+    decisions = decisions_result.scalars().all()
+    decision_by_recommendation_id = {row.recommendation_id: row for row in decisions}
 
     linked_po_ids = [row.linked_po_id for row in recommendations if row.linked_po_id is not None]
     purchase_order_by_id: dict[uuid.UUID, PurchaseOrder] = {}
@@ -189,8 +195,10 @@ async def summarize_recommendation_impact(
         linked_po = (
             purchase_order_by_id.get(recommendation.linked_po_id) if recommendation.linked_po_id is not None else None
         )
-        decision_quantity = 0
-        if recommendation.status == "accepted":
+        decision = decision_by_recommendation_id.get(recommendation.recommendation_id)
+        if decision is not None:
+            decision_quantity = int(decision.final_qty)
+        elif recommendation.status == "accepted":
             decision_quantity = int(
                 linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
             )
@@ -198,6 +206,8 @@ async def summarize_recommendation_impact(
             decision_quantity = int(
                 linked_po.quantity if linked_po is not None else recommendation.recommended_quantity
             )
+        else:
+            decision_quantity = 0
 
         policy_summaries.append(
             compute_decision_policy_impact(
@@ -237,6 +247,15 @@ async def summarize_recommendation_impact(
     policy_confidence = (
         "estimated" if valued_policy_summaries else ("provisional" if policy_summaries else "unavailable")
     )
+    closed_outcome_recommendation_ids = {row.recommendation_id for row in closed_outcomes}
+    closed_decision_labels = sum(
+        1 for row in decisions if row.recommendation_id in closed_outcome_recommendation_ids
+    )
+    training_readiness = (
+        "ready_for_batch_retrain"
+        if closed_decision_labels >= 30
+        else "collecting_outcomes"
+    )
 
     return {
         "as_of_date": analysis_date.isoformat(),
@@ -259,7 +278,7 @@ async def summarize_recommendation_impact(
         },
         "recommendation_policy": {
             "measurement_basis": "observed_sales_proxy_vs_do_nothing_inventory_position_baseline",
-            "decision_quantity_basis": "accepted_or_edited_po_quantity_else_zero",
+            "decision_quantity_basis": "recommendation_decision_final_qty_else_legacy_po_quantity",
             "evaluated_decisions": len(policy_summaries),
             "evaluated_decisions_confidence": "estimated" if policy_summaries else "provisional",
             "net_policy_value": policy_net_value,
@@ -268,6 +287,18 @@ async def summarize_recommendation_impact(
             "avoided_stockout_value_confidence": policy_confidence,
             "incremental_overstock_cost": incremental_overstock_cost,
             "incremental_overstock_cost_confidence": policy_confidence,
+        },
+        "decision_feedback": {
+            "measurement_basis": "structured_buyer_decisions_joined_to_recommendation_outcomes",
+            "total_decisions": len(decisions),
+            "total_decisions_confidence": "measured" if decisions else "unavailable",
+            "accepted_decisions": sum(1 for row in decisions if row.decision_type == "accepted"),
+            "edited_decisions": sum(1 for row in decisions if row.decision_type == "edited"),
+            "rejected_decisions": sum(1 for row in decisions if row.decision_type == "rejected"),
+            "closed_outcome_labels": closed_decision_labels,
+            "closed_outcome_labels_confidence": "measured" if closed_decision_labels else "unavailable",
+            "training_readiness": training_readiness,
+            "training_readiness_confidence": "provisional" if closed_decision_labels < 30 else "measured",
         },
     }
 
@@ -445,7 +476,7 @@ def check_feedback_health(
     cooldown_days: int = 7,
 ):
     """
-    Daily job: Check if planners are rejecting POs at high rates.
+    Daily job: Check if buyers are rejecting recommendations at high rates.
 
     If rejection_rate > threshold for any (store, product) with enough
     decisions, triggers a feedback-driven retrain. A cooldown prevents
@@ -456,7 +487,7 @@ def check_feedback_health(
 
     async def _check():
         from core.config import get_settings
-        from db.models import MLAlert, PODecision, PurchaseOrder
+        from db.models import MLAlert, PODecision, PurchaseOrder, RecommendationDecision
 
         settings = get_settings()
         engine = create_async_engine(settings.database_url)
@@ -484,9 +515,35 @@ def check_feedback_health(
                     logger.info("feedback_health.cooldown", customer_id=customer_id)
                     return {"status": "skipped", "reason": "feedback_retrain_cooldown"}
 
-                # Aggregate rejection rates per (store, product)
+                # Aggregate rejection rates per (store, product). Recommendation
+                # decisions are primary; legacy PO decisions keep older workflows covered.
                 cutoff = datetime.utcnow() - timedelta(days=lookback_days)
-                result = await db.execute(
+                recommendation_result = await db.execute(
+                    select(
+                        RecommendationDecision.store_id,
+                        RecommendationDecision.product_id,
+                        func.count(RecommendationDecision.decision_id).label("total_decisions"),
+                        func.count(
+                            case(
+                                (RecommendationDecision.decision_type == "rejected", 1),
+                            )
+                        ).label("rejections"),
+                    )
+                    .where(
+                        RecommendationDecision.customer_id == customer_uuid,
+                        RecommendationDecision.decided_at >= cutoff,
+                    )
+                    .group_by(RecommendationDecision.store_id, RecommendationDecision.product_id)
+                )
+                linked_po_result = await db.execute(
+                    select(RecommendationDecision.linked_po_id).where(
+                        RecommendationDecision.customer_id == customer_uuid,
+                        RecommendationDecision.decided_at >= cutoff,
+                        RecommendationDecision.linked_po_id.isnot(None),
+                    )
+                )
+                linked_po_ids = [row.linked_po_id for row in linked_po_result.all()]
+                po_query = (
                     select(
                         PurchaseOrder.store_id,
                         PurchaseOrder.product_id,
@@ -503,19 +560,37 @@ def check_feedback_health(
                         PODecision.decided_at >= cutoff,
                     )
                     .group_by(PurchaseOrder.store_id, PurchaseOrder.product_id)
-                    .having(func.count(PODecision.decision_id) >= min_decisions)
                 )
-                rows = result.all()
+                if linked_po_ids:
+                    po_query = po_query.where(~PurchaseOrder.po_id.in_(linked_po_ids))
+                po_result = await db.execute(po_query)
+                aggregate: dict[tuple[uuid.UUID, uuid.UUID], dict[str, int | uuid.UUID]] = {}
+                for row in list(recommendation_result.all()) + list(po_result.all()):
+                    key = (row.store_id, row.product_id)
+                    if key not in aggregate:
+                        aggregate[key] = {
+                            "store_id": row.store_id,
+                            "product_id": row.product_id,
+                            "total_decisions": 0,
+                            "rejections": 0,
+                        }
+                    aggregate[key]["total_decisions"] = int(aggregate[key]["total_decisions"]) + int(
+                        row.total_decisions or 0
+                    )
+                    aggregate[key]["rejections"] = int(aggregate[key]["rejections"]) + int(row.rejections or 0)
+                rows = list(aggregate.values())
 
                 flagged = []
                 for row in rows:
-                    total = row.total_decisions or 1
-                    rejection_rate = (row.rejections or 0) / total
+                    total = int(row["total_decisions"] or 0)
+                    if total < min_decisions:
+                        continue
+                    rejection_rate = int(row["rejections"] or 0) / total
                     if rejection_rate > rejection_threshold:
                         flagged.append(
                             {
-                                "store_id": str(row.store_id),
-                                "product_id": str(row.product_id),
+                                "store_id": str(row["store_id"]),
+                                "product_id": str(row["product_id"]),
                                 "rejection_rate": round(rejection_rate, 3),
                                 "total_decisions": total,
                             }

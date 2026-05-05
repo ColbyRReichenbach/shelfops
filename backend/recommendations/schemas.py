@@ -46,5 +46,9 @@ class RecommendationResponse(BaseModel):
     interval_coverage: float | None = None
     no_order_stockout_risk: str
     order_overstock_risk: str
+    decision_feedback_status: str = "awaiting_buyer_decision"
+    decision_feedback_provenance: str = "unavailable"
+    decision_feedback_message: str | None = None
+    latest_decision: dict[str, Any] | None = None
     recommendation_rationale: dict[str, Any]
     created_at: datetime

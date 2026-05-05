@@ -7,7 +7,9 @@ The human-in-the-loop workflow for inventory replenishment:
   3. PO sent to vendor → status='ordered'
   4. Goods received → status='received' (with discrepancy tracking)
 
-All decisions logged to po_decisions table for ML feedback loop.
+PO decisions are logged for audit and legacy feedback features. Replenishment
+recommendation decisions are logged separately because rejects may not create a
+purchase order.
 
 Agent: full-stack-engineer
 Skill: fastapi
@@ -73,7 +75,7 @@ class POApprovalRequest(BaseModel):
 
 
 class PORejectRequest(BaseModel):
-    """Reject a PO with a reason code (required for ML feedback)."""
+    """Reject a PO with a reason code for audit and legacy feedback features."""
 
     reason_code: str = Field(
         ...,
@@ -218,7 +220,7 @@ async def approve_purchase_order(
     Approve a suggested purchase order.
 
     If quantity is modified, a reason_code is required.
-    Logs decision to po_decisions table for ML feedback.
+    Logs the PO decision for audit and legacy feedback features.
     """
     po = await db.get(PurchaseOrder, po_id)
     if not po:
@@ -276,8 +278,8 @@ async def reject_purchase_order(
     """
     Reject a purchase order with reason code.
 
-    Reason codes feed back into the ML pipeline to improve future forecasts.
-    The system learns from human overrides.
+    Reason codes are available as lagged feedback signals. They are not treated
+    as demand labels by themselves.
     """
     po = await db.get(PurchaseOrder, po_id)
     if not po:

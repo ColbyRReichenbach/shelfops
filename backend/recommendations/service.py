@@ -16,6 +16,7 @@ from db.models import (
     Product,
     PurchaseOrder,
     ReorderPoint,
+    RecommendationDecision,
     ReplenishmentRecommendation,
     Store,
     Supplier,
@@ -240,6 +241,9 @@ class RecommendationService:
             lead_time_demand_mean=forecast_summary.lead_time_demand_mean,
             lead_time_demand_upper=forecast_summary.lead_time_demand_upper,
             interval_coverage=interval_coverage,
+            decision_feedback_status="awaiting_buyer_decision",
+            decision_feedback_provenance="unavailable",
+            latest_decision=None,
         )
 
     async def list_queue(
@@ -373,10 +377,27 @@ class RecommendationService:
                 decided_by=actor,
             )
         )
+        decided_at = datetime.utcnow()
+        self._record_recommendation_decision(
+            record,
+            decision_type="accepted",
+            final_qty=record.recommended_quantity,
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            linked_po_id=purchase_order.po_id,
+            decided_at=decided_at,
+        )
         record.status = "accepted"
         record.linked_po_id = purchase_order.po_id
         self._append_decision_metadata(
-            record, decision_type="accepted", actor=actor, reason_code=reason_code, notes=notes
+            record,
+            decision_type="accepted",
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            final_qty=record.recommended_quantity,
+            decided_at=decided_at,
         )
         await self.db.commit()
         await self.db.refresh(record)
@@ -408,10 +429,27 @@ class RecommendationService:
                 decided_by=actor,
             )
         )
+        decided_at = datetime.utcnow()
+        self._record_recommendation_decision(
+            record,
+            decision_type="edited",
+            final_qty=quantity,
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            linked_po_id=purchase_order.po_id,
+            decided_at=decided_at,
+        )
         record.status = "edited"
         record.linked_po_id = purchase_order.po_id
         self._append_decision_metadata(
-            record, decision_type="edited", actor=actor, reason_code=reason_code, notes=notes
+            record,
+            decision_type="edited",
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            final_qty=quantity,
+            decided_at=decided_at,
         )
         await self.db.commit()
         await self.db.refresh(record)
@@ -427,9 +465,26 @@ class RecommendationService:
         notes: str | None = None,
     ) -> RecommendationResponse:
         record = await self._require_open_recommendation(customer_id=customer_id, recommendation_id=recommendation_id)
+        decided_at = datetime.utcnow()
+        self._record_recommendation_decision(
+            record,
+            decision_type="rejected",
+            final_qty=0,
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            linked_po_id=None,
+            decided_at=decided_at,
+        )
         record.status = "rejected"
         self._append_decision_metadata(
-            record, decision_type="rejected", actor=actor, reason_code=reason_code, notes=notes
+            record,
+            decision_type="rejected",
+            actor=actor,
+            reason_code=reason_code,
+            notes=notes,
+            final_qty=0,
+            decided_at=decided_at,
         )
         await self.db.commit()
         await self.db.refresh(record)
@@ -670,7 +725,17 @@ class RecommendationService:
         customer_id: uuid.UUID,
         recommendation_id: uuid.UUID,
     ) -> ReplenishmentRecommendation:
-        record = await self._require_recommendation(customer_id=customer_id, recommendation_id=recommendation_id)
+        result = await self.db.execute(
+            select(ReplenishmentRecommendation)
+            .where(
+                ReplenishmentRecommendation.customer_id == customer_id,
+                ReplenishmentRecommendation.recommendation_id == recommendation_id,
+            )
+            .with_for_update()
+        )
+        record = result.scalar_one_or_none()
+        if record is None:
+            raise ValueError("recommendation not found")
         if record.status != "open":
             raise ValueError(f"recommendation is not open: {record.status}")
         return record
@@ -700,6 +765,8 @@ class RecommendationService:
         actor: str,
         reason_code: str | None,
         notes: str | None,
+        final_qty: int,
+        decided_at: datetime,
     ) -> None:
         rationale = dict(record.recommendation_rationale or {})
         rationale["decision"] = {
@@ -707,12 +774,76 @@ class RecommendationService:
             "actor": actor,
             "reason_code": reason_code,
             "notes": notes,
-            "decided_at": datetime.utcnow().isoformat(),
+            "recommended_qty": record.recommended_quantity,
+            "final_qty": final_qty,
+            "override_qty_delta": final_qty - record.recommended_quantity,
+            "override_pct": self._compute_override_pct(record.recommended_quantity, final_qty),
+            "decided_at": decided_at.isoformat(),
+            "feedback_status": "decision_logged",
+            "feedback_provenance": "measured",
         }
         record.recommendation_rationale = rationale
 
+    def _record_recommendation_decision(
+        self,
+        record: ReplenishmentRecommendation,
+        *,
+        decision_type: str,
+        final_qty: int,
+        actor: str,
+        reason_code: str | None,
+        notes: str | None,
+        linked_po_id: uuid.UUID | None,
+        decided_at: datetime,
+    ) -> None:
+        override_qty_delta = final_qty - record.recommended_quantity
+        self.db.add(
+            RecommendationDecision(
+                customer_id=record.customer_id,
+                recommendation_id=record.recommendation_id,
+                store_id=record.store_id,
+                product_id=record.product_id,
+                linked_po_id=linked_po_id,
+                decision_type=decision_type,
+                recommended_qty=record.recommended_quantity,
+                final_qty=final_qty,
+                override_qty_delta=override_qty_delta,
+                override_pct=self._compute_override_pct(record.recommended_quantity, final_qty),
+                reason_code=reason_code,
+                notes=notes,
+                decided_by=actor,
+                decided_at=decided_at,
+                forecast_model_version=record.forecast_model_version,
+                policy_version=record.policy_version,
+                decision_metadata={
+                    "source": "replenishment_queue",
+                    "feedback_use": "policy_training_candidate",
+                    "outcome_status": "pending",
+                    "claim_boundary": (
+                        "Buyer decision is measured. Business impact requires a closed recommendation outcome."
+                    ),
+                },
+            )
+        )
+
+    def _compute_override_pct(self, recommended_qty: int, final_qty: int) -> float | None:
+        if recommended_qty <= 0:
+            return None
+        return round((final_qty - recommended_qty) * 100.0 / recommended_qty, 4)
+
     def _to_response_from_record(self, record: ReplenishmentRecommendation) -> RecommendationResponse:
         rationale = record.recommendation_rationale or {}
+        decision = rationale.get("decision") if isinstance(rationale.get("decision"), dict) else None
+        decision_feedback_status = (
+            str(decision.get("feedback_status") or "decision_logged")
+            if decision
+            else ("awaiting_buyer_decision" if record.status == "open" else "decision_not_structured")
+        )
+        decision_feedback_provenance = (
+            str(decision.get("feedback_provenance") or "measured")
+            if decision
+            else ("unavailable" if record.status == "open" else "provisional")
+        )
         return self._to_response(
             record,
             source_name=rationale.get("source_name"),
@@ -724,6 +855,9 @@ class RecommendationService:
             lead_time_demand_mean=float(rationale.get("lead_time_demand_mean") or 0.0),
             lead_time_demand_upper=self._optional_float(rationale.get("lead_time_demand_upper")),
             interval_coverage=self._optional_float(rationale.get("interval_coverage")),
+            decision_feedback_status=decision_feedback_status,
+            decision_feedback_provenance=decision_feedback_provenance,
+            latest_decision=decision,
         )
 
     def _parse_iso_date(self, value, fallback: date) -> date:
@@ -749,6 +883,9 @@ class RecommendationService:
         lead_time_demand_mean: float,
         lead_time_demand_upper: float | None,
         interval_coverage: float | None,
+        decision_feedback_status: str,
+        decision_feedback_provenance: str,
+        latest_decision: dict | None,
     ) -> RecommendationResponse:
         return RecommendationResponse(
             recommendation_id=recommendation.recommendation_id,
@@ -787,6 +924,17 @@ class RecommendationService:
             interval_coverage=interval_coverage,
             no_order_stockout_risk=recommendation.no_order_stockout_risk,
             order_overstock_risk=recommendation.order_overstock_risk,
+            decision_feedback_status=decision_feedback_status,
+            decision_feedback_provenance=decision_feedback_provenance,
+            decision_feedback_message=self._decision_feedback_message(decision_feedback_status, recommendation.status),
+            latest_decision=latest_decision,
             recommendation_rationale=recommendation.recommendation_rationale,
             created_at=recommendation.created_at,
         )
+
+    def _decision_feedback_message(self, feedback_status: str, recommendation_status: str) -> str:
+        if feedback_status == "decision_logged":
+            return "Buyer decision is logged and waiting for outcome attribution."
+        if recommendation_status == "open":
+            return "No buyer decision has been recorded yet."
+        return "Decision predates structured feedback capture."

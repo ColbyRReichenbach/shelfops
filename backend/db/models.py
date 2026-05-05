@@ -1,7 +1,7 @@
 """
 ShelfOps Database Models
 
-29 tables for the inventory intelligence platform.
+Database models for the inventory intelligence platform.
 Multi-tenant via customer_id on all tables.
 TimescaleDB hypertables: transactions, inventory_levels, dc_inventory.
 
@@ -40,6 +40,7 @@ Tables:
   25. reorder_history        - Audit trail of ROP changes
   26. po_decisions           - Reason codes for PO approve/reject
   27. opportunity_cost_log   - Quantify stockout/overstock impact
+  28. recommendation_decisions - Structured accept/edit/reject recommendation feedback
 """
 
 import uuid
@@ -1008,8 +1009,9 @@ class ReorderHistory(Base):
 class PODecision(Base):
     """Captures why a human approved, rejected, or edited a purchase order.
 
-    These reason codes feed back into the ML pipeline as features,
-    allowing the model to learn from human overrides.
+    These reason codes are available as lagged feedback features for legacy
+    PO workflows. Replenishment recommendation decisions are the primary
+    structured feedback path for the replenishment queue.
     """
 
     __tablename__ = "po_decisions"
@@ -1614,6 +1616,52 @@ class ReplenishmentRecommendation(Base):
             "order_overstock_risk IN ('low', 'medium', 'high')",
             name="ck_recommendation_overstock_risk",
         ),
+    )
+
+
+class RecommendationDecision(Base):
+    """Structured buyer decision event for a replenishment recommendation.
+
+    This records accept/edit/reject independently of purchase-order creation so
+    rejected recommendations can still become auditable model and policy
+    feedback.
+    """
+
+    __tablename__ = "recommendation_decisions"
+
+    decision_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    recommendation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("replenishment_recommendations.recommendation_id"),
+        nullable=False,
+        unique=True,
+    )
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    linked_po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.po_id"), nullable=True)
+    decision_type = Column(String(20), nullable=False)
+    recommended_qty = Column(Integer, nullable=False)
+    final_qty = Column(Integer, nullable=False)
+    override_qty_delta = Column(Integer, nullable=False, default=0)
+    override_pct = Column(Float, nullable=True)
+    reason_code = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    decided_by = Column(String(255), nullable=True)
+    decided_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    forecast_model_version = Column(String(50), nullable=False)
+    policy_version = Column(String(50), nullable=False)
+    decision_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_recommendation_decisions_customer", "customer_id", "decided_at"),
+        Index("ix_recommendation_decisions_store_product", "store_id", "product_id", "decided_at"),
+        CheckConstraint(
+            "decision_type IN ('accepted', 'edited', 'rejected')",
+            name="ck_recommendation_decision_type",
+        ),
+        CheckConstraint("recommended_qty >= 0", name="ck_recommendation_decision_recommended_qty_non_negative"),
+        CheckConstraint("final_qty >= 0", name="ck_recommendation_decision_final_qty_non_negative"),
     )
 
 

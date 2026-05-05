@@ -31,6 +31,7 @@ from db.models import (
     ForecastAccuracy,
     InventoryLevel,
     Product,
+    RecommendationDecision,
     RecommendationOutcome,
     ReorderPoint,
     ReplenishmentRecommendation,
@@ -481,6 +482,7 @@ async def _seed_benchmark_recommendations(
     historical_limit: int = 6,
 ) -> dict[str, int]:
     await db.execute(delete(RecommendationOutcome).where(RecommendationOutcome.customer_id == customer_id))
+    await db.execute(delete(RecommendationDecision).where(RecommendationDecision.customer_id == customer_id))
     await db.execute(delete(ReplenishmentRecommendation).where(ReplenishmentRecommendation.customer_id == customer_id))
     await db.flush()
 

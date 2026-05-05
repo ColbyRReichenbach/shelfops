@@ -118,7 +118,11 @@ async def test_replenishment_impact_reports_confidence_labels(client, test_db):
         payload["recommendation_policy"]["measurement_basis"]
         == "observed_sales_proxy_vs_do_nothing_inventory_position_baseline"
     )
-    assert payload["recommendation_policy"]["decision_quantity_basis"] == "accepted_or_edited_po_quantity_else_zero"
+    assert payload["recommendation_policy"]["decision_quantity_basis"] == "recommendation_decision_final_qty_else_legacy_po_quantity"
     assert payload["recommendation_policy"]["evaluated_decisions"] == 1
     assert payload["recommendation_policy"]["net_policy_value_confidence"] == "estimated"
     assert payload["recommendation_policy"]["net_policy_value"] is not None
+    assert payload["decision_feedback"]["total_decisions"] == 1
+    assert payload["decision_feedback"]["accepted_decisions"] == 1
+    assert payload["decision_feedback"]["closed_outcome_labels"] == 1
+    assert payload["decision_feedback"]["closed_outcome_labels_confidence"] == "measured"

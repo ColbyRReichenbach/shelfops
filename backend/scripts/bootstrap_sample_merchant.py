@@ -21,6 +21,7 @@ from db.models import (
     ModelRetrainingLog,
     ModelVersion,
     Product,
+    RecommendationDecision,
     RecommendationOutcome,
     ReorderPoint,
     ReplenishmentRecommendation,
@@ -520,6 +521,7 @@ async def _seed_recommendations(
     historical_limit: int = 6,
 ) -> dict[str, int]:
     await db.execute(delete(RecommendationOutcome).where(RecommendationOutcome.customer_id == customer_id))
+    await db.execute(delete(RecommendationDecision).where(RecommendationDecision.customer_id == customer_id))
     await db.execute(delete(ReplenishmentRecommendation).where(ReplenishmentRecommendation.customer_id == customer_id))
 
     stores = (

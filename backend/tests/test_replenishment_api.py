@@ -4,7 +4,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import func, select
 
-from db.models import PODecision, PurchaseOrder, ReplenishmentRecommendation
+from db.models import PODecision, PurchaseOrder, RecommendationDecision, ReplenishmentRecommendation
 from recommendations.service import RecommendationService
 from tests.test_recommendation_service import _seed_recommendation_fixture
 
@@ -98,6 +98,14 @@ class TestReplenishmentAPI:
         assert decision.decision_type == "approved"
         assert decision.final_qty == 28
 
+        feedback_result = await test_db.execute(select(RecommendationDecision))
+        feedback_decision = feedback_result.scalar_one()
+        assert feedback_decision.decision_type == "accepted"
+        assert feedback_decision.recommended_qty == 28
+        assert feedback_decision.final_qty == 28
+        assert feedback_decision.linked_po_id == purchase_order.po_id
+        assert payload["decision_feedback_status"] == "decision_logged"
+
     async def test_edit_recommendation_creates_edited_purchase_order(self, client, test_db):
         recommendation = await _create_open_recommendation(test_db)
 
@@ -120,6 +128,14 @@ class TestReplenishmentAPI:
         assert decision.decision_type == "edited"
         assert decision.reason_code == "budget_constraint"
 
+        feedback_result = await test_db.execute(select(RecommendationDecision))
+        feedback_decision = feedback_result.scalar_one()
+        assert feedback_decision.decision_type == "edited"
+        assert feedback_decision.recommended_qty == 28
+        assert feedback_decision.final_qty == 30
+        assert feedback_decision.override_qty_delta == 2
+        assert feedback_decision.reason_code == "budget_constraint"
+
     async def test_reject_recommendation_updates_status_without_creating_po(self, client, test_db):
         recommendation = await _create_open_recommendation(test_db)
 
@@ -136,6 +152,15 @@ class TestReplenishmentAPI:
         po_count = await test_db.scalar(select(func.count(PurchaseOrder.po_id)))
         assert po_count == 0
 
+        feedback_result = await test_db.execute(select(RecommendationDecision))
+        feedback_decision = feedback_result.scalar_one()
+        assert feedback_decision.decision_type == "rejected"
+        assert feedback_decision.recommended_qty == 28
+        assert feedback_decision.final_qty == 0
+        assert feedback_decision.override_qty_delta == -28
+        assert feedback_decision.linked_po_id is None
+
         recommendation_row = await test_db.get(ReplenishmentRecommendation, recommendation.recommendation_id)
         assert recommendation_row.status == "rejected"
         assert recommendation_row.recommendation_rationale["decision"]["reason_code"] == "manual_ordered_elsewhere"
+        assert recommendation_row.recommendation_rationale["decision"]["feedback_status"] == "decision_logged"

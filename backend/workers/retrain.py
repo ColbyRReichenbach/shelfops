@@ -556,7 +556,10 @@ def _load_db_data(
 
 def _load_feedback_features(customer_id: str, lookback_days: int = 30) -> pd.DataFrame:
     """
-    Load planner feedback aggregates for the tenant from po_decisions.
+    Load lagged buyer-decision aggregates for the tenant.
+
+    Recommendation decisions are primary because rejects may not create purchase
+    orders. Legacy PO decisions remain supported through ml.feedback_loop.
     """
     import asyncio
 
