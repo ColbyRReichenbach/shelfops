@@ -1,6 +1,6 @@
 # ShelfOps Claims
 
-Last updated: 2026-04-29
+Last updated: 2026-05-05
 
 This file is the public claim boundary for the repo.
 
@@ -13,7 +13,12 @@ This file is the public claim boundary for the repo.
   using reorder points, safety stock, supplier lead time, order cost, holding cost,
   and perishable spoilage economics.
 - ShelfOps includes model-health, experiment, alert, anomaly, outcome, and report APIs.
-- ShelfOps includes feedback-loop features derived from buyer purchase-order behavior.
+- ShelfOps logs structured replenishment recommendation decisions for accept,
+  edit, and reject actions, then links those decisions to closed outcomes when
+  the recommendation horizon can be measured.
+- ShelfOps includes lagged feedback-loop features derived from buyer decision
+  history; recommendation rejects are captured even when no purchase order is
+  created.
 - ShelfOps includes champion/challenger promotion logic and runtime model history surfaces.
 - ShelfOps uses LightGBM-first training and time-based validation in the active ML path.
 - ShelfOps includes pilot-oriented Square mapping, webhook persistence, replay, and
@@ -55,6 +60,11 @@ This file is the public claim boundary for the repo.
   the platform can log AI-agent hypotheses and traces for human review, but this
   is governance/audit infrastructure. It is not evidence of autonomous production
   promotion or live business impact.
+- Closed-loop learning:
+  decision and outcome events can form auditable policy-training datasets, and
+  lagged decision aggregates can enter forecast retraining. This is not
+  immediate online learning, and buyer decisions are not treated as demand
+  labels by themselves.
 - Experiment specs:
   UI-selected specs change the bounded M5 forecast runner and the FreshRetailNet
   anomaly benchmark runner. They remain curated contracts, not arbitrary code

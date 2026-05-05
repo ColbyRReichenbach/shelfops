@@ -1,6 +1,6 @@
 # ShelfOps Model Readiness
 
-- Last verified date: April 29, 2026
+- Last verified date: May 5, 2026
 - Audience: ML engineers and reviewers
 - Scope: current readiness state by model/component family
 - Source of truth: backend ML modules and associated tests
@@ -25,7 +25,7 @@
 | File registry parity with DB promotion lifecycle | `implemented` | Runtime retrain flow synchronizes file artifacts with DB lifecycle state. |
 | FreshRetailNet anomaly benchmark path | `implemented` | Champion/challenger evidence, immutable specs, run persistence, and shadow records exist. |
 | Measured anomaly feedback | `partial` | Cycle-count or buyer-review outcome persistence exists, but real pilot outcomes are not yet available. |
-| Feedback loop depth | `partial` | Outcome flow exists; richer closed-loop calibration remains. |
+| Feedback loop depth | `partial` | Structured accept/edit/reject recommendation decisions now persist and can be joined to closed outcomes; tenant-specific learned policy calibration still requires measured outcome volume. |
 | Broad enterprise onboarding operations | `blocked` | Non-GA by product policy. |
 
 ## Communication Rule

@@ -12,7 +12,7 @@ real data ingest
   -> replenishment recommendation
   -> buyer accept / edit / reject
   -> actual outcome arrives
-  -> measured impact and model improvement
+  -> measured impact and governed model / policy improvement
 ```
 
 This is the center of the repo. The backend, frontend, and ML artifacts should all support this loop.
@@ -25,6 +25,8 @@ ShelfOps already has:
 - forecasting, alerts, inventory, purchase-order, experiment, and reporting APIs
 - a replenishment recommendation backend with accept, edit, reject, outcome tracking,
   and decision economics for order cost, holding cost, and perishable spoilage risk
+- structured replenishment decision feedback where accept, edit, and reject actions
+  are logged independently of PO creation and can be joined to closed outcomes
 - a default benchmark workspace seeded from `M5 / Walmart` sales history
 - benchmark-backed model evidence centered on `M5 / Walmart`
 - decision-aware experiment reports that connect forecast quality to simulated

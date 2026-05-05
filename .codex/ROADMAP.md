@@ -88,7 +88,8 @@ Implemented or substantially implemented:
 - Model registry/champion file artifacts.
 - Runtime DB model lifecycle tables and promotion gates.
 - Shadow prediction and monitoring concepts.
-- Feedback-loop features from PO decisions.
+- Feedback-loop features from structured recommendation decisions, with legacy
+  PO decisions still supported for PO-only workflows.
 - Anomaly / ghost-stock modules.
 
 Critical issues to fix:
@@ -392,8 +393,9 @@ The canonical operational schema should distinguish these tables and grains:
 | `stock_status_events` | store-product-timestamp/window | in stock, out of stock, censored-demand flag; benchmark-only or live-inventory derived |
 | `suppliers` | supplier | lead-time, reliability, min order constraints |
 | `purchase_orders` | PO line or PO header+line, depending current schema | recommendation and order lifecycle |
-| `po_decisions` | buyer decision | accept/edit/reject, reason, actor, timestamp |
+| `po_decisions` | PO decision | approve/edit/reject, reason, actor, timestamp for PO-only workflows |
 | `recommendations` | store-product-horizon action | recommended qty, risk, model version, policy version |
+| `recommendation_decisions` | recommendation decision | accept/edit/reject, recommended qty, final qty, reason, actor, timestamp; exists even when no PO is created |
 | `recommendation_outcomes` | recommendation after horizon closes | actual sales, stockout, overstock, value estimate |
 | `dataset_snapshots` | dataset/version | immutable data snapshot metadata for training/evaluation |
 | `model_cards` | model version | evidence package for public and internal model review |
@@ -647,7 +649,8 @@ Add or formalize:
 
 #### Buyer-feedback features
 
-Current feedback features are strong. Make them first-class:
+Feedback features should be first-class, but must stay separate from demand
+labels:
 
 - rejection rate 30d,
 - average quantity adjustment percent,
@@ -656,7 +659,9 @@ Current feedback features are strong. Make them first-class:
 - repeated manual override flag,
 - recommendation acceptance streak.
 
-Use these cautiously. They can encode organizational habits, not ground truth. They should inform recommendation presentation and policy, not silently distort demand forecasts without evaluation.
+Use these cautiously. They can encode organizational habits, not ground truth.
+They should inform recommendation presentation and policy, and only enter demand
+forecast retraining as lagged aggregates with evaluation.
 
 ### 6.5 Segmentation strategy
 
@@ -964,7 +969,10 @@ webhook_event_log
 webhook_dead_letter_events
 ```
 
-You may map some of these to existing tables if the current schema already covers the need. Do not duplicate existing `purchase_orders` and `po_decisions` unless a separate recommendation layer is required. The key is to preserve a distinction between:
+You may map some of these to existing tables if the current schema already
+covers the need. The current implementation keeps `recommendation_decisions`
+separate from `purchase_orders` and `po_decisions` so rejects can be logged even
+when no PO is created. The key is to preserve a distinction between:
 
 ```text
 forecast -> recommendation -> buyer decision -> purchase order -> receiving -> outcome
@@ -1856,7 +1864,8 @@ Acceptance:
 
 - Build recommendation service and replenishment API.
 - Build replenishment queue UI.
-- Tie recommendations to PO decisions and outcomes.
+- Tie recommendations to structured buyer decisions, purchase orders where
+  applicable, and closed outcomes.
 
 ### Weeks 6-7: simulation and pilot readiness
 

@@ -430,8 +430,8 @@
           "completed_at": "2026-04-19",
           "notes": [
             "Added /api/v1/replenishment queue, detail, accept, edit, reject, and impact endpoints and registered the router in backend/api/main.py.",
-            "Accept and edit now create linked purchase_orders and po_decisions, while reject records explicit decision metadata on the recommendation record.",
-            "Verified acceptance with pytest backend/tests/test_replenishment_api.py -q and pytest backend/tests/test_purchase_orders_api.py -q."
+            "Accept and edit now create linked purchase_orders and po_decisions, while accept/edit/reject all create structured recommendation_decisions so rejects feed the recommendation-feedback path even without PO creation.",
+            "Verified acceptance with pytest backend/tests/test_replenishment_api.py -q and pytest backend/tests/test_purchase_orders_api.py -q; recommendation_decisions hardening was later verified with the replenishment, outcome, feedback-loop, feedback-health, purchase-order, experiment-spec, and experiments API targeted test slice."
           ],
           "files": [
             "backend/api/v1/routers/replenishment.py",

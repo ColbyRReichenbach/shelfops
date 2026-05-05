@@ -54,7 +54,7 @@
   - lagged sales windows
   - rolling averages, volatility, and trend
   - category encoding
-  - feedback-loop trust features
+  - lagged buyer-decision trust features
 - The active champion does not require tenant inventory or supplier fields, which keeps the public benchmark path aligned with M5 availability.
 
 ## Claim Boundaries

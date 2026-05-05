@@ -1,6 +1,6 @@
 # ShelfOps Current State
 
-Last updated: 2026-04-29
+Last updated: 2026-05-05
 
 ShelfOps is currently a pre-pilot inventory intelligence platform with a substantial
 backend foundation, a working multi-tenant API surface, and implemented
@@ -35,7 +35,8 @@ Current maturity:
 - Purchase-order decision workflow:
   suggested order, approve, edit, reject, receive, decision history
 - Forecast APIs, reports APIs, anomaly and alert APIs, model-health APIs
-- Feedback-loop features derived from buyer PO behavior
+- Feedback-loop features derived from structured recommendation decisions, with
+  legacy PO decision behavior still supported for older purchase-order workflows
 - Champion/challenger runtime state and promotion-gate logic
 - Dataset snapshot infrastructure for benchmark and training provenance
 - Active file-based M5-backed champion: `v3`
@@ -77,6 +78,9 @@ Current maturity:
   products, transactions, and inventory batches
 - Replenishment Queue UI with buyer decision controls, interval provenance, and
   impact badges
+- Structured replenishment decision feedback for accept, edit, and reject actions;
+  rejects are logged even when no purchase order is created, and decision events
+  can be joined to closed recommendation outcomes for auditable policy datasets
 - Recommendation drawer surfaces the decision-economics context behind each order
   quantity, including delivery/order cost, holding/spoilage cost, shelf life, and
   perishable caps when available
@@ -115,9 +119,11 @@ Current maturity:
   analytical surfaces still reflect the broader platform shape rather than a
   tightly scoped pilot-only UI.
 - Replenishment loop:
-  backend recommendation generation, decision API, PO linkage, and closed-loop
-  outcome measurement now exist, and benchmark replay simulation plus API exist,
-  with a working buyer-facing queue now in place.
+  backend recommendation generation, decision API, PO linkage where applicable,
+  structured decision feedback, and closed-loop outcome measurement now exist.
+  Benchmark replay simulation plus API exist, with a working buyer-facing queue
+  now in place. Real merchant outcome volume is still required before claiming
+  measured ROI or learned tenant policy improvement.
 - Experiment workflow:
   the experiment run endpoint now executes the M5 decision-aware benchmark cycle
   for `demand_forecast` and the FreshRetailNet stockout-anomaly benchmark cycle
