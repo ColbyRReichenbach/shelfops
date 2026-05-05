@@ -94,7 +94,7 @@ export default function ReplenishmentTable({
                                                         {lookup?.productName ?? shortId(recommendation.product_id)}
                                                     </p>
                                                     <p className="mt-1 text-xs text-[#86868b]">
-                                                        {lookup?.sku ?? 'SKU unavailable'} · {shortId(recommendation.recommendation_id)}
+                                                        {lookup?.sku ?? 'SKU pending'} · {shortId(recommendation.recommendation_id)}
                                                     </p>
                                                 </div>
                                             </div>
@@ -146,9 +146,9 @@ export default function ReplenishmentTable({
                                         </td>
                                         <td className="px-4 py-4">
                                             <div className="flex flex-col gap-2">
-                                                <ProvenanceBadge label={recommendation.interval_method ?? 'interval unavailable'} tone="neutral" />
+                                                <ProvenanceBadge label={recommendation.interval_method ?? 'interval pending'} tone="neutral" />
                                                 <ProvenanceBadge
-                                                    label={recommendation.calibration_status ?? 'coverage unavailable'}
+                                                    label={recommendation.calibration_status ?? 'coverage pending'}
                                                     tone={recommendation.calibration_status === 'calibrated' ? 'good' : 'warning'}
                                                 />
                                             </div>

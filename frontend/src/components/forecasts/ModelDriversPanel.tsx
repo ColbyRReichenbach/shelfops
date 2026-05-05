@@ -108,7 +108,7 @@ function buildSummary(data: ForecastDriversResponse): string {
     const labels = top.map(
         f => f.friendly_label ?? f.name.replace(/_/g, ' ')
     )
-    return `Global drivers: ${labels[0] ?? 'top feature'}${labels[1] ? ` and ${labels[1]}` : ''} carry the highest importance in the current model artifact.`
+    return `Global drivers: ${labels[0] ?? 'top feature'}${labels[1] ? ` and ${labels[1]}` : ''} carry the highest importance in the current model.`
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -158,7 +158,7 @@ export default function ModelDriversPanel({
                         <span className="text-xs text-[#86868b]">units forecast</span>
                         {data?.artifact_model_version && (
                             <span className="text-xs text-[#86868b]">
-                                artifact: {data.artifact_model_version}
+                                model version: {data.artifact_model_version}
                             </span>
                         )}
                     </div>
@@ -183,16 +183,8 @@ export default function ModelDriversPanel({
                                 {buildSummary(data)}
                             </p>
                             <p className="text-[11px] text-[#86868b]">
-                                Scope: {data.driver_scope}. Source: {data.evidence_type === 'artifact' ? 'saved model artifact' : 'unavailable'}.
-                                This is not a local explanation for this specific forecast row.
+                                Uses {data.driver_scope} driver evidence. This is not a row-level explanation for this specific forecast.
                             </p>
-                            {data.source_artifact && (
-                                <p className="text-[11px] text-[#86868b]">
-                                    Source artifact: {data.source_artifact}
-                                    {data.artifact_model_version && ` (${data.artifact_model_version})`}
-                                </p>
-                            )}
-
                             {chartData.length > 0 ? (
                                 <div className="h-[200px]">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -229,7 +221,7 @@ export default function ModelDriversPanel({
                                 </div>
                             ) : (
                                 <div className="rounded-lg border border-dashed border-black/10 bg-[#f5f5f7] px-3 py-4 text-xs text-[#86868b]">
-                                    Model-driver evidence is unavailable for this forecast version.
+                                    Model-driver evidence is not available for this forecast version.
                                 </div>
                             )}
 

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Activity, AlertTriangle, Brain, CheckCircle2, Clock, Database, FlaskConical, GitBranch, ScrollText, ShieldCheck } from 'lucide-react'
 
 import CalibrationPanel from '@/components/mlops/CalibrationPanel'
@@ -10,6 +11,7 @@ import { useActiveModelEvidence, useExperimentLedger, useMLEffectiveness, useMLH
 import type { ActiveModelEvidence, ExperimentLedgerEntry, MLModel } from '@/lib/types'
 
 export default function MLOpsPage() {
+    const [activeModelName, setActiveModelName] = useState<'demand_forecast' | 'anomaly_detector'>('demand_forecast')
     const { data: health, isLoading: healthLoading } = useMLHealth()
     const { data: evidence, isLoading: evidenceLoading } = useActiveModelEvidence('demand_forecast')
     const { data: anomalyEvidence, isLoading: anomalyEvidenceLoading } = useActiveModelEvidence('anomaly_detector')
@@ -21,7 +23,7 @@ export default function MLOpsPage() {
         modelName: 'demand_forecast',
         limit: 50,
     })
-    const { data: anomalyExperimentLedger = [] } = useExperimentLedger({
+    const { data: anomalyExperimentLedger = [], isLoading: anomalyLedgerLoading } = useExperimentLedger({
         modelName: 'anomaly_detector',
         limit: 50,
     })
@@ -33,6 +35,40 @@ export default function MLOpsPage() {
     const championHistory = modelHistory.find(model => model.version === evidence?.version)
         ?? modelHistory.find(model => model.status === 'champion')
     const modelNames = [...new Set([...models.map(model => model.model_name), 'demand_forecast', 'anomaly_detector'])]
+    const activeEvidence = activeModelName === 'anomaly_detector' ? anomalyEvidence : evidence
+    const activeEvidenceLoading = activeModelName === 'anomaly_detector' ? anomalyEvidenceLoading : evidenceLoading
+    const activeLedger = activeModelName === 'anomaly_detector' ? anomalyExperimentLedger : experimentLedger
+    const activeLedgerLoading = activeModelName === 'anomaly_detector' ? anomalyLedgerLoading : ledgerLoading
+    const activeModelLabel = activeModelName === 'anomaly_detector' ? 'Anomaly Detection' : 'Forecasting'
+    const activeRegistryModels = models.filter(model => model.model_name === activeModelName)
+    const activePrimaryMetric = activeModelName === 'anomaly_detector'
+        ? {
+            icon: Brain,
+            label: 'Precision',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(anomalyEvidence?.benchmark_metrics?.precision),
+            detail: anomalyEvidence?.dataset_id ?? 'FreshRetailNet evidence',
+        }
+        : {
+            icon: Activity,
+            label: 'Holdout WAPE',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(evidence?.holdout.wape),
+            detail: evidence?.benchmark_rows?.[1]?.wape !== undefined
+                ? `vs baseline ${formatPercent(evidence.benchmark_rows[1].wape)}`
+                : 'baseline pending',
+        }
+    const activeSecondaryMetric = activeModelName === 'anomaly_detector'
+        ? {
+            icon: Activity,
+            label: 'Recall',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(anomalyEvidence?.benchmark_metrics?.recall),
+            detail: 'known stockouts caught',
+        }
+        : {
+            icon: ShieldCheck,
+            label: 'Interval coverage',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(evidence?.interval_coverage),
+            detail: evidence?.calibration_status ?? 'calibration pending',
+        }
 
     return (
         <div className="page-shell">
@@ -53,46 +89,42 @@ export default function MLOpsPage() {
                 <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <HeroStat
                         icon={ShieldCheck}
-                        label="Active model"
-                        value={evidenceLoading ? 'Loading' : (evidence?.version ?? 'unknown')}
-                        detail={evidence?.dataset_id ?? 'artifact unavailable'}
+                        label={`${activeModelLabel} champion`}
+                        value={activeEvidenceLoading ? 'Loading' : (activeEvidence?.version ?? 'not selected')}
+                        detail={activeEvidence?.dataset_id ?? 'evidence pending'}
                     />
-                    <HeroStat
-                        icon={Activity}
-                        label="Holdout WAPE"
-                        value={formatPercent(evidence?.holdout.wape)}
-                        detail={evidence?.benchmark_rows?.[1]?.wape !== undefined
-                            ? `vs baseline ${formatPercent(evidence.benchmark_rows[1].wape)}`
-                            : 'baseline unavailable'}
-                    />
-                    <HeroStat
-                        icon={Brain}
-                        label="Anomaly precision"
-                        value={anomalyEvidenceLoading ? 'Loading' : formatPercent(anomalyEvidence?.benchmark_metrics?.precision)}
-                        detail={anomalyEvidence?.dataset_id ?? 'FreshRetailNet evidence'}
-                    />
+                    <HeroStat {...activePrimaryMetric} />
+                    <HeroStat {...activeSecondaryMetric} />
                     <HeroStat
                         icon={Database}
                         label="Runtime status"
-                        value={healthLoading ? 'Loading' : (health?.status ?? 'unknown')}
-                        detail={`${health?.champions?.length ?? 0} active-model rows in runtime health`}
+                        value={healthLoading ? 'Loading' : (health?.status ?? 'not reporting')}
+                        detail={`${health?.champions?.length ?? 0} active models monitored`}
                     />
                 </div>
             </div>
 
-            <ModelLabWorkflow
-                experiments={experimentLedger}
-                isLoading={ledgerLoading}
-                activeVersion={evidence?.version}
+            <ModelFamilyFilter
+                activeModelName={activeModelName}
+                onChange={setActiveModelName}
+                forecastVersion={evidence?.version}
                 anomalyVersion={anomalyEvidence?.version}
-                anomalyShadowCount={anomalyExperimentLedger.filter(experiment => experiment.status === 'shadow_testing').length}
             />
 
-            <AnomalyEvidencePanel
-                evidence={anomalyEvidence}
-                models={anomalyModels}
-                isLoading={anomalyEvidenceLoading}
+            <ModelLabWorkflow
+                experiments={activeLedger}
+                isLoading={activeLedgerLoading}
+                activeVersion={activeEvidence?.version}
+                activeModelLabel={activeModelLabel}
             />
+
+            {activeModelName === 'anomaly_detector' && (
+                <AnomalyEvidencePanel
+                    evidence={anomalyEvidence}
+                    models={anomalyModels}
+                    isLoading={anomalyEvidenceLoading}
+                />
+            )}
 
             <section className="space-y-4">
                 <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
@@ -102,22 +134,28 @@ export default function MLOpsPage() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">Experiment Pipeline</h2>
                         </div>
                         <p className="mt-2 max-w-3xl text-sm text-[#6e6e73]">
-                            Hypotheses, lineage metadata, approval gates, run reports, and shadow outcomes are kept together before a challenger can affect recommendations.
+                            Hypotheses, lineage, approvals, run reports, and shadow outcomes stay together before a challenger can affect recommendations.
                         </p>
                     </div>
                     <span className="inline-flex w-fit rounded-full bg-[#0071e3]/10 px-3 py-1 text-xs font-semibold text-[#0071e3]">
-                        {ledgerLoading ? 'Loading ledger' : `${experimentLedger.length} ledger entries`}
+                        {activeLedgerLoading ? 'Loading ledger' : `${activeLedger.length} ledger entries`}
                     </span>
                 </div>
                 <ExperimentWorkbench
                     modelNames={modelNames}
-                    defaultModelName="demand_forecast"
+                    defaultModelName={activeModelName}
+                    showModelSwitcher={false}
+                    key={activeModelName}
                 />
             </section>
 
-            <ModelCardPanel evidence={evidence} championModel={championModel} championHistory={championHistory} />
-            <CalibrationPanel evidence={evidence} effectiveness={effectiveness} />
-            <SegmentMetricsTable effectiveness={effectiveness} />
+            {activeModelName === 'demand_forecast' && (
+                <>
+                    <ModelCardPanel evidence={evidence} championModel={championModel} championHistory={championHistory} />
+                    <CalibrationPanel evidence={evidence} effectiveness={effectiveness} />
+                    <SegmentMetricsTable effectiveness={effectiveness} />
+                </>
+            )}
 
             <section className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
                 <div className="card space-y-4">
@@ -126,9 +164,9 @@ export default function MLOpsPage() {
                         <h2 className="text-lg font-semibold text-[#1d1d1f]">Runtime Registry</h2>
                     </div>
                     <p className="text-sm text-[#6e6e73]">
-                        See which model versions are available and how they are currently staged in the runtime.
+                        See the active model family first; expand when older challengers or archived versions are needed.
                     </p>
-                    <ModelArena models={models} />
+                    <ModelArena models={activeRegistryModels} initialVisible={3} />
                 </div>
 
                 <div className="card space-y-4">
@@ -146,18 +184,77 @@ export default function MLOpsPage() {
     )
 }
 
+function ModelFamilyFilter({
+    activeModelName,
+    onChange,
+    forecastVersion,
+    anomalyVersion,
+}: {
+    activeModelName: 'demand_forecast' | 'anomaly_detector'
+    onChange: (modelName: 'demand_forecast' | 'anomaly_detector') => void
+    forecastVersion: string | undefined
+    anomalyVersion: string | undefined
+}) {
+    const options = [
+        {
+            modelName: 'demand_forecast' as const,
+            label: 'Forecasting',
+            detail: 'Demand, uncertainty, replenishment replay',
+            version: forecastVersion,
+        },
+        {
+            modelName: 'anomaly_detector' as const,
+            label: 'Anomaly Detection',
+            detail: 'Shelf availability, stockout review workload',
+            version: anomalyVersion,
+        },
+    ]
+
+    return (
+        <section className="card border border-black/[0.02] p-3 shadow-sm">
+            <div className="grid gap-2 md:grid-cols-2">
+                {options.map(option => {
+                    const active = activeModelName === option.modelName
+                    return (
+                        <button
+                            key={option.modelName}
+                            type="button"
+                            onClick={() => onChange(option.modelName)}
+                            className={`rounded-lg border px-4 py-3 text-left transition ${
+                                active
+                                    ? 'border-[#0071e3]/30 bg-[#f5f9ff] text-[#0071e3]'
+                                    : 'border-transparent bg-[#f5f5f7] text-[#6e6e73] hover:border-black/[0.04] hover:bg-white hover:text-[#1d1d1f]'
+                            }`}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="font-semibold">{option.label}</p>
+                                    <p className="mt-1 truncate text-xs">{option.detail}</p>
+                                </div>
+                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                    active ? 'bg-[#0071e3]/10 text-[#0071e3]' : 'bg-white text-[#86868b]'
+                                }`}>
+                                    {option.version ?? 'not selected'}
+                                </span>
+                            </div>
+                        </button>
+                    )
+                })}
+            </div>
+        </section>
+    )
+}
+
 function ModelLabWorkflow({
     experiments,
     isLoading,
     activeVersion,
-    anomalyVersion,
-    anomalyShadowCount,
+    activeModelLabel,
 }: {
     experiments: ExperimentLedgerEntry[]
     isLoading: boolean
     activeVersion: string | undefined
-    anomalyVersion: string | undefined
-    anomalyShadowCount: number
+    activeModelLabel: string
 }) {
     const proposed = countStatus(experiments, 'proposed')
     const approved = countStatus(experiments, 'approved')
@@ -177,7 +274,7 @@ function ModelLabWorkflow({
                     </p>
                 </div>
                 <span className="inline-flex w-fit rounded-full bg-[#34c759]/10 px-3 py-1 text-xs font-semibold text-[#1f8f45]">
-                    forecast {activeVersion ?? 'unavailable'} · anomaly {anomalyVersion ?? 'unavailable'}
+                    {activeModelLabel} {activeVersion ?? 'not selected'}
                 </span>
             </div>
 
@@ -206,15 +303,15 @@ function ModelLabWorkflow({
                 <WorkflowStep
                     icon={Clock}
                     label="Shadow"
-                    value={isLoading ? 'Loading' : (shadowTesting + anomalyShadowCount).toLocaleString()}
-                    detail="forecast + anomaly"
+                    value={isLoading ? 'Loading' : shadowTesting.toLocaleString()}
+                    detail="active model"
                     tone="warn"
                 />
                 <WorkflowStep
                     icon={ShieldCheck}
                     label="Reports"
                     value={isLoading ? 'Loading' : completed.toLocaleString()}
-                    detail="completed trials"
+                    detail="release reports"
                     tone="purple"
                 />
             </div>
@@ -251,7 +348,7 @@ function AnomalyEvidencePanel({
                     </p>
                 </div>
                 <span className="inline-flex w-fit rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-semibold text-[#a15c00]">
-                    {isLoading ? 'Loading evidence' : `champion ${evidence?.version ?? champion?.version ?? 'unavailable'}`}
+                    {isLoading ? 'Loading evidence' : `champion ${evidence?.version ?? champion?.version ?? 'not selected'}`}
                 </span>
             </div>
 
@@ -295,7 +392,7 @@ function AnomalyEvidencePanel({
                     icon={CheckCircle2}
                     label="Feedback"
                     value={formatInteger(evidence?.feedback?.outcomes_recorded)}
-                    detail={evidence?.feedback?.feedback_provenance ?? 'unavailable'}
+                    detail={evidence?.feedback?.feedback_provenance ?? 'not measured yet'}
                     tone="neutral"
                 />
             </div>

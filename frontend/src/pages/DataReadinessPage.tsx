@@ -24,14 +24,14 @@ const CSV_SECTIONS: Array<{
         key: 'stores_csv',
         fileType: 'stores',
         label: 'Stores',
-        description: 'Required first. Used to resolve store_name references in transaction and inventory rows.',
+        description: 'Required first. Used to match sales and inventory rows to the right location.',
         placeholder: 'name,address,city,state,zip_code,timezone',
     },
     {
         key: 'products_csv',
         fileType: 'products',
         label: 'Products',
-        description: 'Required before transaction and inventory validation so SKU references can resolve.',
+        description: 'Required before sales and inventory checks so SKU records can be matched.',
         placeholder: 'sku,name,category,subcategory,brand,unit_cost,unit_price,shelf_life_days,is_perishable,is_seasonal',
     },
     {
@@ -137,7 +137,7 @@ export default function DataReadinessPage() {
 
             {readinessQuery.isError ? (
                 <div className="card border border-[#ff3b30]/20 bg-[#ff3b30]/5 p-12 text-center text-sm text-[#c9342a]">
-                    {getApiErrorDetail(readinessQuery.error, 'Failed to load data readiness.')}
+                    {getApiErrorDetail(readinessQuery.error, 'Unable to load data readiness.')}
                 </div>
             ) : readinessQuery.isLoading ? (
                 <div className="card p-12 text-center text-sm text-[#86868b]">Loading data readiness…</div>
@@ -153,7 +153,7 @@ export default function DataReadinessPage() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">CSV Onboarding</h2>
                         </div>
                         <p className="mt-2 text-sm text-[#6e6e73]">
-                            Paste structured CSVs or load local files, validate them against the active schema, then ingest them into the pilot workspace.
+                            Paste structured CSVs or load local files, confirm the required columns, then import them into the planning workspace.
                         </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -163,7 +163,7 @@ export default function DataReadinessPage() {
                             disabled={!hasCsvPayload || validateCsv.isPending}
                             className="btn-secondary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            {validateCsv.isPending ? 'Validating…' : 'Validate Batch'}
+                            {validateCsv.isPending ? 'Validating…' : 'Validate files'}
                         </button>
                         <button
                             type="button"
@@ -171,7 +171,7 @@ export default function DataReadinessPage() {
                             disabled={!hasCsvPayload || ingestCsv.isPending}
                             className="btn-primary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            {ingestCsv.isPending ? 'Importing…' : 'Ingest Batch'}
+                            {ingestCsv.isPending ? 'Importing…' : 'Import files'}
                         </button>
                     </div>
                 </div>
@@ -216,13 +216,13 @@ export default function DataReadinessPage() {
 
                 {validateCsv.isError ? (
                     <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                        {getApiErrorDetail(validateCsv.error, 'Failed to validate CSV payloads.')}
+                        {getApiErrorDetail(validateCsv.error, 'Unable to validate these files.')}
                     </div>
                 ) : null}
 
                 {ingestCsv.isError ? (
                     <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                        {getApiErrorDetail(ingestCsv.error, 'Failed to ingest CSV payloads.')}
+                        {getApiErrorDetail(ingestCsv.error, 'Unable to import these files.')}
                     </div>
                 ) : null}
 

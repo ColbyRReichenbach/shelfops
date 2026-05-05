@@ -62,7 +62,7 @@ export default function FeatureImportance({
             <div className="card border border-black/[0.02] shadow-sm text-center py-16">
                 <Sparkles className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
                 <p className="text-sm text-[#86868b]">No model-driver data available</p>
-                <p className="text-xs text-[#86868b] mt-1">Model-driver evidence will appear after a registered run stores the artifact metadata.</p>
+                <p className="text-xs text-[#86868b] mt-1">Model-driver evidence will appear after a registered run records feature-importance results.</p>
             </div>
         )
     }

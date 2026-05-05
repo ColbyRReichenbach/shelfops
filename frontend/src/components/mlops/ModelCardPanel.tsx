@@ -21,7 +21,7 @@ export default function ModelCardPanel({
                     <h2 className="text-lg font-semibold text-[#1d1d1f]">Active Model Summary</h2>
                 </div>
                 <div className="rounded-[18px] bg-[#f5f5f7] px-4 py-10 text-sm text-[#6e6e73]">
-                    Active model evidence is unavailable.
+                    No active model evidence is available for this family.
                 </div>
             </section>
         )
@@ -48,10 +48,10 @@ export default function ModelCardPanel({
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <InfoTile label="Version" value={evidence.version} detail={formatLabel(evidence.model_name ?? 'unknown')} />
-                <InfoTile label="Architecture" value={evidence.architecture ?? 'unknown'} detail={evidence.objective ?? 'unknown'} />
-                <InfoTile label="Dataset" value={evidence.dataset_id ?? 'unknown'} detail={evidence.dataset_snapshot_id ?? 'unknown'} />
-                <InfoTile label="Promotion" value={formatLabel(evidence.promotion_reason ?? 'unknown')} detail={formatDate(evidence.promoted_at)} />
+                <InfoTile label="Version" value={evidence.version} detail={formatLabel(evidence.model_name ?? 'not recorded')} />
+                <InfoTile label="Architecture" value={evidence.architecture ?? 'not recorded'} detail={evidence.objective ?? 'not recorded'} />
+                <InfoTile label="Dataset" value={evidence.dataset_id ?? 'not recorded'} detail={evidence.dataset_snapshot_id ?? 'not recorded'} />
+                <InfoTile label="Promotion" value={formatLabel(evidence.promotion_reason ?? 'not recorded')} detail={formatDate(evidence.promoted_at)} />
             </div>
 
             <div className="grid gap-5 xl:grid-cols-[1.05fr,0.95fr]">
@@ -60,10 +60,10 @@ export default function ModelCardPanel({
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                         <EvidenceRow label="Rows trained" value={formatNumber(evidence.rows_trained)} />
                         <EvidenceRow label="Selected series" value={formatNumber(evidence.series_selected)} />
-                        <EvidenceRow label="Coverage" value={`${evidence.coverage_start ?? 'unknown'} to ${evidence.coverage_end ?? 'unknown'}`} />
-                        <EvidenceRow label="Subset strategy" value={evidence.subset_strategy ?? 'unknown'} />
+                        <EvidenceRow label="Coverage" value={`${evidence.coverage_start ?? 'not recorded'} to ${evidence.coverage_end ?? 'not recorded'}`} />
+                        <EvidenceRow label="Subset strategy" value={evidence.subset_strategy ?? 'not recorded'} />
                         <EvidenceRow label="Stores / Products" value={`${formatNumber(evidence.stores)} / ${formatNumber(evidence.products)}`} />
-                        <EvidenceRow label="Feature tier" value={`${evidence.feature_tier ?? 'unknown'} · ${formatNumber(evidence.feature_count)} features`} />
+                        <EvidenceRow label="Feature tier" value={`${evidence.feature_tier ?? 'not recorded'} · ${formatNumber(evidence.feature_count)} features`} />
                     </div>
                 </div>
 
@@ -108,12 +108,12 @@ export default function ModelCardPanel({
                                 </div>
                                 <div>
                                     <p className="text-sm font-semibold text-[#1d1d1f]">{check.label}</p>
-                                <p className="mt-1 text-sm text-[#6e6e73]">{check.passed ? 'Passed' : 'Needs review or unavailable'}</p>
+                        <p className="mt-1 text-sm text-[#6e6e73]">{check.passed ? 'Passed' : 'Needs review'}</p>
                             </div>
                         </div>
                     )) : (
                         <div className="rounded-[16px] bg-[#f5f5f7] px-4 py-3 text-sm text-[#6e6e73]">
-                            The runtime API did not return a structured release decision, so this view is using the stored release reason: {formatLabel(evidence.promotion_reason ?? 'unknown')}.
+                            A structured release decision has not been recorded yet. Current promotion note: {formatLabel(evidence.promotion_reason ?? 'not recorded')}.
                         </div>
                     )}
                 </div>
@@ -175,7 +175,7 @@ function normalizeGateChecks(promotionDecision: Record<string, unknown> | null |
 
 function formatDate(value: string | null) {
     if (!value) {
-        return 'Unknown'
+        return 'not recorded'
     }
     return new Date(value).toLocaleDateString()
 }

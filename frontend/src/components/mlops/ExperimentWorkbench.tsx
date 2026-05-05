@@ -1,11 +1,10 @@
 import { useEffect, useState } from 'react'
 import type React from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { Bot, CheckCircle2, ClipboardList, FileText, FlaskConical, Loader2, PlusCircle, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Bot, CheckCircle2, ClipboardList, FileText, FlaskConical, Loader2, PlusCircle, Sparkles } from 'lucide-react'
 
 import {
     useApproveExperiment,
-    useCreateExperimentSpec,
     useCreateExperimentContextPackage,
     useCreateExperimentHypothesis,
     useExperimentComparisonReport,
@@ -33,24 +32,45 @@ import type {
 } from '@/lib/types'
 import ExperimentHistory from '@/components/mlops/ExperimentHistory'
 
-const EXPERIMENT_TYPES: Array<{ value: ExperimentType; label: string }> = [
-    { value: 'feature_set', label: 'Feature Set' },
-    { value: 'segmentation', label: 'Segmentation' },
-    { value: 'hyperparameter_tuning', label: 'Hyperparameter Tuning' },
-    { value: 'objective_function', label: 'Objective Function' },
-    { value: 'post_processing', label: 'Post Processing' },
-    { value: 'data_window', label: 'Data Window' },
-    { value: 'data_contract', label: 'Data Contract' },
-    { value: 'architecture', label: 'Architecture' },
-    { value: 'baseline_refresh', label: 'Baseline Refresh' },
-    { value: 'promotion_decision', label: 'Promotion Decision' },
-    { value: 'rollback', label: 'Rollback' },
-]
-
 const EXPERIMENT_SOURCES: Array<{ value: ExperimentSource; label: string }> = [
     { value: 'manual', label: 'Manual DS' },
     { value: 'ai_assisted', label: 'AI Assisted' },
     { value: 'ai_agent', label: 'AI Agent' },
+]
+
+type ValidationMode = 'quick_screen' | 'extended_backtest' | 'promotion_gate'
+
+const MODEL_FAMILY_LABELS: Record<string, { label: string; detail: string }> = {
+    demand_forecast: {
+        label: 'Forecasting',
+        detail: 'Demand, uncertainty, and replenishment replay',
+    },
+    anomaly_detector: {
+        label: 'Anomaly Detection',
+        detail: 'Stockout and shelf-availability sentinel',
+    },
+}
+
+const VALIDATION_MODES: Array<{
+    value: ValidationMode
+    label: string
+    description: string
+}> = [
+    {
+        value: 'quick_screen',
+        label: 'Quick Screen',
+        description: 'Single recent holdout for fast hypothesis feedback.',
+    },
+    {
+        value: 'extended_backtest',
+        label: 'Extended Backtest',
+        description: 'Rolling windows for temporal robustness before a stronger claim.',
+    },
+    {
+        value: 'promotion_gate',
+        label: 'Promotion Gate',
+        description: 'Stricter rolling validation before treating a challenger as promotion-worthy.',
+    },
 ]
 
 type ExperimentFormState = {
@@ -74,6 +94,14 @@ type ExperimentFormState = {
     domain_rationale: string
     risk_notes: string
     notes: string
+    validation_mode: ValidationMode
+    holdout_days: number
+    calibration_days: number
+    rolling_window_count: number
+    rolling_window_days: number
+    rolling_stride_days: number
+    max_rows: number
+    max_series: number
 }
 
 function defaultSpecTemplateId(modelName: string) {
@@ -108,6 +136,40 @@ function defaultSuccessCriteria(modelName: string) {
         : 'Reduce overstock and stockout opportunity cost without regressing MASE or WAPE.'
 }
 
+function validationDefaults(mode: ValidationMode) {
+    if (mode === 'promotion_gate') {
+        return {
+            holdout_days: 56,
+            calibration_days: 56,
+            rolling_window_count: 6,
+            rolling_window_days: 28,
+            rolling_stride_days: 28,
+            max_rows: 120000,
+            max_series: 120,
+        }
+    }
+    if (mode === 'extended_backtest') {
+        return {
+            holdout_days: 28,
+            calibration_days: 28,
+            rolling_window_count: 3,
+            rolling_window_days: 28,
+            rolling_stride_days: 28,
+            max_rows: 80000,
+            max_series: 80,
+        }
+    }
+    return {
+        holdout_days: 28,
+        calibration_days: 28,
+        rolling_window_count: 0,
+        rolling_window_days: 28,
+        rolling_stride_days: 28,
+        max_rows: 50000,
+        max_series: 60,
+    }
+}
+
 function experimentNamePlaceholder(modelName: string) {
     return modelName === 'anomaly_detector'
         ? 'freshretailnet_stockout_review_rate_v2'
@@ -127,6 +189,7 @@ function successCriteriaPlaceholder(modelName: string) {
 }
 
 function initialFormState(defaultModelName: string): ExperimentFormState {
+    const validation = validationDefaults('quick_screen')
     return {
         experiment_name: '',
         hypothesis: '',
@@ -148,15 +211,19 @@ function initialFormState(defaultModelName: string): ExperimentFormState {
         domain_rationale: '',
         risk_notes: '',
         notes: '',
+        validation_mode: 'quick_screen',
+        ...validation,
     }
 }
 
 export default function ExperimentWorkbench({
     modelNames,
     defaultModelName,
+    showModelSwitcher = true,
 }: {
     modelNames: string[]
     defaultModelName: string
+    showModelSwitcher?: boolean
 }) {
     const { user } = useAuth0()
     const defaultAuthor = user?.email ?? ''
@@ -178,7 +245,6 @@ export default function ExperimentWorkbench({
     const proposeExperiment = useProposeExperiment()
     const approveExperiment = useApproveExperiment()
     const runExperiment = useRunExperiment()
-    const createExperimentSpec = useCreateExperimentSpec()
     const createContextPackage = useCreateExperimentContextPackage()
     const createHypothesis = useCreateExperimentHypothesis()
     const reviewHypothesis = useReviewExperimentHypothesis()
@@ -210,6 +276,12 @@ export default function ExperimentWorkbench({
 
     const selectedTemplate = specTemplates.find(template => template.template_id === form.spec_template_id)
     const selectedSpec = experimentSpecs.find(spec => spec.experiment_spec_id === form.experiment_spec_id)
+    const selectedValidationMode = VALIDATION_MODES.find(mode => mode.value === form.validation_mode) ?? {
+        value: 'quick_screen',
+        label: 'Quick Screen',
+        description: 'Single recent holdout for fast hypothesis feedback.',
+    }
+    const validationControlsEnabled = form.model_name !== 'anomaly_detector'
     const {
         data: hypotheses = [],
         isLoading: hypothesesLoading,
@@ -240,6 +312,14 @@ export default function ExperimentWorkbench({
     const runsErrorMessage = runsErrorDetail instanceof Error
         ? runsErrorDetail.message
         : 'Unable to load experiment evidence.'
+    const activeModelName = form.model_name || defaultModelName
+    const modelFamilyOptions = [...new Set((modelNames.length > 0 ? modelNames : ['demand_forecast', 'anomaly_detector']).filter(Boolean))]
+        .filter(name => MODEL_FAMILY_LABELS[name])
+    const selectedSpecBody = selectedSpec?.spec ?? selectedTemplate?.spec ?? {}
+    const selectedModelConfig = selectedSpecBody.model_config as Record<string, unknown> | undefined
+    const selectedFeatureConfig = selectedSpecBody.feature_config as Record<string, unknown> | undefined
+    const selectedDatasetConfig = selectedSpecBody.dataset_config as Record<string, unknown> | undefined
+    const selectedClaimBoundary = String(selectedSpecBody.claim_boundary ?? selectedSpec?.spec_metadata?.claim_boundary ?? selectedTemplate?.claim_boundary ?? '')
 
     useEffect(() => {
         if (specTemplates.length === 0) return
@@ -352,39 +432,6 @@ export default function ExperimentWorkbench({
         }
     }
 
-    async function handleCreateExperimentSpec() {
-        setGovernanceMessage(null)
-        if (!form.spec_template_id) {
-            setGovernanceMessage({ tone: 'error', text: 'Select a runnable experiment spec template first.' })
-            return
-        }
-
-        try {
-            const created = await createExperimentSpec.mutateAsync({
-                template_id: form.spec_template_id,
-                spec_name: `${form.experiment_name.trim() || form.spec_template_id}_spec`,
-                context_package_id: form.context_package_id || null,
-            })
-            setForm(current => ({
-                ...current,
-                experiment_spec_id: created.experiment_spec_id,
-                dataset_id: created.dataset_id,
-                forecast_grain: String(created.spec?.forecast_grain ?? current.forecast_grain),
-                feature_set_id: String(created.spec?.feature_set_id ?? current.feature_set_id),
-                objective: String((created.spec?.model_config as Record<string, unknown> | undefined)?.objective ?? current.objective),
-                architecture: String((created.spec?.model_config as Record<string, unknown> | undefined)?.architecture ?? current.architecture),
-                segment_strategy: String((created.spec?.segmentation_config as Record<string, unknown> | undefined)?.strategy ?? current.segment_strategy),
-            }))
-            setGovernanceMessage({
-                tone: 'success',
-                text: `Spec materialized with hash ${created.spec_hash.slice(0, 10)}.`,
-            })
-        } catch (error) {
-            const detail = error instanceof Error ? error.message : 'Unable to create experiment spec.'
-            setGovernanceMessage({ tone: 'error', text: detail })
-        }
-    }
-
     async function handleSaveHypothesis() {
         setGovernanceMessage(null)
         if (!form.experiment_name.trim() || !form.hypothesis.trim()) {
@@ -453,6 +500,14 @@ export default function ExperimentWorkbench({
             const result = await runExperiment.mutateAsync({
                 experimentId: experiment.experiment_id,
                 experimentSpecId: experiment.experiment_spec_id,
+                validationMode: form.validation_mode,
+                holdoutDays: form.holdout_days,
+                calibrationDays: form.calibration_days,
+                rollingWindowCount: form.rolling_window_count,
+                rollingWindowDays: form.rolling_window_days,
+                rollingStrideDays: form.rolling_stride_days,
+                maxRows: form.max_rows,
+                maxSeries: form.max_series,
             })
             setLatestExecution(result)
             setRunMessage({
@@ -469,6 +524,18 @@ export default function ExperimentWorkbench({
 
     function handleClear() {
         resetDraft(form.model_name || defaultModelName)
+    }
+
+    function handleModelChange(modelName: string) {
+        setLatestExecution(null)
+        setRunMessage(null)
+        setSubmitMessage(null)
+        setApprovalMessage(null)
+        setGovernanceMessage(null)
+        setForm({
+            ...initialFormState(modelName),
+            model_name: modelName,
+        })
     }
 
     async function handleApprove(experiment: ExperimentLedgerEntry) {
@@ -488,109 +555,142 @@ export default function ExperimentWorkbench({
         }
     }
 
-    const actorLabel = defaultAuthor || 'the authenticated account'
+    const actorLabel = defaultAuthor || 'current user'
 
     return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr,0.8fr] gap-6">
-                <section className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
-                    <div className="flex items-start justify-between gap-4">
-                        <div>
-                            <h2 className="text-lg font-semibold text-[#0071e3]">Log New Hypothesis</h2>
-                            <p className="text-sm text-[#86868b] mt-1">
-                                Submit a proposed model change into the review queue before any training run starts.
-                            </p>
-                            <p className="text-xs text-[#86868b] mt-2">
-                                The submitting account is pulled from {actorLabel}; it is no longer entered manually.
-                            </p>
-                        </div>
-                        <div className="inline-flex items-center gap-2 rounded-full bg-[#0071e3]/10 px-3 py-1 text-xs font-medium text-[#0071e3]">
-                            <PlusCircle className="h-3.5 w-3.5" />
-                            Experiment Intake
-                        </div>
+        <div className="min-w-0 space-y-5">
+            <section className="card border border-black/[0.02] p-4 shadow-sm">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div className="min-w-0">
+                        <h2 className="text-lg font-semibold text-[#1d1d1f]">Experiment Workbench</h2>
+                        <p className="mt-1 text-sm text-[#6e6e73]">
+                            Draft a hypothesis, bind it to an executable spec, approve it, then run the bounded validation.
+                        </p>
                     </div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        {showModelSwitcher && (
+                            <div className="inline-grid rounded-lg bg-[#f5f5f7] p-1 sm:grid-flow-col">
+                                {modelFamilyOptions.map(modelName => {
+                                    const modelLabel = MODEL_FAMILY_LABELS[modelName] ?? { label: modelName, detail: '' }
+                                    const active = activeModelName === modelName
+                                    return (
+                                        <button
+                                            key={modelName}
+                                            type="button"
+                                            onClick={() => handleModelChange(modelName)}
+                                            className={`rounded-md px-3 py-2 text-left text-sm transition ${
+                                                active
+                                                    ? 'bg-white text-[#0071e3] shadow-sm'
+                                                    : 'text-[#6e6e73] hover:text-[#1d1d1f]'
+                                            }`}
+                                        >
+                                            <span className="block font-semibold">{modelLabel.label}</span>
+                                            <span className="block max-w-[220px] truncate text-[11px] font-normal">{modelLabel.detail}</span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        )}
+                        <Field label="Source">
+                            <select
+                                value={form.experiment_source}
+                                onChange={event => setForm(current => ({ ...current, experiment_source: event.target.value as ExperimentSource }))}
+                                className="input min-w-[150px]"
+                            >
+                                {EXPERIMENT_SOURCES.map(option => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                ))}
+                            </select>
+                        </Field>
+                    </div>
+                </div>
+            </section>
 
-                    <form className="space-y-4" onSubmit={handleSubmit}>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {latestExecution && (
+                <ExperimentExecutionSummary execution={latestExecution} />
+            )}
+
+            <div className="grid min-w-0 grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.48fr)]">
+                <section className="card min-w-0 border border-black/[0.02] p-5 shadow-sm">
+                    <form className="space-y-5" onSubmit={handleSubmit}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <PlusCircle className="h-4 w-4 text-[#0071e3]" />
+                                    <h3 className="text-base font-semibold text-[#1d1d1f]">Hypothesis Intake</h3>
+                                </div>
+                                <p className="mt-1 text-xs text-[#6e6e73]">
+                                    Submitted as {actorLabel}; spec-controlled settings are summarized below.
+                                </p>
+                            </div>
+                            <span className="rounded-full bg-[#0071e3]/10 px-3 py-1 text-xs font-semibold text-[#0071e3]">
+                                {MODEL_FAMILY_LABELS[activeModelName]?.label ?? activeModelName}
+                            </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.8fr,0.45fr]">
                             <Field label="Experiment Name">
                                 <input
                                     value={form.experiment_name}
                                     onChange={event => setForm(current => ({ ...current, experiment_name: event.target.value }))}
                                     className="input"
-                                    placeholder={experimentNamePlaceholder(form.model_name)}
+                                    placeholder={experimentNamePlaceholder(activeModelName)}
                                 />
                             </Field>
-                            <Field label="Experiment Type">
-                                <select
-                                    value={form.experiment_type}
-                                    onChange={event => {
-                                        const nextType = event.target.value as ExperimentType
-                                        setForm(current => ({
-                                            ...current,
-                                            experiment_type: nextType,
-                                            segment_strategy: nextType === 'segmentation'
-                                                ? 'sku_velocity_terciles_with_global_fallback'
-                                                : current.segment_strategy,
-                                            feature_set_id: nextType === 'segmentation'
-                                                ? 'm5_segmented_candidate_v1'
-                                                : current.feature_set_id,
-                                            success_criteria: nextType === 'segmentation'
-                                                ? 'Reduce lost sales quantity and stockout opportunity cost without regressing WAPE, MASE, or overstock rate.'
-                                                : current.success_criteria,
-                                        }))
-                                    }}
-                                    className="input"
-                                >
-                                    {EXPERIMENT_TYPES.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
+                            <Meta label="Experiment Type" value={humanizeGateName(form.experiment_type)} />
+                        </div>
+
+                        <Field label="Hypothesis">
+                            <textarea
+                                value={form.hypothesis}
+                                onChange={event => setForm(current => ({ ...current, hypothesis: event.target.value }))}
+                                className="input min-h-24 resize-y"
+                                placeholder={hypothesisPlaceholder(activeModelName)}
+                            />
+                        </Field>
+
+                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                            <Field label="Success Criteria">
+                                <textarea
+                                    value={form.success_criteria}
+                                    onChange={event => setForm(current => ({ ...current, success_criteria: event.target.value }))}
+                                    className="input min-h-20 resize-y"
+                                    placeholder={successCriteriaPlaceholder(activeModelName)}
+                                />
+                            </Field>
+                            <Field label="Domain Rationale">
+                                <textarea
+                                    value={form.domain_rationale}
+                                    onChange={event => setForm(current => ({ ...current, domain_rationale: event.target.value }))}
+                                    className="input min-h-20 resize-y"
+                                    placeholder="Retail reason this should work: demand pattern, shelf availability, promotion proxy, perishability, region, or buying policy."
+                                />
                             </Field>
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Field label="Experiment Source">
-                                <select
-                                    value={form.experiment_source}
-                                    onChange={event => setForm(current => ({ ...current, experiment_source: event.target.value as ExperimentSource }))}
-                                    className="input"
-                                >
-                                    {EXPERIMENT_SOURCES.map(option => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                </select>
-                            </Field>
-                            <Field label="Context Package">
-                                <select
-                                    value={form.context_package_id}
-                                    onChange={event => setForm(current => ({ ...current, context_package_id: event.target.value }))}
-                                    className="input"
-                                >
-                                    <option value="">No package selected</option>
-                                    {contextPackages.map(pkg => (
-                                        <option key={pkg.context_package_id} value={pkg.context_package_id}>
-                                            {pkg.package_name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </Field>
-                        </div>
+                        <Field label="Risk Notes">
+                            <textarea
+                                value={form.risk_notes}
+                                onChange={event => setForm(current => ({ ...current, risk_notes: event.target.value }))}
+                                className="input min-h-16 resize-y"
+                                placeholder="Expected tradeoffs, such as overstock exposure, lost-sales risk, false positives, review workload, or interval coverage risk."
+                            />
+                        </Field>
 
-                        <section className="rounded-lg border border-[#0071e3]/10 bg-[#f5f9ff] p-4 space-y-3">
-                            <div className="flex items-start justify-between gap-3">
+                        <section className="rounded-lg border border-[#0071e3]/10 bg-[#f5f9ff] p-4">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                    <p className="text-sm font-semibold text-[#1d1d1f]">Runnable Spec</p>
+                                    <p className="text-sm font-semibold text-[#1d1d1f]">Executable Spec</p>
                                     <p className="mt-1 text-xs text-[#5f6673]">
-                                        Locked training, calibration, and replay settings for this run.
+                                        The selected spec controls the dataset, objective, architecture, and feature flags for this run.
                                     </p>
                                 </div>
-                                <div className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-xs font-medium text-[#0071e3]">
-                                    <SlidersHorizontal className="h-3.5 w-3.5" />
-                                    Immutable
-                                </div>
+                                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[#0071e3]">
+                                    Set by spec
+                                </span>
                             </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                                 <Field label="Spec Template">
                                     <select
                                         value={form.spec_template_id}
@@ -608,6 +708,7 @@ export default function ExperimentWorkbench({
                                                 objective: nextTemplate?.objective ?? current.objective,
                                                 architecture: String((nextSpec.model_config as Record<string, unknown> | undefined)?.architecture ?? defaultArchitecture(current.model_name)),
                                                 segment_strategy: String((nextSpec.segmentation_config as Record<string, unknown> | undefined)?.strategy ?? current.segment_strategy),
+                                                success_criteria: current.success_criteria || defaultSuccessCriteria(current.model_name),
                                             }))
                                         }}
                                         className="input"
@@ -620,7 +721,7 @@ export default function ExperimentWorkbench({
                                         ))}
                                     </select>
                                 </Field>
-                                <Field label="Materialized Spec">
+                                <Field label="Saved Spec">
                                     <select
                                         value={form.experiment_spec_id}
                                         onChange={event => {
@@ -641,7 +742,7 @@ export default function ExperimentWorkbench({
                                         className="input"
                                         disabled={experimentSpecsLoading}
                                     >
-                                        <option value="">Create from selected template on submit</option>
+                                        <option value="">Use selected template</option>
                                         {experimentSpecs.map(spec => (
                                             <option key={spec.experiment_spec_id} value={spec.experiment_spec_id}>
                                                 {spec.spec_name} · {spec.spec_hash.slice(0, 8)}
@@ -651,197 +752,194 @@ export default function ExperimentWorkbench({
                                 </Field>
                             </div>
 
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
                                 <Meta label="Dataset" value={selectedSpec?.dataset_id ?? selectedTemplate?.dataset_id ?? form.dataset_id} />
-                                <Meta label="Feature Set" value={selectedSpec?.template_id ?? selectedTemplate?.feature_set_id ?? form.feature_set_id} />
-                                <Meta label="Objective" value={String((selectedSpec?.spec?.model_config as Record<string, unknown> | undefined)?.objective ?? selectedTemplate?.objective ?? form.objective)} />
-                                <Meta label="Spec Hash" value={(selectedSpec?.spec_hash ?? selectedTemplate?.spec_hash ?? 'not materialized').slice(0, 12)} />
+                                <Meta label="Objective" value={String(selectedModelConfig?.objective ?? selectedTemplate?.objective ?? form.objective)} />
+                                <Meta label="Feature Set" value={String(selectedSpecBody.feature_set_id ?? selectedTemplate?.feature_set_id ?? form.feature_set_id)} />
+                                <Meta label="Spec Hash" value={(selectedSpec?.spec_hash ?? selectedTemplate?.spec_hash ?? 'template only').slice(0, 12)} />
                             </div>
 
-                            <div className="flex items-center justify-between gap-3">
-                                <p className="text-xs text-[#5f6673]">
-                                    Spec templates are curated backend contracts; free-text lineage cannot change training behavior.
-                                </p>
-                                <button
-                                    type="button"
-                                    onClick={() => void handleCreateExperimentSpec()}
-                                    disabled={createExperimentSpec.isPending || !form.spec_template_id}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-[#0071e3]/20 bg-white px-4 py-2 text-sm font-medium text-[#0071e3] shadow-sm transition hover:border-[#0071e3]/35 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {createExperimentSpec.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
-                                    Materialize
-                                </button>
-                            </div>
+                            <details className="mt-3 rounded-lg border border-[#0071e3]/10 bg-white/70 px-3 py-2">
+                                <summary className="cursor-pointer text-xs font-semibold text-[#0071e3]">Spec details and claim boundary</summary>
+                                <div className="mt-3 grid grid-cols-1 gap-3 text-xs text-[#6e6e73] lg:grid-cols-3">
+                                    <Meta label="Grain" value={String(selectedSpecBody.forecast_grain ?? form.forecast_grain)} />
+                                    <Meta label="Architecture" value={String(selectedModelConfig?.architecture ?? form.architecture)} />
+                                    <Meta label="Segmentation" value={String((selectedSpecBody.segmentation_config as Record<string, unknown> | undefined)?.strategy ?? form.segment_strategy)} />
+                                    <Meta label="Features" value={compactFeatureFlags(selectedFeatureConfig)} />
+                                    <Meta label="Dataset Policy" value={String(selectedDatasetConfig?.activation_policy ?? 'canonical')} />
+                                    <Meta label="Provenance" value={String(selectedSpecBody.provenance ?? selectedTemplate?.provenance ?? 'benchmark')} />
+                                    <p className="lg:col-span-3 rounded-md bg-[#f5f5f7] px-3 py-2">
+                                        {selectedClaimBoundary || 'No claim boundary available for this spec.'}
+                                    </p>
+                                </div>
+                            </details>
                         </section>
 
-                        <Field label="Hypothesis">
-                            <textarea
-                                value={form.hypothesis}
-                                onChange={event => setForm(current => ({ ...current, hypothesis: event.target.value }))}
-                                className="input min-h-24 resize-y"
-                                placeholder={hypothesisPlaceholder(form.model_name)}
-                            />
-                        </Field>
+                        <details className="rounded-lg border border-black/5 bg-white px-4 py-3">
+                            <summary className="cursor-pointer text-sm font-semibold text-[#1d1d1f]">
+                                Run controls · {selectedValidationMode.label}
+                            </summary>
+                            <div className="mt-4 space-y-4">
+                                <p className="text-xs text-[#6e6e73]">
+                                    {validationControlsEnabled
+                                        ? selectedValidationMode.description
+                                        : 'Anomaly experiments use the FreshRetailNet benchmark split; only row cap is sent to the run.'}
+                                </p>
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                    <Field label="Mode">
+                                        <select
+                                            value={form.validation_mode}
+                                            disabled={!validationControlsEnabled}
+                                            onChange={event => {
+                                                const validation_mode = event.target.value as ValidationMode
+                                                setForm(current => ({
+                                                    ...current,
+                                                    validation_mode,
+                                                    ...validationDefaults(validation_mode),
+                                                }))
+                                            }}
+                                            className="input"
+                                        >
+                                            {VALIDATION_MODES.map(option => (
+                                                <option key={option.value} value={option.value}>{option.label}</option>
+                                            ))}
+                                        </select>
+                                    </Field>
+                                    <Field label="Calibration Days">
+                                        <input
+                                            type="number"
+                                            min={7}
+                                            max={180}
+                                            value={form.calibration_days}
+                                            disabled={!validationControlsEnabled}
+                                            onChange={event => setForm(current => ({ ...current, calibration_days: Number(event.target.value) }))}
+                                            className="input"
+                                        />
+                                    </Field>
+                                    <Field label="Holdout Days">
+                                        <input
+                                            type="number"
+                                            min={7}
+                                            max={365}
+                                            value={form.holdout_days}
+                                            disabled={!validationControlsEnabled}
+                                            onChange={event => setForm(current => ({ ...current, holdout_days: Number(event.target.value) }))}
+                                            className="input"
+                                        />
+                                    </Field>
+                                </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Field label="Model Name">
-                                <select
-                                    value={form.model_name}
-                                    onChange={event => {
-                                        const modelName = event.target.value
-                                        setLatestExecution(null)
-                                        setForm(current => ({
-                                            ...current,
-                                            model_name: modelName,
-                                            experiment_type: modelName === 'anomaly_detector' ? 'post_processing' : 'feature_set',
-                                            spec_template_id: defaultSpecTemplateId(modelName),
-                                            experiment_spec_id: '',
-                                            context_package_id: '',
-                                            dataset_id: defaultDatasetId(modelName),
-                                            forecast_grain: defaultGrain(modelName),
-                                            architecture: defaultArchitecture(modelName),
-                                            objective: defaultObjective(modelName),
-                                            feature_set_id: defaultFeatureSet(modelName),
-                                            segment_strategy: 'global',
-                                            success_criteria: defaultSuccessCriteria(modelName),
-                                        }))
-                                    }}
-                                    className="input"
-                                >
-                                    {[...new Set([defaultModelName, ...modelNames].filter(Boolean))].map(name => (
-                                        <option key={name} value={name}>{name}</option>
-                                    ))}
-                                </select>
-                            </Field>
-                            <Field label="Baseline Version">
-                                <input
-                                    value={form.baseline_version}
-                                    onChange={event => setForm(current => ({ ...current, baseline_version: event.target.value }))}
-                                    className="input"
-                                    placeholder="Auto-detected if blank"
-                                />
-                            </Field>
-                        </div>
+                                {form.validation_mode !== 'quick_screen' && validationControlsEnabled && (
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                        <Field label="Rolling Windows">
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                max={12}
+                                                value={form.rolling_window_count}
+                                                onChange={event => setForm(current => ({ ...current, rolling_window_count: Number(event.target.value) }))}
+                                                className="input"
+                                            />
+                                        </Field>
+                                        <Field label="Window Days">
+                                            <input
+                                                type="number"
+                                                min={7}
+                                                max={90}
+                                                value={form.rolling_window_days}
+                                                onChange={event => setForm(current => ({ ...current, rolling_window_days: Number(event.target.value) }))}
+                                                className="input"
+                                            />
+                                        </Field>
+                                        <Field label="Stride Days">
+                                            <input
+                                                type="number"
+                                                min={7}
+                                                max={90}
+                                                value={form.rolling_stride_days}
+                                                onChange={event => setForm(current => ({ ...current, rolling_stride_days: Number(event.target.value) }))}
+                                                className="input"
+                                            />
+                                        </Field>
+                                    </div>
+                                )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <Field label="Dataset ID">
-                                <input
-                                    value={form.dataset_id}
-                                    readOnly
-                                    className="input bg-[#f5f5f7]"
-                                />
-                            </Field>
-                            <Field label="Data Grain">
-                                <input
-                                    value={form.forecast_grain}
-                                    readOnly
-                                    className="input bg-[#f5f5f7]"
-                                />
-                            </Field>
-                            <Field label="Architecture">
-                                <input
-                                    value={form.architecture}
-                                    readOnly
-                                    className="input bg-[#f5f5f7]"
-                                />
-                            </Field>
-                            <Field label="Objective">
-                                <input
-                                    value={form.objective}
-                                    readOnly
-                                    className="input bg-[#f5f5f7]"
-                                />
-                            </Field>
-                        </div>
+                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                    <Field label="Max Rows">
+                                        <input
+                                            type="number"
+                                            min={10000}
+                                            max={250000}
+                                            step={10000}
+                                            value={form.max_rows}
+                                            onChange={event => setForm(current => ({ ...current, max_rows: Number(event.target.value) }))}
+                                            className="input"
+                                        />
+                                    </Field>
+                                    <Field label="Max Series">
+                                        <input
+                                            type="number"
+                                            min={2}
+                                            max={250}
+                                            value={form.max_series}
+                                            disabled={!validationControlsEnabled}
+                                            onChange={event => setForm(current => ({ ...current, max_series: Number(event.target.value) }))}
+                                            className="input"
+                                        />
+                                    </Field>
+                                </div>
+                            </div>
+                        </details>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="md:col-span-2">
-                                <Field label="Feature Set ID">
+                        <details className="rounded-lg border border-black/5 bg-white px-4 py-3">
+                            <summary className="cursor-pointer text-sm font-semibold text-[#1d1d1f]">Collaboration context</summary>
+                            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                                <Field label="Context Package">
+                                    <select
+                                        value={form.context_package_id}
+                                        onChange={event => setForm(current => ({ ...current, context_package_id: event.target.value }))}
+                                        className="input"
+                                        disabled={contextPackagesLoading}
+                                    >
+                                        <option value="">No package selected</option>
+                                        {contextPackages.map(pkg => (
+                                            <option key={pkg.context_package_id} value={pkg.context_package_id}>
+                                                {pkg.package_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </Field>
+                                <Field label="Notes">
                                     <input
-                                        value={form.feature_set_id}
-                                        readOnly
-                                        className="input bg-[#f5f5f7]"
+                                        value={form.notes}
+                                        onChange={event => setForm(current => ({ ...current, notes: event.target.value }))}
+                                        className="input"
+                                        placeholder="Optional operating note or rollback concern"
                                     />
                                 </Field>
+                                <div className="lg:col-span-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => void handleCreateContextPackage()}
+                                        disabled={createContextPackage.isPending}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-black/5 bg-white px-4 py-2 text-sm font-medium text-[#1d1d1f] shadow-sm transition hover:border-[#0071e3]/30 hover:text-[#0071e3] disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                        {createContextPackage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                                        Create context package
+                                    </button>
+                                </div>
                             </div>
-                            <Field label="Segment Strategy">
-                                <input
-                                    value={form.segment_strategy}
-                                    readOnly
-                                    className="input bg-[#f5f5f7]"
-                                />
-                            </Field>
-                            <Field label="Trigger Source">
-                                <input
-                                    value={form.trigger_source}
-                                    onChange={event => setForm(current => ({ ...current, trigger_source: event.target.value }))}
-                                    className="input"
-                                />
-                            </Field>
-                        </div>
+                        </details>
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <Field label="Success Criteria">
-                                <textarea
-                                    value={form.success_criteria}
-                                    onChange={event => setForm(current => ({ ...current, success_criteria: event.target.value }))}
-                                    className="input min-h-20 resize-y"
-                                    placeholder={successCriteriaPlaceholder(form.model_name)}
-                                />
-                            </Field>
-                            <Field label="Domain Rationale">
-                                <textarea
-                                    value={form.domain_rationale}
-                                    onChange={event => setForm(current => ({ ...current, domain_rationale: event.target.value }))}
-                                    className="input min-h-20 resize-y"
-                                    placeholder="Retail reason this should work, such as promo lift, velocity segmentation, perishability, or regional demand behavior."
-                                />
-                            </Field>
-                        </div>
+                        {submitMessage && <StatusMessage tone={submitMessage.tone} text={submitMessage.text} />}
+                        {runMessage && <StatusMessage tone={runMessage.tone} text={runMessage.text} />}
+                        {governanceMessage && <StatusMessage tone={governanceMessage.tone} text={governanceMessage.text} />}
 
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                            <Field label="Risk Notes">
-                                <textarea
-                                    value={form.risk_notes}
-                                    onChange={event => setForm(current => ({ ...current, risk_notes: event.target.value }))}
-                                    className="input min-h-20 resize-y"
-                                    placeholder="Expected tradeoffs, such as overstock exposure, bias on slow movers, or interval coverage risk."
-                                />
-                            </Field>
-                            <Field label="Notes">
-                                <textarea
-                                    value={form.notes}
-                                    onChange={event => setForm(current => ({ ...current, notes: event.target.value }))}
-                                    className="input min-h-20 resize-y"
-                                    placeholder="Optional implementation notes, segment focus, or rollback concerns."
-                                />
-                            </Field>
-                        </div>
-
-                        {submitMessage && (
-                            <StatusMessage tone={submitMessage.tone} text={submitMessage.text} />
-                        )}
-                        {runMessage && (
-                            <StatusMessage tone={runMessage.tone} text={runMessage.text} />
-                        )}
-                        {governanceMessage && (
-                            <StatusMessage tone={governanceMessage.tone} text={governanceMessage.text} />
-                        )}
-
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="flex flex-col gap-3 border-t border-black/5 pt-4 lg:flex-row lg:items-center lg:justify-between">
                             <p className="text-xs text-[#86868b]">
-                                Approved hypotheses can be launched from the review queue below. Runs are gated until a reviewer approves the experiment.
+                                Approve a proposal before launching a validation run. Run controls are applied at launch.
                             </p>
                             <div className="flex flex-wrap items-center justify-end gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => void handleCreateContextPackage()}
-                                    disabled={createContextPackage.isPending}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-black/5 bg-white px-4 py-2 text-sm font-medium text-[#1d1d1f] shadow-sm transition hover:border-[#0071e3]/30 hover:text-[#0071e3] disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                    {createContextPackage.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                                    Context
-                                </button>
                                 <button
                                     type="button"
                                     onClick={() => void handleSaveHypothesis()}
@@ -849,7 +947,7 @@ export default function ExperimentWorkbench({
                                     className="inline-flex items-center gap-2 rounded-lg border border-[#5856d6]/20 bg-white px-4 py-2 text-sm font-medium text-[#5856d6] shadow-sm transition hover:border-[#5856d6]/35 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {createHypothesis.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-                                    Backlog
+                                    Save backlog
                                 </button>
                                 <button
                                     type="button"
@@ -861,90 +959,90 @@ export default function ExperimentWorkbench({
                                 <button
                                     type="submit"
                                     disabled={proposeExperiment.isPending || runExperiment.isPending}
-                                    className="inline-flex items-center gap-2 rounded-lg border border-[#0071e3]/20 bg-white px-4 py-2 text-sm font-medium text-[#0071e3] shadow-sm transition hover:border-[#0071e3]/35 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex items-center gap-2 rounded-lg bg-[#0071e3] px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-[#0068d1] disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                     {proposeExperiment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlusCircle className="h-4 w-4" />}
-                                    Submit for Review
+                                    Submit for review
                                 </button>
                             </div>
                         </div>
                     </form>
                 </section>
 
-                <section className="card border border-black/[0.02] shadow-sm p-5 space-y-4">
+                <section className="card min-w-0 border border-black/[0.02] p-5 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <h2 className="text-lg font-semibold text-[#0071e3]">Experiment Ledger</h2>
-                            <p className="text-sm text-[#86868b] mt-1">
-                                Reviewed hypothesis queue for the active model. Approve a proposal before launching the bounded experiment run.
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                                <ClipboardList className="h-4 w-4 text-[#0071e3]" />
+                                <h3 className="text-base font-semibold text-[#1d1d1f]">Review Queue</h3>
+                            </div>
+                            <p className="mt-1 text-sm text-[#86868b]">
+                                Approve a proposal, then run it with the active validation controls.
                             </p>
                         </div>
-                        <div className="inline-flex items-center gap-2 rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-medium text-[#ff9500]">
-                            <ClipboardList className="h-3.5 w-3.5" />
-                            {form.model_name}
-                        </div>
+                        <span className="rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-medium text-[#ff9500]">
+                            {MODEL_FAMILY_LABELS[activeModelName]?.label ?? activeModelName}
+                        </span>
                     </div>
 
-                    {approvalMessage && (
-                        <StatusMessage tone={approvalMessage.tone} text={approvalMessage.text} />
-                    )}
+                    {approvalMessage && <StatusMessage tone={approvalMessage.tone} text={approvalMessage.text} />}
 
-                    <ExperimentLedgerList
-                        experiments={ledger}
-                        isLoading={ledgerLoading}
-                        isError={ledgerError}
-                        errorMessage={ledgerErrorDetail instanceof Error ? ledgerErrorDetail.message : 'Unable to load experiment ledger.'}
-                        onApprove={handleApprove}
-                        onRun={handleRun}
-                        approvingId={approveExperiment.variables?.experimentId ?? null}
-                        approvePending={approveExperiment.isPending}
-                        runningId={runExperiment.variables?.experimentId ?? null}
-                        runPending={runExperiment.isPending}
-                    />
+                    <div className="mt-4 max-h-[760px] overflow-y-auto pr-1">
+                        <ExperimentLedgerList
+                            experiments={ledger}
+                            isLoading={ledgerLoading}
+                            isError={ledgerError}
+                            errorMessage={ledgerErrorDetail instanceof Error ? ledgerErrorDetail.message : 'Unable to load experiment ledger.'}
+                            onApprove={handleApprove}
+                            onRun={handleRun}
+                            approvingId={approveExperiment.variables?.experimentId ?? null}
+                            approvePending={approveExperiment.isPending}
+                            runningId={runExperiment.variables?.experimentId ?? null}
+                            runPending={runExperiment.isPending}
+                        />
+                    </div>
                 </section>
             </div>
 
-            <ExperimentGovernancePanel
-                contextPackages={contextPackages}
-                contextPackagesLoading={contextPackagesLoading}
-                hypotheses={hypotheses}
-                hypothesesLoading={hypothesesLoading}
-                comparisonReport={comparisonReport}
-                comparisonLoading={comparisonLoading}
-                selectedContextPackageId={form.context_package_id}
-                onSelectContextPackage={contextPackageId => setForm(current => ({ ...current, context_package_id: contextPackageId }))}
-                onConvertHypothesis={handleConvertHypothesis}
-                convertingHypothesisId={reviewHypothesis.variables?.hypothesisId ?? null}
-                convertPending={reviewHypothesis.isPending}
-            />
-
-            <section className="space-y-3">
-                {latestExecution && (
-                    <ExperimentExecutionSummary execution={latestExecution} />
-                )}
-                <div>
-                    <h2 className="text-lg font-semibold text-[#0071e3]">Training Run History</h2>
-                    <p className="text-sm text-[#86868b] mt-1">
-                        Runtime training and evaluation logs from the local report history.
-                    </p>
+            <details className="border-t border-black/5 pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#1d1d1f]">Governance backlog and manual-vs-AI lanes</summary>
+                <div className="mt-4">
+                    <ExperimentGovernancePanel
+                        contextPackages={contextPackages}
+                        contextPackagesLoading={contextPackagesLoading}
+                        hypotheses={hypotheses}
+                        hypothesesLoading={hypothesesLoading}
+                        comparisonReport={comparisonReport}
+                        comparisonLoading={comparisonLoading}
+                        selectedContextPackageId={form.context_package_id}
+                        onSelectContextPackage={contextPackageId => setForm(current => ({ ...current, context_package_id: contextPackageId }))}
+                        onConvertHypothesis={handleConvertHypothesis}
+                        convertingHypothesisId={reviewHypothesis.variables?.hypothesisId ?? null}
+                        convertPending={reviewHypothesis.isPending}
+                    />
                 </div>
-                <ExperimentHistory
-                    experiments={runHistory}
-                    isLoading={runsLoading}
-                    isError={runsError}
-                    errorMessage={runsErrorMessage}
-                />
-            </section>
+            </details>
 
-            <section className="space-y-3">
-                <div>
-                    <h2 className="text-lg font-semibold text-[#0071e3]">Completed Trials</h2>
-                    <p className="text-sm text-[#86868b] mt-1">
-                        Finished model comparisons with final release-check outcomes.
-                    </p>
+            <details className="border-t border-black/5 pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#1d1d1f]">Training run history</summary>
+                <div className="mt-4">
+                    <ExperimentHistory
+                        experiments={runHistory}
+                        isLoading={runsLoading}
+                        isError={runsError}
+                        errorMessage={runsErrorMessage}
+                    />
                 </div>
-                <CompletedTrialsLog experiments={completedTrials} isLoading={completedLoading} />
-            </section>
+            </details>
+
+            <details className="border-t border-black/5 pt-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[#1d1d1f]">
+                    Release reports ({completedTrials.length})
+                </summary>
+                <div className="mt-4">
+                    <CompletedTrialsLog experiments={completedTrials} isLoading={completedLoading} />
+                </div>
+            </details>
         </div>
     )
 }
@@ -1020,9 +1118,9 @@ function ExperimentGovernancePanel({
 
                     <div className="grid grid-cols-2 gap-3 text-xs text-[#86868b]">
                         <Meta label="Baseline" value={selectedPackage?.baseline_version ?? 'current model'} />
-                        <Meta label="Dataset" value={selectedPackage?.dataset_id ?? 'model filter'} />
+                        <Meta label="Dataset" value={selectedPackage?.dataset_id ?? 'selected model'} />
                         <Meta label="Snapshot" value={selectedPackage?.dataset_snapshot_id ?? '—'} />
-                        <Meta label="Artifact" value={selectedPackage?.artifact_uri ?? '—'} />
+                        <Meta label="Evidence" value={selectedPackage?.artifact_uri ? 'attached' : 'not recorded'} />
                     </div>
                 </article>
 
@@ -1073,7 +1171,7 @@ function ExperimentGovernancePanel({
                     <div className="rounded-lg bg-[#f5f5f7] p-4 text-sm text-[#86868b]">Loading hypotheses...</div>
                 ) : hypotheses.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-black/5 bg-[#f5f5f7] p-4 text-sm text-[#86868b]">
-                        No governed hypotheses for this filter yet.
+                        No hypotheses are waiting in this lane.
                     </div>
                 ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -1105,7 +1203,7 @@ function ExperimentGovernancePanel({
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 text-xs text-[#86868b]">
                                         <Meta label="Type" value={hypothesis.experiment_type} />
-                                        <Meta label="Generated By" value={hypothesis.generated_by} />
+                                        <Meta label="Author" value={hypothesis.generated_by} />
                                         <Meta label="Spec" value={hypothesis.experiment_spec_id ? hypothesis.experiment_spec_id.slice(0, 8) : stringValue(hypothesis.hypothesis_metadata?.spec_template_id)} />
                                         <Meta label="Spec Hash" value={stringValue(hypothesis.hypothesis_metadata?.experiment_spec_hash).slice(0, 12)} />
                                     </div>
@@ -1233,7 +1331,7 @@ function ExperimentLedgerList({
 
                         <div className="rounded-lg bg-[#f5f5f7] px-3 py-2 text-xs text-[#86868b]">
                             <span className="font-medium text-[#86868b]">Success criteria:</span>{' '}
-                            {stringValue(meta.success_criteria) || 'Not provided'}
+                            {stringValue(meta.success_criteria) || 'No criteria recorded'}
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[#86868b]">
@@ -1271,6 +1369,8 @@ function ExperimentExecutionSummary({ execution }: { execution: ExperimentRunExe
     const challengerMetrics = execution.report.challenger.holdout_metrics
     const gateChecks = Object.entries(execution.comparison.gate_checks ?? {})
     const isAnomaly = execution.report.experiment.model_name === 'anomaly_detector'
+    const validation = execution.report.validation
+    const rollingValidation = execution.report.rolling_validation
     const metricCards = isAnomaly
         ? [
             ['Precision', 'precision', 'percent'] as const,
@@ -1318,6 +1418,42 @@ function ExperimentExecutionSummary({ execution }: { execution: ExperimentRunExe
                 <p className="mt-2 text-sm text-[#86868b]">{execution.comparison.reason}</p>
             </div>
 
+            {validation && (
+                <div className="rounded-xl border border-[#0071e3]/10 bg-[#f5f9ff] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-[#0071e3]">Validation Plan</p>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                        <Meta label="Mode" value={humanizeGateName(String(validation.mode ?? 'quick_screen'))} />
+                        <Meta label="Calibration" value={`${validation.calibration_days ?? 28} days`} />
+                        <Meta label="Holdout" value={`${validation.holdout_days ?? 28} days`} />
+                        <Meta
+                            label="Rolling"
+                            value={rollingValidation ? `${rollingValidation.completed_windows}/${rollingValidation.requested_windows} windows` : 'not run'}
+                        />
+                    </div>
+                </div>
+            )}
+
+            {rollingValidation && (
+                <div className="rounded-xl border border-black/5 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-[#86868b]">Rolling Validation</p>
+                        <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+                            rollingValidation.gate_checks?.temporal_validation_gate
+                                ? 'bg-[#34c759]/10 text-[#34c759]'
+                                : 'bg-[#ff3b30]/10 text-[#ff3b30]'
+                        }`}>
+                            {rollingValidation.gate_checks?.temporal_validation_gate ? 'Temporal Gate Passed' : 'Temporal Gate Needs Review'}
+                        </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+                        <Meta label="Avg WAPE" value={`${numberMetric(rollingValidation.summary_metrics?.baseline_avg_wape, 'percent')} -> ${numberMetric(rollingValidation.summary_metrics?.challenger_avg_wape, 'percent')}`} />
+                        <Meta label="Worst WAPE" value={`${numberMetric(rollingValidation.summary_metrics?.baseline_worst_wape, 'percent')} -> ${numberMetric(rollingValidation.summary_metrics?.challenger_worst_wape, 'percent')}`} />
+                        <Meta label="Avg Cost" value={`${numberMetric(rollingValidation.summary_metrics?.baseline_avg_combined_cost_proxy, 'currency')} -> ${numberMetric(rollingValidation.summary_metrics?.challenger_avg_combined_cost_proxy, 'currency')}`} />
+                        <Meta label="Avg Service" value={`${numberMetric(rollingValidation.summary_metrics?.baseline_avg_service_level, 'percent')} -> ${numberMetric(rollingValidation.summary_metrics?.challenger_avg_service_level, 'percent')}`} />
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
                 {gateChecks.map(([gateName, passed]) => (
                     <div
@@ -1329,7 +1465,7 @@ function ExperimentExecutionSummary({ execution }: { execution: ExperimentRunExe
                         }`}
                     >
                         <div className="font-medium">{humanizeGateName(gateName)}</div>
-                        <div className="text-xs mt-1">{passed ? 'Passed' : 'Failed'}</div>
+                        <div className="text-xs mt-1">{passed ? 'Passed' : 'Needs review'}</div>
                     </div>
                 ))}
             </div>
@@ -1437,9 +1573,9 @@ function sourceLabel(source: ExperimentSource) {
 
 function Meta({ label, value }: { label: string; value: string }) {
     return (
-        <div>
+        <div className="min-w-0">
             <p className="uppercase tracking-wider text-[10px] text-[#86868b]">{label}</p>
-            <p className="mt-1 font-medium text-[#86868b]">{value || '—'}</p>
+            <p className="mt-1 truncate font-medium text-[#86868b]" title={value || '—'}>{value || '—'}</p>
         </div>
     )
 }
@@ -1448,6 +1584,14 @@ function stringValue(value: unknown): string {
     if (typeof value === 'string') return value
     if (typeof value === 'number') return String(value)
     return ''
+}
+
+function compactFeatureFlags(featureConfig: Record<string, unknown> | undefined): string {
+    if (!featureConfig) return '—'
+    const activeFlags = Object.entries(featureConfig)
+        .filter(([key, value]) => key.startsWith('include_') && value === true)
+        .map(([key]) => key.replace(/^include_/, '').replace(/_/g, ' '))
+    return activeFlags.length > 0 ? activeFlags.join(', ') : 'none'
 }
 
 function CompletedTrialsLog({
@@ -1469,7 +1613,10 @@ function CompletedTrialsLog({
         return (
             <div className="card border border-dashed border-black/5 bg-[#f5f5f7] text-center py-10">
                 <FlaskConical className="h-6 w-6 mx-auto text-[#86868b]" />
-                <p className="mt-2 text-sm text-[#86868b]">No completed trials yet.</p>
+                <p className="mt-2 text-sm text-[#86868b]">No completed release reports yet.</p>
+                <p className="mt-1 text-xs text-[#86868b]">
+                    Comparison appears after a finished experiment records validation results.
+                </p>
             </div>
         )
     }
@@ -1582,7 +1729,7 @@ function CompletedTrialCard({ exp }: { exp: ExperimentLedgerEntry }) {
                     MASE improved <span className="font-semibold text-[#0071e3]">{maseDelta.toFixed(1)}%</span>
                     {' '}· {String(r.decision_rationale ?? r.promotion_comparison?.reason ?? exp.decision_rationale ?? '')}
                     {failedGates.length > 0 && (
-                        <span className="ml-2 text-[#ff9500]">Failed: {failedGates.map(g => g.replace('_gate', '')).join(', ')}</span>
+                        <span className="ml-2 text-[#ff9500]">Needs review: {failedGates.map(g => g.replace('_gate', '')).join(', ')}</span>
                     )}
                 </div>
             )}
@@ -1592,7 +1739,7 @@ function CompletedTrialCard({ exp }: { exp: ExperimentLedgerEntry }) {
                     Precision moved <span className="font-semibold text-[#0071e3]">{precisionDelta.toFixed(1)} pts</span>
                     {' '}· {String(r.decision_rationale ?? r.promotion_comparison?.reason ?? exp.decision_rationale ?? '')}
                     {failedGates.length > 0 && (
-                        <span className="ml-2 text-[#ff9500]">Failed: {failedGates.map(g => g.replace('_gate', '')).join(', ')}</span>
+                        <span className="ml-2 text-[#ff9500]">Needs review: {failedGates.map(g => g.replace('_gate', '')).join(', ')}</span>
                     )}
                 </div>
             )}

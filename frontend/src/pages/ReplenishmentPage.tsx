@@ -135,7 +135,7 @@ export default function ReplenishmentPage() {
                         icon={TrendingUp}
                         label="Estimated policy value"
                         value={formatCurrency(impact?.recommendation_policy.net_policy_value ?? null)}
-                        detail={impact?.recommendation_policy.net_policy_value_confidence ?? 'unavailable'}
+                        detail={impact?.recommendation_policy.net_policy_value_confidence ?? 'not measured yet'}
                     />
                 </div>
             </div>
@@ -187,18 +187,18 @@ export default function ReplenishmentPage() {
                 <div className="card p-12 text-center text-sm text-[#86868b]">Loading replenishment recommendations…</div>
             ) : isError ? (
                 <div className="card border border-[#ff3b30]/20 bg-[#ff3b30]/5 p-12 text-center text-sm text-[#c9342a]">
-                    {getApiErrorDetail(error, 'Failed to load replenishment queue.')}
+                    {getApiErrorDetail(error, 'Unable to load replenishment queue.')}
                 </div>
             ) : (
                 <>
                     {generateQueue.isError ? (
                         <div className="mb-6 rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                            {getApiErrorDetail(generateQueue.error, 'Failed to refresh replenishment queue.')}
+                            {getApiErrorDetail(generateQueue.error, 'Unable to refresh replenishment queue.')}
                         </div>
                     ) : null}
                     {generateQueue.isSuccess ? (
                         <div className="mb-6 rounded-[20px] border border-[#0071e3]/10 bg-[#0071e3]/[0.04] px-4 py-4 text-sm text-[#1d1d1f]">
-                            Refreshed queue on {generateQueue.data?.as_of_date ?? '—'}: generated {generateQueue.data?.generated_count ?? 0} recommendations and skipped {generateQueue.data?.skipped_count ?? 0}.
+                            Refreshed queue on {generateQueue.data?.as_of_date ?? '—'}: added {generateQueue.data?.generated_count ?? 0} recommendations and skipped {generateQueue.data?.skipped_count ?? 0}.
                         </div>
                     ) : null}
                     <ReplenishmentTable
@@ -294,7 +294,7 @@ export default function ReplenishmentPage() {
                         setDecisionAction(null)
                         setSelectedRecommendationId(null)
                     } catch (mutationError) {
-                        setDecisionError(getApiErrorDetail(mutationError, 'Failed to save recommendation decision.'))
+                        setDecisionError(getApiErrorDetail(mutationError, 'Unable to save recommendation decision.'))
                     }
                 }}
             />

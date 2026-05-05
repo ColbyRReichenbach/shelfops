@@ -528,8 +528,12 @@ export interface ApproveExperimentPayload {
 export interface RunExperimentPayload {
     experimentId: string
     dataDir?: string
+    validationMode?: 'quick_screen' | 'extended_backtest' | 'promotion_gate'
     holdoutDays?: number
     calibrationDays?: number
+    rollingWindowCount?: number
+    rollingWindowDays?: number
+    rollingStrideDays?: number
     maxRows?: number
     maxSeries?: number
     maxChallengers?: number
@@ -572,6 +576,25 @@ export interface ExperimentRunExecution {
             decision: string
             decision_rationale: string
         }
+        validation?: {
+            mode?: 'quick_screen' | 'extended_backtest' | 'promotion_gate'
+            calibration_days?: number
+            holdout_days?: number
+            rolling_window_count?: number
+            rolling_window_days?: number
+            rolling_stride_days?: number
+            purpose?: string
+        }
+        rolling_validation?: {
+            mode: 'extended_backtest' | 'promotion_gate' | string
+            completed_windows: number
+            requested_windows: number
+            rolling_window_days: number
+            rolling_stride_days: number
+            summary_metrics?: Record<string, number | string | boolean | null>
+            gate_checks?: Record<string, boolean>
+            windows?: Array<Record<string, unknown>>
+        } | null
     }
 }
 
@@ -942,6 +965,10 @@ export interface ReplenishmentRecommendation {
     interval_coverage: number | null
     no_order_stockout_risk: string
     order_overstock_risk: string
+    decision_feedback_status: string
+    decision_feedback_provenance: string
+    decision_feedback_message: string | null
+    latest_decision: Record<string, unknown> | null
     recommendation_rationale: Record<string, unknown>
     created_at: string
 }
@@ -976,6 +1003,18 @@ export interface RecommendationImpact {
         avoided_stockout_value_confidence: string
         incremental_overstock_cost: number | null
         incremental_overstock_cost_confidence: string
+    }
+    decision_feedback: {
+        measurement_basis: string
+        total_decisions: number
+        total_decisions_confidence: string
+        accepted_decisions: number
+        edited_decisions: number
+        rejected_decisions: number
+        closed_outcome_labels: number
+        closed_outcome_labels_confidence: string
+        training_readiness: string
+        training_readiness_confidence: string
     }
 }
 

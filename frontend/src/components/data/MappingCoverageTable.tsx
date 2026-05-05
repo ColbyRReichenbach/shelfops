@@ -24,7 +24,7 @@ export default function MappingCoverageTable({ sources }: MappingCoverageTablePr
             {mappedSources.length === 0 ? (
                 <div className="px-6 py-14 text-center">
                     <p className="text-sm font-medium text-[#1d1d1f]">No mapped connection found</p>
-                    <p className="mt-1 text-sm text-[#86868b]">Connect Square or confirm mappings to populate this table.</p>
+                    <p className="mt-1 text-sm text-[#86868b]">Connect Square or confirm mappings to show matched locations and catalog items here.</p>
                 </div>
             ) : (
                 <div className="overflow-x-auto">

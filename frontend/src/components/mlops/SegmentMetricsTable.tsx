@@ -21,7 +21,7 @@ export default function SegmentMetricsTable({ effectiveness }: SegmentMetricsTab
 
             {segmentRows.length === 0 ? (
                 <div className="px-6 py-14 text-center text-sm text-[#86868b]">
-                    No segment breakdowns are currently available from the effectiveness endpoint.
+                    No segment breakdowns are available for the current model family.
                 </div>
             ) : (
                 <div className="overflow-x-auto">
@@ -56,7 +56,7 @@ export default function SegmentMetricsTable({ effectiveness }: SegmentMetricsTab
 
             {unavailableSegments.length > 0 ? (
                 <div className="border-t border-black/[0.04] bg-[#fbfbfd] px-6 py-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#86868b]">Unavailable Breakdowns</p>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#86868b]">Breakdowns Needing Review</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                         {unavailableSegments.map(([key, breakdown]) => (
                             <span key={key} className="rounded-full bg-white px-3 py-1 text-xs font-medium text-[#6e6e73] shadow-[0_1px_3px_rgba(0,0,0,0.03)]">

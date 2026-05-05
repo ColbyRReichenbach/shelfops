@@ -39,7 +39,7 @@ export default function ExperimentHistory({
             <div className="card border border-black/[0.02] shadow-sm text-center py-16">
                 <FlaskConical className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
                 <p className="text-sm text-[#86868b]">No training runs recorded</p>
-                <p className="text-xs text-[#86868b] mt-1">Log a hypothesis above, then run the training pipeline to populate this history.</p>
+                <p className="text-xs text-[#86868b] mt-1">Log a hypothesis above, then launch a validation run to build this history.</p>
             </div>
         )
     }

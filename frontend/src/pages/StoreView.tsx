@@ -159,7 +159,7 @@ export default function StoreView() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-[#1d1d1f]">Store Operations</h1>
-                    <p className="mt-1 text-sm text-[#86868b]">Manage store inventory and health status</p>
+                    <p className="mt-1 text-sm text-[#86868b]">Maintain store details used for inventory planning and alerts</p>
                 </div>
                 <div className="flex gap-3">
                     <button onClick={handleExport} className="btn-secondary gap-2">
@@ -192,7 +192,7 @@ export default function StoreView() {
                             <h2 className="text-lg font-semibold text-[#1d1d1f]">
                                 {editingStore ? 'Edit Store' : 'Create Store'}
                             </h2>
-                            <p className="mt-1 text-sm text-[#86868b]">Save store metadata used by inventory, replenishment, and alert routing.</p>
+                            <p className="mt-1 text-sm text-[#86868b]">Save store details used by inventory, replenishment, and alert routing.</p>
                         </div>
                         <button
                             onClick={closeForm}
@@ -260,7 +260,7 @@ export default function StoreView() {
             {isError && (
                 <div className="card p-12 text-center bg-[#ff3b30]/5">
                     <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[#ff3b30]" />
-                    <p className="text-sm text-[#ff3b30]">Failed to load stores</p>
+                    <p className="text-sm text-[#ff3b30]">Unable to load stores right now.</p>
                 </div>
             )}
 

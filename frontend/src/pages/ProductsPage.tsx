@@ -90,7 +90,7 @@ export default function ProductsPage() {
     const [form, setForm] = useState<ProductFormState>(emptyProductForm)
     const [feedback, setFeedback] = useState<{ tone: 'success' | 'error'; text: string } | null>(null)
 
-    const { data: products = [], isLoading, isError, error } = useProducts(categoryFilter || undefined, statusFilter || undefined)
+    const { data: products = [], isLoading, isError } = useProducts(categoryFilter || undefined, statusFilter || undefined)
     const { data: allProducts = [] } = useProducts()
     const createProduct = useCreateProduct()
     const updateProduct = useUpdateProduct()
@@ -180,7 +180,7 @@ export default function ProductsPage() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-[#0071e3]">Products Catalog</h1>
-                    <p className="mt-1 text-sm text-[#86868b]">Manage SKU metadata and inventory status</p>
+                    <p className="mt-1 text-sm text-[#86868b]">Maintain SKU details used for forecasting and replenishment</p>
                 </div>
                 <div className="flex items-center gap-2">
                     <button
@@ -338,9 +338,7 @@ export default function ProductsPage() {
             {isError && (
                 <div className="card p-12 text-center bg-[#ff3b30]/5">
                     <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[#ff3b30]" />
-                    <p className="text-sm text-[#ff3b30]">
-                        Failed to load products: {(error as Error)?.message ?? 'Unknown error'}
-                    </p>
+                    <p className="text-sm text-[#ff3b30]">Unable to load products right now.</p>
                 </div>
             )}
 

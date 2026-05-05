@@ -77,7 +77,7 @@ function IntegrationCard({ integration }: { integration: Integration }) {
         color: 'bg-[#86868b]',
         description: 'POS integration.',
     }
-    const status = STATUS_CONFIG[integration.status] ?? { icon: XCircle, color: 'text-[#86868b]', label: 'Unknown' }
+    const status = STATUS_CONFIG[integration.status] ?? { icon: XCircle, color: 'text-[#86868b]', label: 'Status pending' }
     const StatusIcon = status.icon
 
     return (
@@ -319,7 +319,7 @@ export default function IntegrationsPage() {
             ) : isError ? (
                 <div className="card py-16 text-center bg-[#ff3b30]/5">
                     <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[#ff3b30]" />
-                    <p className="text-sm text-[#ff3b30]">{getApiErrorDetail(error, 'Failed to load integrations')}</p>
+                    <p className="text-sm text-[#ff3b30]">{getApiErrorDetail(error, 'Unable to load integrations right now.')}</p>
                 </div>
             ) : (
                 <>
@@ -393,13 +393,13 @@ export default function IntegrationsPage() {
 
                             {mappingError ? (
                                 <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                                    {getApiErrorDetail(mappingErrorDetail, 'Failed to load Square mapping preview.')}
+                                    {getApiErrorDetail(mappingErrorDetail, 'Unable to load Square mapping preview.')}
                                 </div>
                             ) : null}
 
                             {confirmSquareMapping.isError ? (
                                 <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                                    {getApiErrorDetail(confirmSquareMapping.error, 'Failed to persist Square mappings.')}
+                                    {getApiErrorDetail(confirmSquareMapping.error, 'Unable to save Square mappings.')}
                                 </div>
                             ) : null}
 
@@ -422,7 +422,7 @@ export default function IntegrationsPage() {
                                             rows={mappingPreview.locations.map(location => ({
                                                 external_id: location.external_id,
                                                 name: location.name ?? location.external_id,
-                                                extra: location.timezone ?? 'timezone unavailable',
+                                                extra: location.timezone ?? 'timezone pending',
                                                 selected_value: locationMappings[location.external_id] ?? '',
                                             }))}
                                             options={stores.map(store => ({ value: store.store_id, label: store.name }))}
@@ -452,7 +452,7 @@ export default function IntegrationsPage() {
                                 </>
                             ) : (
                                 <div className="rounded-[20px] bg-[#f5f5f7] px-4 py-10 text-center text-sm text-[#86868b]">
-                                    Square preview unavailable.
+                                    Square mapping preview is not ready yet.
                                 </div>
                             )}
                         </section>
@@ -461,10 +461,10 @@ export default function IntegrationsPage() {
                     <section className="card space-y-5">
                         <div className="flex items-center gap-2">
                             <AlertCircle className="h-4 w-4 text-[#0071e3]" />
-                            <h2 className="text-lg font-semibold text-[#1d1d1f]">Webhook Recovery</h2>
+                            <h2 className="text-lg font-semibold text-[#1d1d1f]">Connection Recovery</h2>
                         </div>
                         <p className="text-sm text-[#6e6e73]">
-                            Review failed Square webhook deliveries and replay them after the source issue is resolved.
+                            Review failed Square delivery events and retry them after the source issue is resolved.
                         </p>
 
                         {deadLettersLoading ? (
@@ -473,7 +473,7 @@ export default function IntegrationsPage() {
                             </div>
                         ) : deadLetters.length === 0 ? (
                             <div className="rounded-[20px] bg-[#34c759]/10 px-4 py-4 text-sm text-[#1f8f45]">
-                                No dead-letter webhook events are waiting for replay.
+                                No failed connection events are waiting for retry.
                             </div>
                         ) : (
                             <div className="space-y-3">
@@ -483,10 +483,10 @@ export default function IntegrationsPage() {
                                             <div>
                                                 <p className="text-sm font-semibold text-[#1d1d1f]">{event.event_type}</p>
                                                 <p className="mt-1 text-xs text-[#86868b]">
-                                                    {event.provider} · {event.merchant_id ?? 'merchant unavailable'} · {new Date(event.received_at).toLocaleString()}
+                                                    {event.provider} · {event.merchant_id ?? 'merchant pending'} · {new Date(event.received_at).toLocaleString()}
                                                 </p>
                                                 <p className="mt-2 text-sm text-[#6e6e73]">
-                                                    Attempts: {event.delivery_attempts} · Last error: {event.last_error ?? 'unknown'}
+                                                    Attempts: {event.delivery_attempts} · Latest issue: {event.last_error ?? 'not recorded'}
                                                 </p>
                                             </div>
                                             <button
@@ -495,7 +495,7 @@ export default function IntegrationsPage() {
                                                 disabled={replayWebhookEvent.isPending}
                                                 className="btn-secondary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                                             >
-                                                {replayWebhookEvent.isPending ? 'Replaying…' : 'Replay Event'}
+                                                {replayWebhookEvent.isPending ? 'Retrying…' : 'Retry Event'}
                                             </button>
                                         </div>
                                     </div>
@@ -505,7 +505,7 @@ export default function IntegrationsPage() {
 
                         {replayWebhookEvent.isError ? (
                             <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                                {getApiErrorDetail(replayWebhookEvent.error, 'Failed to replay webhook event.')}
+                                {getApiErrorDetail(replayWebhookEvent.error, 'Unable to retry connection event.')}
                             </div>
                         ) : null}
                     </section>

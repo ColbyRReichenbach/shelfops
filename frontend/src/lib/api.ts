@@ -31,7 +31,7 @@ export function getWebSocketBaseUrl(): string {
     return apiUrl.toString().replace(/\/$/, '')
 }
 
-export function getApiErrorDetail(error: unknown, fallback = 'Unknown error'): string {
+export function getApiErrorDetail(error: unknown, fallback = 'Unable to complete request.'): string {
     if (error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
     }
@@ -66,7 +66,7 @@ async function request<T>(
 
     if (!response.ok) {
         const body = await response.json().catch(() => ({ detail: response.statusText }))
-        throw { status: response.status, detail: body.detail ?? 'Unknown error' } as ApiError
+        throw { status: response.status, detail: body.detail ?? 'Unable to complete request.' } as ApiError
     }
 
     if (response.status === 204) {

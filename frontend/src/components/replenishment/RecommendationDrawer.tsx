@@ -39,6 +39,7 @@ export default function RecommendationDrawer({
     const holdingCost = asNumber(economics.effective_holding_cost_annual)
     const spoilageCost = asNumber(economics.spoilage_cost_annual)
     const shelfLifeDays = asNumber(economics.shelf_life_days)
+    const latestDecision = asRecord(recommendation.latest_decision)
 
     return (
         <div className="fixed inset-y-0 right-0 z-[60] flex w-full justify-end bg-[#1d1d1f]/20 backdrop-blur-[2px]">
@@ -51,7 +52,7 @@ export default function RecommendationDrawer({
                                 {lookup?.productName ?? recommendation.product_id.slice(0, 8)}
                             </h2>
                             <p className="mt-2 text-sm text-[#6e6e73]">
-                                {lookup?.storeName ?? recommendation.store_id.slice(0, 8)} · {lookup?.sku ?? 'SKU unavailable'} · {recommendation.status}
+                                {lookup?.storeName ?? recommendation.store_id.slice(0, 8)} · {lookup?.sku ?? 'SKU pending'} · {recommendation.status}
                             </p>
                         </div>
                         <button
@@ -102,7 +103,7 @@ export default function RecommendationDrawer({
                             />
                             <MetricTile
                                 label="Coverage quality"
-                                value={`${recommendation.interval_method ?? 'unavailable'} · ${recommendation.calibration_status ?? 'unknown'}`}
+                                value={`${recommendation.interval_method ?? 'interval pending'} · ${recommendation.calibration_status ?? 'coverage pending'}`}
                             />
                         </div>
                     </section>
@@ -171,8 +172,45 @@ export default function RecommendationDrawer({
                                 />
                             </div>
                         ) : (
-                            <p className="text-sm text-[#86868b]">Impact summary unavailable.</p>
+                            <p className="text-sm text-[#86868b]">Impact summary will appear once recommendation outcomes are available.</p>
                         )}
+                    </section>
+
+                    <section className="card-compact space-y-4">
+                        <div className="flex items-center gap-2">
+                            <ArrowUpRight className="h-4 w-4 text-[#0071e3]" />
+                            <h3 className="text-base font-semibold text-[#1d1d1f]">Feedback Loop</h3>
+                        </div>
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <MetricTile
+                                label="Decision signal"
+                                value={formatFeedbackStatus(recommendation.decision_feedback_status)}
+                            />
+                            <MetricTile
+                                label="Signal provenance"
+                                value={recommendation.decision_feedback_provenance}
+                            />
+                            <MetricTile
+                                label="Latest buyer action"
+                                value={formatDecisionValue(latestDecision.decision_type)}
+                            />
+                            <MetricTile
+                                label="Final quantity"
+                                value={formatQuantityValue(latestDecision.final_qty)}
+                            />
+                            <MetricTile
+                                label="Outcome labels"
+                                value={
+                                    impact
+                                        ? `${impact.decision_feedback.closed_outcome_labels.toLocaleString()} closed of ${impact.decision_feedback.total_decisions.toLocaleString()} logged`
+                                        : 'No closed labels yet'
+                                }
+                            />
+                            <MetricTile
+                                label="Training readiness"
+                                value={impact ? formatFeedbackStatus(impact.decision_feedback.training_readiness) : 'collecting outcomes'}
+                            />
+                        </div>
                     </section>
 
                     <section className="card-compact space-y-4">
@@ -267,7 +305,7 @@ function formatCurrency(value: number | null) {
 
 function formatBand(lower: number | null, upper: number | null) {
     if (lower === null || upper === null) {
-        return 'Unavailable'
+        return 'not measured'
     }
     return `${lower.toFixed(1)} to ${upper.toFixed(1)}`
 }
@@ -303,4 +341,20 @@ function formatSpoilageCap(cap: Record<string, unknown>, spoilageCost: number | 
         return 'Priced into EOQ'
     }
     return 'Not active'
+}
+
+function formatFeedbackStatus(value: string | null | undefined) {
+    if (!value) {
+        return 'Not available'
+    }
+    return value.replace(/_/g, ' ')
+}
+
+function formatDecisionValue(value: unknown) {
+    return typeof value === 'string' && value.trim() ? value.replace(/_/g, ' ') : 'No decision recorded'
+}
+
+function formatQuantityValue(value: unknown) {
+    const quantity = asNumber(value)
+    return quantity === null ? 'Not set' : `${quantity.toLocaleString()} units`
 }

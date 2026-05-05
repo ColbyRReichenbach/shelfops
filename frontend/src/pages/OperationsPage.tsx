@@ -194,7 +194,7 @@ export default function OperationsPage() {
                                         <div>
                                             <p className="text-sm font-semibold text-[#1d1d1f]">{source.integration_name}</p>
                                             <p className="text-xs text-[#86868b] mt-1">
-                                                {source.integration_type} · Last sync {source.last_sync ? new Date(source.last_sync).toLocaleString() : 'unknown'}
+                                                {source.integration_type} · Last sync {source.last_sync ? new Date(source.last_sync).toLocaleString() : 'not recorded'}
                                             </p>
                                         </div>
                                         <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
@@ -256,7 +256,7 @@ export default function OperationsPage() {
                 {alertsError && (
                     <div className="rounded-[16px] bg-[#ff3b30]/5 py-12 text-center">
                         <AlertCircle className="mx-auto mb-3 h-8 w-8 text-[#ff3b30]" />
-                        <p className="text-sm text-[#ff3b30]">Failed to load alerts</p>
+                        <p className="text-sm text-[#ff3b30]">Unable to load alerts right now.</p>
                     </div>
                 )}
 

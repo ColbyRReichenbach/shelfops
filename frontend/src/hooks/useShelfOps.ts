@@ -562,6 +562,7 @@ export function useCreateExperimentHypothesis() {
             api.post<ExperimentHypothesis>('/api/v1/experiments/hypotheses', payload),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['experiment-hypotheses'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-specs'] })
             queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
         },
     })
@@ -608,6 +609,8 @@ export function useProposeExperiment() {
             api.post<ProposeExperimentResponse>('/api/v1/experiments', payload),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-specs'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
         },
     })
 }
@@ -621,6 +624,7 @@ export function useApproveExperiment() {
             api.patch(`/api/v1/experiments/${experimentId}/approve`, { rationale }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
         },
     })
 }
@@ -630,18 +634,37 @@ export function useRunExperiment() {
     const queryClient = useQueryClient()
 
     return useMutation({
-        mutationFn: ({ experimentId, dataDir, holdoutDays, calibrationDays, maxRows, maxSeries, maxChallengers, experimentSpecId }: RunExperimentPayload) =>
+        mutationFn: ({
+            experimentId,
+            dataDir,
+            validationMode,
+            holdoutDays,
+            calibrationDays,
+            rollingWindowCount,
+            rollingWindowDays,
+            rollingStrideDays,
+            maxRows,
+            maxSeries,
+            maxChallengers,
+            experimentSpecId,
+        }: RunExperimentPayload) =>
             api.post<ExperimentRunExecution>(`/api/v1/experiments/${experimentId}/run`, {
                 data_dir: dataDir,
                 experiment_spec_id: experimentSpecId,
+                validation_mode: validationMode,
                 holdout_days: holdoutDays,
                 calibration_days: calibrationDays,
+                rolling_window_count: rollingWindowCount,
+                rolling_window_days: rollingWindowDays,
+                rolling_stride_days: rollingStrideDays,
                 max_rows: maxRows,
                 max_series: maxSeries,
                 max_challengers: maxChallengers,
             }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['experiment-ledger'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-specs'] })
+            queryClient.invalidateQueries({ queryKey: ['experiment-comparison-report'] })
             queryClient.invalidateQueries({ queryKey: ['ml-models'] })
             queryClient.invalidateQueries({ queryKey: ['model-history'] })
             queryClient.invalidateQueries({ queryKey: ['runtime-model-health'] })

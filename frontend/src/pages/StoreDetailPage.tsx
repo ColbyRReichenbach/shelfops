@@ -46,7 +46,7 @@ export default function StoreDetailPage() {
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight text-[#0071e3]">{store.name}</h1>
                     <p className="mt-1 text-sm text-[#86868b]">
-                        {[store.city, store.state].filter(Boolean).join(', ') || 'Location unavailable'} · {store.timezone}
+                        {[store.city, store.state].filter(Boolean).join(', ') || 'Location pending'} · {store.timezone}
                     </p>
                 </div>
             </div>

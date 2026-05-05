@@ -16,7 +16,7 @@ export default function CalibrationPanel({ evidence, effectiveness }: Calibratio
                     <h2 className="text-lg font-semibold text-[#1d1d1f]">Prediction Range Performance</h2>
                 </div>
                 <div className="rounded-[18px] bg-[#f5f5f7] px-4 py-10 text-sm text-[#6e6e73]">
-                    Coverage evidence is unavailable.
+                    No coverage evidence is available for this model family.
                 </div>
             </section>
         )
@@ -32,14 +32,14 @@ export default function CalibrationPanel({ evidence, effectiveness }: Calibratio
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <CalibrationTile label="Interval method" value={formatLabel(evidence.interval_method ?? 'unknown')} detail="Champion artifact metadata" />
+                <CalibrationTile label="Interval method" value={formatLabel(evidence.interval_method ?? 'not recorded')} detail="Selected model settings" />
                 <CalibrationTile label="Champion coverage" value={formatCoverage(evidence.interval_coverage)} detail="Stored conformal coverage" />
                 <CalibrationTile
                     label="Runtime window coverage"
                     value={runtimeCoverage !== null ? `${(runtimeCoverage * 100).toFixed(1)}%` : '—'}
-                    detail="Rolling effectiveness endpoint"
+                    detail="Latest rolling window"
                 />
-                <CalibrationTile label="Calibration status" value={formatLabel(evidence.calibration_status ?? 'unknown')} detail="Split-conformal intervals available" />
+                <CalibrationTile label="Calibration status" value={formatLabel(evidence.calibration_status ?? 'not recorded')} detail="Split-conformal intervals available" />
             </div>
 
             <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
@@ -65,7 +65,7 @@ export default function CalibrationPanel({ evidence, effectiveness }: Calibratio
                         />
                         <StatusRow
                             label="Runtime rolling coverage"
-                            value={runtimeCoverage !== null ? `${(runtimeCoverage * 100).toFixed(1)}%` : 'Unavailable'}
+                            value={runtimeCoverage !== null ? `${(runtimeCoverage * 100).toFixed(1)}%` : 'not measured'}
                             tone={runtimeCoverage !== null && runtimeCoverage >= 0.85 ? 'good' : 'warn'}
                         />
                         <StatusRow
@@ -115,7 +115,7 @@ function formatLabel(value: string) {
 
 function formatCoverage(value: number | null) {
     if (value === null || value === undefined) {
-        return 'Unavailable'
+        return 'not measured'
     }
     return `${(value * 100).toFixed(1)}%`
 }

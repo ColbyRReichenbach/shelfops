@@ -63,7 +63,7 @@ export default function PilotImpactPage() {
 
                 {impactQuery.isError ? (
                     <div className="rounded-[20px] border border-[#ff3b30]/20 bg-[#ff3b30]/5 px-4 py-4 text-sm text-[#c9342a]">
-                        {getApiErrorDetail(impactQuery.error, 'Failed to load operational impact.')}
+                        {getApiErrorDetail(impactQuery.error, 'Unable to load operational impact.')}
                     </div>
                 ) : impactQuery.isLoading ? (
                     <div className="rounded-[20px] bg-[#f5f5f7] px-4 py-10 text-center text-sm text-[#86868b]">
@@ -81,7 +81,7 @@ export default function PilotImpactPage() {
                 </div>
                 {simulationQuery.isError ? (
                     <div className="card border border-[#ff3b30]/20 bg-[#ff3b30]/5 p-12 text-center text-sm text-[#c9342a]">
-                        {getApiErrorDetail(simulationQuery.error, 'Failed to load simulation report.')}
+                        {getApiErrorDetail(simulationQuery.error, 'Unable to load scenario comparison.')}
                     </div>
                 ) : simulationQuery.isLoading ? (
                     <div className="card p-12 text-center text-sm text-[#86868b]">Loading scenario comparison…</div>
@@ -134,37 +134,37 @@ function EvidenceBoundaryPanel({
                 <EvidenceTile
                     icon={DatabaseZap}
                     label="Data readiness"
-                    value={loading.readiness ? 'Loading' : formatLabel(readiness?.state ?? 'unavailable')}
-                    detail={loading.readiness ? 'readiness check loading' : readiness?.reason_code ?? 'readiness check unavailable'}
+                    value={loading.readiness ? 'Loading' : formatLabel(readiness?.state ?? 'not ready')}
+                    detail={loading.readiness ? 'readiness check loading' : readiness?.reason_code ?? 'readiness check pending'}
                     provenance={loading.readiness ? 'loading' : readiness ? 'measured' : 'unavailable'}
                 />
                 <EvidenceTile
                     icon={Brain}
                     label="Active forecast"
-                    value={loading.modelEvidence ? 'Loading' : modelEvidence?.version ?? 'unavailable'}
+                    value={loading.modelEvidence ? 'Loading' : modelEvidence?.version ?? 'not selected'}
                     detail={loading.modelEvidence
                         ? 'forecast evidence loading'
                         : modelEvidence?.holdout.wape !== null && modelEvidence?.holdout.wape !== undefined
                         ? `Holdout WAPE ${formatPercent(modelEvidence.holdout.wape)}`
-                        : modelEvidence?.dataset_id ?? 'forecast evidence unavailable'}
+                        : modelEvidence?.dataset_id ?? 'forecast evidence pending'}
                     provenance={loading.modelEvidence ? 'loading' : modelEvidence ? 'benchmark' : 'unavailable'}
                 />
                 <EvidenceTile
                     icon={Wallet}
                     label="Decision closeout"
-                    value={loading.impact ? 'Loading' : impact ? `${impact.closed_outcomes} closed` : 'unavailable'}
+                    value={loading.impact ? 'Loading' : impact ? `${impact.closed_outcomes} closed` : 'not measured yet'}
                     detail={loading.impact
                         ? 'outcome evidence loading'
                         : impact
                         ? `${impact.accepted_count} accepted · ${impact.edited_count} edited · ${impact.rejected_count} rejected`
-                        : 'outcome evidence unavailable'}
+                        : 'outcome evidence pending'}
                     provenance={loading.impact ? 'loading' : impact?.closed_outcomes_confidence ?? 'unavailable'}
                 />
                 <EvidenceTile
                     icon={Microscope}
                     label="Policy replay"
-                    value={loading.simulation ? 'Loading' : simulation?.series_used ? `${simulation.series_used.toLocaleString()} series` : 'unavailable'}
-                    detail={loading.simulation ? 'simulation report loading' : simulation ? `${simulation.replay_start} to ${simulation.replay_end}` : 'simulation report unavailable'}
+                    value={loading.simulation ? 'Loading' : simulation?.series_used ? `${simulation.series_used.toLocaleString()} series` : 'not run yet'}
+                    detail={loading.simulation ? 'simulation report loading' : simulation ? `${simulation.replay_start} to ${simulation.replay_end}` : 'simulation report pending'}
                     provenance={loading.simulation ? 'loading' : simulation?.impact_confidence ?? 'unavailable'}
                 />
             </div>

@@ -162,7 +162,7 @@ export default function ForecastsPage() {
         const byCategory = new Map<string, number>()
         forecasts.forEach(f => {
             const product = productMap.get(f.product_id)
-            const cat = product?.category ?? 'Unknown'
+            const cat = product?.category ?? 'Uncategorized'
             if (activeCategory !== 'All' && cat !== activeCategory) return
             byCategory.set(cat, (byCategory.get(cat) ?? 0) + f.forecasted_demand)
         })
@@ -219,7 +219,7 @@ export default function ForecastsPage() {
 
     const summary = useMemo(() => {
         const visibleForecasts = forecasts.filter(f => {
-            const category = productMap.get(f.product_id)?.category ?? 'Unknown'
+            const category = productMap.get(f.product_id)?.category ?? 'Uncategorized'
             return activeCategory === 'All' || category === activeCategory
         })
         const totalDemand = visibleForecasts.reduce((sum, forecast) => sum + forecast.forecasted_demand, 0)
@@ -322,7 +322,7 @@ export default function ForecastsPage() {
 
             {!isLoading && !isError && summary.visibleDays < windowDays && (
                 <div className="surface-muted border border-[#0071e3]/10 bg-[#0071e3]/[0.04] px-4 py-3 text-sm text-[#275ea3]">
-                    Showing {summary.visibleDays} forecast days from the current model run. Extend the generated forecast horizon to fill the full next {windowDays} day view.
+                    Showing {summary.visibleDays} forecast days. Extend the planning horizon to fill the full next {windowDays} day view.
                 </div>
             )}
 
@@ -354,7 +354,7 @@ export default function ForecastsPage() {
             {isError && (
                 <div className="card p-12 text-center bg-[#ff3b30]/5">
                     <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[#ff3b30]" />
-                    <p className="text-sm text-[#ff3b30]">Failed to load forecasts.</p>
+                    <p className="text-sm text-[#ff3b30]">Unable to load forecasts right now.</p>
                 </div>
             )}
 

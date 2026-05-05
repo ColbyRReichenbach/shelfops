@@ -212,7 +212,7 @@ function StatusPill({
 }
 
 function formatLastSync(value: string | null) {
-    if (!value) return 'unknown'
+    if (!value) return 'not recorded'
     return new Date(value).toLocaleString([], {
         month: 'short',
         day: 'numeric',

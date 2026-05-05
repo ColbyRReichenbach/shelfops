@@ -151,7 +151,7 @@ function describeReason(reasonCode: string | undefined) {
         case 'no_csv_or_training_history':
             return 'No imported data or forecast history is available yet for this account.'
         default:
-            return 'A readiness state is available, but the API did not return a more specific explanation.'
+            return 'Readiness has been checked, but no specific action is required from this view.'
     }
 }
 
@@ -170,7 +170,7 @@ function stateTone(state: string | undefined) {
 
 function formatReasonCode(reasonCode: string | undefined) {
     if (!reasonCode) {
-        return 'Status unavailable'
+        return 'Status pending'
     }
 
     return reasonCode.replace(/_/g, ' ')

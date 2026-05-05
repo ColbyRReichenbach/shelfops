@@ -21,7 +21,7 @@ export default function DataQualityEvents({ readiness, sources }: DataQualityEve
 
             {issues.length === 0 ? (
                 <div className="rounded-[20px] bg-[#34c759]/10 px-4 py-4 text-sm text-[#1f8f45]">
-                    No active data-readiness or integration issues were returned by the current API responses.
+                    No active data-readiness or integration issues need attention.
                 </div>
             ) : (
                 <div className="space-y-3">

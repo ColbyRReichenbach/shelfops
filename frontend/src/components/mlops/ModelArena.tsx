@@ -2,6 +2,7 @@
  * ModelArena — Active model vs test model comparison cards.
  */
 
+import { useState } from 'react'
 import { Trophy, Swords, Archive, CheckCircle2, XCircle } from 'lucide-react'
 import type { MLModel } from '@/lib/types'
 
@@ -21,9 +22,13 @@ function formatModelName(name: string): string {
         .replace(/\b\w/g, c => c.toUpperCase())
 }
 
-export default function ModelArena({ models }: { models: MLModel[] }) {
-    // Group by model_name, then show the active version and any test candidates.
-    const grouped = models.reduce<Record<string, MLModel[]>>((acc, m) => {
+export default function ModelArena({ models, initialVisible = 3 }: { models: MLModel[]; initialVisible?: number }) {
+    const [expanded, setExpanded] = useState(false)
+    const orderedModels = [...models].sort(compareModelPriority)
+    const visibleModels = expanded ? orderedModels : orderedModels.slice(0, initialVisible)
+    const hiddenCount = Math.max(orderedModels.length - visibleModels.length, 0)
+
+    const grouped = visibleModels.reduce<Record<string, MLModel[]>>((acc, m) => {
         const key = m.model_name
         if (!acc[key]) acc[key] = []
         acc[key].push(m)
@@ -35,7 +40,7 @@ export default function ModelArena({ models }: { models: MLModel[] }) {
             <div className="card border border-black/[0.02] shadow-sm text-center py-16">
                 <Trophy className="h-8 w-8 mx-auto mb-3 text-[#86868b]" />
                 <p className="text-sm text-[#86868b]">No models registered yet.</p>
-                <p className="text-xs text-[#86868b] mt-1">Run training to populate this view.</p>
+                <p className="text-xs text-[#86868b] mt-1">Approved model versions will appear here after validation runs complete.</p>
             </div>
         )
     }
@@ -45,6 +50,7 @@ export default function ModelArena({ models }: { models: MLModel[] }) {
             {Object.entries(grouped).map(([modelName, versions]) => {
                 const champion = versions.find(v => v.status === 'champion')
                 const challengers = versions.filter(v => v.status === 'challenger' || v.status === 'candidate')
+                const archived = versions.filter(v => v.status === 'archived')
 
                 return (
                     <div key={modelName} className="space-y-3">
@@ -52,10 +58,11 @@ export default function ModelArena({ models }: { models: MLModel[] }) {
                             {formatModelName(modelName)}
                         </h3>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {champion && <ModelCard model={champion} />}
                             {challengers.map(c => <ModelCard key={c.model_id} model={c} />)}
-                            {!champion && challengers.length === 0 && (
+                            {archived.map(model => <ModelCard key={model.model_id} model={model} />)}
+                            {!champion && challengers.length === 0 && archived.length === 0 && (
                                 <div className="card border border-dashed border-black/5 p-4 text-center">
                                     <p className="text-sm text-[#86868b]">No active version</p>
                                 </div>
@@ -64,8 +71,32 @@ export default function ModelArena({ models }: { models: MLModel[] }) {
                     </div>
                 )
             })}
+
+            {orderedModels.length > initialVisible && (
+                <button
+                    type="button"
+                    onClick={() => setExpanded(current => !current)}
+                    className="w-full rounded-lg border border-black/5 bg-white px-4 py-2 text-sm font-medium text-[#0071e3] shadow-sm transition hover:border-[#0071e3]/30"
+                >
+                    {expanded ? 'Show fewer models' : `Show ${hiddenCount} more model${hiddenCount === 1 ? '' : 's'}`}
+                </button>
+            )}
         </div>
     )
+}
+
+function compareModelPriority(a: MLModel, b: MLModel) {
+    const statusRank: Record<string, number> = {
+        champion: 0,
+        challenger: 1,
+        candidate: 2,
+        archived: 3,
+    }
+    const rankDelta = (statusRank[a.status] ?? 4) - (statusRank[b.status] ?? 4)
+    if (rankDelta !== 0) return rankDelta
+    const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
+    const bDate = b.created_at ? new Date(b.created_at).getTime() : 0
+    return bDate - aDate
 }
 
 function ModelCard({ model }: { model: MLModel }) {
@@ -81,14 +112,14 @@ function ModelCard({ model }: { model: MLModel }) {
     const falsePositiveRate = Number(metrics.false_positive_rate ?? NaN)
 
     return (
-        <div className={`card border ${config.border} shadow-sm p-4 ${config.bg}/30`}>
+        <div className={`card min-w-0 overflow-hidden border ${config.border} p-4 shadow-sm ${config.bg}/30`}>
             <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                     <div className={`h-8 w-8 rounded-lg ${config.bg} flex items-center justify-center`}>
                         <Icon className={`h-4 w-4 ${config.color}`} />
                     </div>
-                    <div>
-                        <p className="text-sm font-semibold text-[#1d1d1f]">{model.version}</p>
+                    <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[#1d1d1f]" title={model.version}>{model.version}</p>
                         <span className={`text-xs font-medium ${config.color}`}>{config.label}</span>
                     </div>
                 </div>
@@ -158,17 +189,28 @@ function ModelCard({ model }: { model: MLModel }) {
                 )}
             </div>
 
-            <div className="mt-3 border-t border-black/5 pt-3 space-y-1 text-[11px] text-[#86868b]">
-                {model.dataset_id && <p>Dataset: <span className="font-mono text-[#1d1d1f]">{model.dataset_id}</span></p>}
-                {model.forecast_grain && <p>Grain: <span className="font-mono text-[#1d1d1f]">{model.forecast_grain}</span></p>}
-                {model.segment_strategy && <p>Segmentation: <span className="font-mono text-[#1d1d1f]">{model.segment_strategy}</span></p>}
+            <div className="mt-3 space-y-1 border-t border-black/5 pt-3 text-[11px] text-[#86868b]">
+                {model.dataset_id && <ModelMetadataRow label="Dataset" value={model.dataset_id} />}
+                {model.forecast_grain && <ModelMetadataRow label="Grain" value={model.forecast_grain} />}
+                {model.segment_strategy && <ModelMetadataRow label="Segmentation" value={model.segment_strategy} />}
                 {typeof model.rule_overlay_enabled === 'boolean' && (
-                    <p>Rule overlay: <span className="font-mono text-[#1d1d1f]">{model.rule_overlay_enabled ? 'enabled' : 'raw model only'}</span></p>
+                    <ModelMetadataRow label="Policy overlay" value={model.rule_overlay_enabled ? 'enabled' : 'model only'} />
                 )}
                 {model.promotion_reason && (
-                    <p className="text-[#86868b]">Promotion: {model.promotion_reason.replace(/_/g, ' ')}</p>
+                    <p className="break-words text-[#86868b]">Promotion: {model.promotion_reason.replace(/_/g, ' ')}</p>
                 )}
             </div>
         </div>
+    )
+}
+
+function ModelMetadataRow({ label, value }: { label: string; value: string }) {
+    return (
+        <p className="min-w-0">
+            {label}:{' '}
+            <span className="break-words font-mono text-[#1d1d1f] [overflow-wrap:anywhere]" title={value}>
+                {value}
+            </span>
+        </p>
     )
 }

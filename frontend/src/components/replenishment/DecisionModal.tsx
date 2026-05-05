@@ -16,17 +16,17 @@ interface DecisionModalProps {
 const actionCopy = {
     accept: {
         title: 'Accept Recommendation',
-        body: 'Approve the suggested quantity and create the linked PO decision.',
+        body: 'Approve the suggested quantity, create the purchase order, and log the buyer decision for outcome attribution.',
         submitLabel: 'Accept and Create PO',
     },
     edit: {
         title: 'Edit Quantity',
-        body: 'Adjust the quantity, capture a reason code, and store the buyer override.',
+        body: 'Adjust the quantity, capture a reason code, and log the override for outcome attribution.',
         submitLabel: 'Save Override',
     },
     reject: {
         title: 'Reject Recommendation',
-        body: 'Close this recommendation without creating a PO and capture the buyer rationale.',
+        body: 'Close this recommendation without creating a purchase order and log the rationale for outcome attribution.',
         submitLabel: 'Reject Recommendation',
     },
 } as const
@@ -104,7 +104,7 @@ export default function DecisionModal({
                         <input
                             value={reasonCode}
                             onChange={event => setReasonCode(event.target.value)}
-                            placeholder={action === 'edit' ? 'min_order_qty_override' : 'buyer_confirmed'}
+                            placeholder={action === 'edit' ? 'Minimum order quantity' : 'Buyer confirmed'}
                             className="input"
                         />
                     </label>

@@ -17,6 +17,7 @@ import {
     PanelLeftOpen,
 } from 'lucide-react'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import ShelfOpsLogo from '@/components/ShelfOpsLogo'
 import { useAlertSummary } from '@/hooks/useShelfOps'
 
 const primaryNavItems = [
@@ -63,12 +64,7 @@ export default function ModernDashboardLayout() {
                         className={`flex items-center gap-3 ${isCollapsed ? 'justify-center' : ''}`}
                         title="ShelfOps"
                     >
-                        <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-[#0071e3] to-[#34c759] flex items-center justify-center shadow-sm">
-                            <Package className="w-5 h-5 text-white" />
-                        </div>
-                        {!isCollapsed && (
-                            <span className="font-semibold text-lg tracking-tight text-[#1d1d1f]">ShelfOps</span>
-                        )}
+                        <ShelfOpsLogo collapsed={isCollapsed} />
                     </Link>
                     <button
                         type="button"
@@ -132,7 +128,7 @@ export default function ModernDashboardLayout() {
 
             {/* Main Content */}
             <main
-                className={`min-h-screen flex-1 transition-[margin] duration-300 ${
+                className={`min-h-screen min-w-0 flex-1 overflow-x-hidden transition-[margin] duration-300 ${
                     isCollapsed ? 'ml-24' : 'ml-64'
                 }`}
             >

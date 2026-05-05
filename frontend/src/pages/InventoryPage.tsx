@@ -123,7 +123,7 @@ export default function InventoryPage() {
             {isError && (
                 <div className="card text-center py-16 bg-[#ff3b30]/5">
                     <AlertCircle className="h-8 w-8 mx-auto mb-3 text-[#ff3b30]" />
-                    <p className="text-sm text-[#ff3b30]">Failed to load inventory.</p>
+                    <p className="text-sm text-[#ff3b30]">Unable to load inventory right now.</p>
                 </div>
             )}
 

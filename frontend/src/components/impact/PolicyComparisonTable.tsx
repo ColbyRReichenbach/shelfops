@@ -44,7 +44,7 @@ export default function PolicyComparisonTable({ report }: PolicyComparisonTableP
                                     <td className="px-6 py-4">
                                         <div>
                                             <p className="text-sm font-semibold text-[#1d1d1f]">{row.policy_name}</p>
-                                            <p className="mt-1 text-xs text-[#86868b]">{report.policy_version ?? report.policy_versions?.[0] ?? 'policy version unavailable'}</p>
+                                            <p className="mt-1 text-xs text-[#86868b]">{report.policy_version ?? report.policy_versions?.[0] ?? 'policy version pending'}</p>
                                         </div>
                                     </td>
                                     <td className="px-4 py-4 text-sm text-[#1d1d1f]">{(row.service_level * 100).toFixed(1)}%</td>
