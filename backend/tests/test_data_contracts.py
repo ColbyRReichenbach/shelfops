@@ -114,6 +114,71 @@ def test_generic_flat_csv_ignores_lookup_only_files(tmp_path: Path):
     assert len(out) == 2
 
 
+def test_load_canonical_transactions_prefers_prepared_canonical_csv(tmp_path: Path):
+    pd.DataFrame(
+        [
+            {
+                "date": "2024-01-01",
+                "store_id": "S1",
+                "product_id": "SKU1",
+                "quantity": 5,
+                "category": "FOODS",
+                "dataset_id": "m5_walmart",
+                "country_code": "US",
+                "frequency": "daily",
+            }
+        ]
+    ).to_csv(tmp_path / "canonical_transactions.csv", index=False)
+    # Conflicting raw-looking file should not override the prepared canonical output.
+    pd.DataFrame([{"date": "2024-01-01", "store_id": "S1", "quantity": 1}]).to_csv(
+        tmp_path / "transactions.csv", index=False
+    )
+
+    out = load_canonical_transactions(str(tmp_path))
+    assert out["dataset_id"].iloc[0] == "m5_walmart"
+    assert out["country_code"].iloc[0] == "US"
+    assert out["frequency"].iloc[0] == "daily"
+
+
+def test_load_freshretailnet_contract(tmp_path: Path):
+    frame = pd.DataFrame(
+        [
+            {
+                "city_id": 1,
+                "store_id": 101,
+                "management_group_id": 10,
+                "first_category_id": 100,
+                "second_category_id": 110,
+                "third_category_id": 111,
+                "product_id": 999,
+                "dt": "2024-03-30",
+                "sale_amount": 12.0,
+                "hours_sale": [0.0] * 24,
+                "stock_hour6_22_cnt": 2,
+                "hours_stock_status": [0] * 24,
+                "discount": 0.95,
+                "holiday_flag": 0,
+                "activity_flag": 0,
+                "precpt": 1.2,
+                "avg_temperature": 15.0,
+                "avg_humidity": 77.0,
+                "avg_wind_level": 1.1,
+            }
+        ]
+    )
+    frame.to_parquet(tmp_path / "train.parquet", index=False)
+    frame.to_parquet(tmp_path / "eval.parquet", index=False)
+
+    readiness = inspect_dataset_readiness(tmp_path)
+    assert readiness.dataset_id == "freshretailnet_50k"
+    assert readiness.status == "ready"
+
+    out = load_canonical_transactions(str(tmp_path))
+    assert out["dataset_id"].iloc[0] == "freshretailnet_50k"
+    assert out["frequency"].iloc[0] == "daily"
+    assert "stockout_window" in out.columns
+
+
 def test_retrain_loader_uses_canonical_contract(tmp_path: Path):
     pd.DataFrame(
         [

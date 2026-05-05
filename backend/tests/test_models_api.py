@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import select
@@ -68,6 +70,104 @@ async def test_models_health_uses_real_drift_and_data_signals(client, seeded_db,
     assert triggers["new_data_available"] is True
     assert triggers["new_data_rows_since_last_retrain"] >= 1
     assert payload["recent_retraining_events"][0]["trigger_type"] == "scheduled"
+    assert payload["models_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_active_model_evidence_reads_champion_artifacts(client):
+    response = await client.get("/api/v1/ml/models/evidence/active")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "v3"
+    assert payload["dataset_id"] == "m5_walmart"
+    assert payload["dataset_snapshot_id"] == "dsnap_09e19c9147a57fe5"
+    assert payload["architecture"] == "lightgbm"
+    assert payload["interval_method"] == "split_conformal"
+    assert payload["benchmark_rows"][0]["label"] == "Active model holdout"
+    assert payload["claim_boundary"] == "This is benchmark evidence, not pilot evidence."
+
+
+@pytest.mark.asyncio
+async def test_active_anomaly_model_evidence_reads_freshretailnet_artifacts(client):
+    response = await client.get("/api/v1/ml/models/evidence/active?model_name=anomaly_detector")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "a1"
+    assert payload["model_name"] == "anomaly_detector"
+    assert payload["dataset_id"] == "freshretailnet_50k"
+    assert payload["benchmark_metrics"]["precision"] == pytest.approx(0.7409)
+    assert payload["shadow"]["challenger_version"] == "a2"
+    assert payload["feedback"]["feedback_provenance"] == "unavailable"
+    assert (
+        payload["claim_boundary"]
+        == "Benchmark anomaly evidence only. Buyer outcomes require real cycle-count feedback."
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_anomaly_model_evidence_includes_shadow_feedback(client, seeded_db, test_db):
+    from datetime import date
+
+    from db.models import AnomalyDetectionRun, AnomalyShadowPrediction
+
+    run = AnomalyDetectionRun(
+        customer_id=seeded_db["customer_id"],
+        model_name="anomaly_detector",
+        model_version="a2",
+        run_type="shadow",
+        dataset_id="freshretailnet_50k",
+        dataset_snapshot_id="dsnap_80ba1c489deb6f33",
+        threshold=0.35,
+        status="completed",
+        rows_scored=100,
+        anomalies_detected=12,
+        precision=0.5,
+        recall=0.2,
+        false_positive_rate=0.1,
+        review_rate=0.12,
+        provenance="benchmark",
+        completed_at=datetime.utcnow(),
+    )
+    test_db.add(run)
+    await test_db.flush()
+    test_db.add(
+        AnomalyShadowPrediction(
+            run_id=run.run_id,
+            customer_id=seeded_db["customer_id"],
+            store_id=seeded_db["store"].store_id,
+            product_id=seeded_db["product"].product_id,
+            detected_for_date=date.today(),
+            champion_version="a1",
+            challenger_version="a2",
+            champion_score=0.25,
+            challenger_score=0.62,
+            champion_flag=False,
+            challenger_flag=True,
+            actual_outcome="true_positive",
+        )
+    )
+    await test_db.commit()
+
+    response = await client.get("/api/v1/ml/models/evidence/active?model_name=anomaly_detector")
+
+    assert response.status_code == 200
+    feedback = response.json()["feedback"]
+    assert feedback["runs_total"] == 1
+    assert feedback["shadow_predictions"] == 1
+    assert feedback["disagreements"] == 1
+    assert feedback["measured_precision"] == pytest.approx(1.0)
+    assert feedback["feedback_provenance"] == "measured"
+
+
+def test_active_champion_metadata_has_no_legacy_lstm_fields():
+    metadata_path = Path("backend/models/v3/metadata.json")
+    payload = json.loads(metadata_path.read_text())
+
+    assert "weights" not in payload
+    assert "lstm_metrics" not in payload
+    assert "ensemble_mae" not in payload
 
 
 @pytest.mark.asyncio

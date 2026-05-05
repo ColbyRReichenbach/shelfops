@@ -1,22 +1,19 @@
-"""
-WebSocket endpoint for real-time alert delivery.
-
-Agent: full-stack-engineer
-Skill: alert-systems (Redis pub/sub pattern)
-"""
+"""WebSocket endpoint for real-time alert delivery."""
 
 import asyncio
-import json
 from typing import cast
 
 import redis.asyncio as aioredis
+import structlog
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
+from redis.exceptions import RedisError
 
 from core.config import get_settings
 
 settings = get_settings()
 router = APIRouter()
+logger = structlog.get_logger()
 
 
 async def authenticate_ws(token: str) -> dict | None:
@@ -83,11 +80,27 @@ async def websocket_alerts(websocket: WebSocket, token: str | None = Query(None)
 
     redis = None
     pubsub = None
+    subscribed = False
     try:
         # Subscribe to Redis channel
         redis = aioredis.from_url(settings.redis_url)
         pubsub = redis.pubsub()
-        await pubsub.subscribe(channel)
+        try:
+            await pubsub.subscribe(channel)
+        except RedisError as exc:
+            logger.warning("websocket.redis_unavailable", error=str(exc))
+            await websocket.send_json(
+                {
+                    "type": "connection_status",
+                    "payload": {
+                        "status": "degraded",
+                        "reason": "alert_stream_unavailable",
+                    },
+                }
+            )
+            await websocket.close(code=1013, reason="Alert stream unavailable")
+            return
+        subscribed = True
 
         # Send heartbeat + listen for Redis messages
         async def listen_redis():
@@ -112,12 +125,17 @@ async def websocket_alerts(websocket: WebSocket, token: str | None = Query(None)
     except WebSocketDisconnect:
         pass
     except Exception as exc:
-        import structlog
-
-        structlog.get_logger().error("websocket.error", error=str(exc))
+        logger.error("websocket.error", error=str(exc))
     finally:
         if pubsub:
-            await pubsub.unsubscribe(channel)
-            await pubsub.aclose()
+            try:
+                if subscribed:
+                    await pubsub.unsubscribe(channel)
+                await pubsub.aclose()
+            except RedisError as exc:
+                logger.warning("websocket.redis_cleanup_failed", error=str(exc))
         if redis:
-            await redis.aclose()
+            try:
+                await redis.aclose()
+            except RedisError as exc:
+                logger.warning("websocket.redis_close_failed", error=str(exc))

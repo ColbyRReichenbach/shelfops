@@ -1,7 +1,7 @@
 """
 ShelfOps Database Models
 
-29 tables for the inventory intelligence platform.
+Database models for the inventory intelligence platform.
 Multi-tenant via customer_id on all tables.
 TimescaleDB hypertables: transactions, inventory_levels, dc_inventory.
 
@@ -40,6 +40,7 @@ Tables:
   25. reorder_history        - Audit trail of ROP changes
   26. po_decisions           - Reason codes for PO approve/reject
   27. opportunity_cost_log   - Quantify stockout/overstock impact
+  28. recommendation_decisions - Structured accept/edit/reject recommendation feedback
 """
 
 import uuid
@@ -120,6 +121,7 @@ class Customer(Base):
     email = Column(String(255), nullable=False, unique=True)
     plan = Column(String(50), nullable=False, default="starter")
     status = Column(String(20), nullable=False, default="active")
+    is_demo = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -543,7 +545,7 @@ class Integration(Base):
         UniqueConstraint("customer_id", "provider", name="uq_integration_per_provider"),
         Index("ix_integrations_customer", "customer_id"),
         CheckConstraint(
-            "provider IN ('square', 'shopify', 'lightspeed', 'clover', "
+            "provider IN ('csv', 'square', 'shopify', 'lightspeed', 'clover', "
             "'oracle_retail', 'sap', 'relex', 'manhattan', 'blue_yonder', "
             "'custom_edi', 'custom_sftp', 'kafka', 'pubsub')",
             name="ck_integration_provider",
@@ -587,6 +589,80 @@ class Anomaly(Base):
         ),
         CheckConstraint(
             "status IN ('detected', 'investigating', 'resolved', 'false_positive')", name="ck_anomaly_status"
+        ),
+    )
+
+
+class AnomalyDetectionRun(Base):
+    """Auditable anomaly model scoring or benchmark replay run."""
+
+    __tablename__ = "anomaly_detection_runs"
+
+    run_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    model_name = Column(String(50), nullable=False, default="anomaly_detector")
+    model_version = Column(String(50), nullable=False)
+    run_type = Column(String(30), nullable=False)
+    dataset_id = Column(String(100), nullable=True)
+    dataset_snapshot_id = Column(String(100), nullable=True)
+    threshold = Column(Float, nullable=True)
+    status = Column(String(20), nullable=False, default="completed")
+    rows_scored = Column(Integer, nullable=False, default=0)
+    anomalies_detected = Column(Integer, nullable=False, default=0)
+    precision = Column(Float, nullable=True)
+    recall = Column(Float, nullable=True)
+    f1 = Column(Float, nullable=True)
+    false_positive_rate = Column(Float, nullable=True)
+    review_rate = Column(Float, nullable=True)
+    provenance = Column(String(20), nullable=False, default="benchmark")
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    completed_at = Column(DateTime, nullable=True)
+    run_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_anomaly_runs_customer_model", "customer_id", "model_name", "started_at"),
+        CheckConstraint(
+            "run_type IN ('scheduled', 'manual', 'benchmark_replay', 'shadow')",
+            name="ck_anomaly_run_type",
+        ),
+        CheckConstraint("status IN ('running', 'completed', 'failed')", name="ck_anomaly_run_status"),
+        CheckConstraint(
+            "provenance IN ('measured', 'estimated', 'simulated', 'benchmark', 'provisional', 'unavailable')",
+            name="ck_anomaly_run_provenance",
+        ),
+        CheckConstraint("rows_scored >= 0", name="ck_anomaly_run_rows_nonnegative"),
+        CheckConstraint("anomalies_detected >= 0", name="ck_anomaly_run_detected_nonnegative"),
+    )
+
+
+class AnomalyShadowPrediction(Base):
+    """Champion/challenger anomaly prediction pair with optional review outcome."""
+
+    __tablename__ = "anomaly_shadow_predictions"
+
+    prediction_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id = Column(UUID(as_uuid=True), ForeignKey("anomaly_detection_runs.run_id"), nullable=True)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    detected_for_date = Column(Date, nullable=False)
+    champion_version = Column(String(50), nullable=False)
+    challenger_version = Column(String(50), nullable=False)
+    champion_score = Column(Float, nullable=False)
+    challenger_score = Column(Float, nullable=False)
+    champion_flag = Column(Boolean, nullable=False, default=False)
+    challenger_flag = Column(Boolean, nullable=False, default=False)
+    actual_outcome = Column(String(30), nullable=True)
+    outcome_recorded_at = Column(DateTime, nullable=True)
+    prediction_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_anomaly_shadow_customer_date", "customer_id", "detected_for_date"),
+        Index("ix_anomaly_shadow_run", "run_id"),
+        CheckConstraint(
+            "actual_outcome IS NULL OR actual_outcome IN ('true_positive', 'false_positive', 'resolved', 'investigating')",
+            name="ck_anomaly_shadow_outcome",
         ),
     )
 
@@ -933,8 +1009,9 @@ class ReorderHistory(Base):
 class PODecision(Base):
     """Captures why a human approved, rejected, or edited a purchase order.
 
-    These reason codes feed back into the ML pipeline as features,
-    allowing the model to learn from human overrides.
+    These reason codes are available as lagged feedback features for legacy
+    PO workflows. Replenishment recommendation decisions are the primary
+    structured feedback path for the replenishment queue.
     """
 
     __tablename__ = "po_decisions"
@@ -1032,6 +1109,35 @@ class ModelVersion(Base):
     __table_args__ = (
         Index("ix_model_versions_customer_status", "customer_id", "model_name", "status"),
         Index("ix_model_versions_customer_name_version", "customer_id", "model_name", "version", unique=True),
+    )
+
+
+class DatasetSnapshot(Base):
+    """Canonical dataset snapshot metadata for benchmark and pilot training runs."""
+
+    __tablename__ = "dataset_snapshots"
+
+    snapshot_id = Column(String(32), primary_key=True)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True)
+    dataset_id = Column(String(100), nullable=False)
+    source_type = Column(String(50), nullable=False)
+    row_count = Column(Integer, nullable=False)
+    store_count = Column(Integer, nullable=False)
+    product_count = Column(Integer, nullable=False)
+    date_min = Column(Date, nullable=True)
+    date_max = Column(Date, nullable=True)
+    content_hash = Column(String(64), nullable=False, unique=True)
+    schema_version = Column(String(20), nullable=False)
+    frequency = Column(String(30), nullable=False)
+    forecast_grain = Column(String(80), nullable=False)
+    geography = Column(String(50), nullable=False)
+    implementation_status = Column(String(50), nullable=False)
+    claim_boundaries_ref = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_dataset_snapshots_dataset_id", "dataset_id"),
+        Index("ix_dataset_snapshots_customer", "customer_id"),
     )
 
 
@@ -1212,7 +1318,171 @@ class MLAlert(Base):
     __table_args__ = (Index("ix_ml_alerts_customer_status", "customer_id", "status", "created_at"),)
 
 
-# ─── 34. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
+# ─── 34. Experiment Governance (Context, Hypotheses, Agent Traces) ─────────
+
+
+class ExperimentContextPackage(Base):
+    """
+    Immutable-ish context bundle used to keep manual and AI-assisted DS work
+    reproducible against the same benchmark, champion, claims, and controls.
+    """
+
+    __tablename__ = "experiment_context_packages"
+
+    context_package_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    package_name = Column(String(255), nullable=False)
+    model_name = Column(String(50), nullable=False)
+    baseline_version = Column(String(50), nullable=True)
+    dataset_id = Column(String(100), nullable=True)
+    dataset_snapshot_id = Column(String(100), nullable=True)
+    package_type = Column(String(30), nullable=False, default="manual_vs_ai")
+    artifact_uri = Column(String(500), nullable=True)
+    context_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    allowed_experiment_types = Column(JSONB_TYPE, nullable=False, default=list)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "package_type IN ('manual_vs_ai', 'manual', 'ai_agent', 'benchmark')",
+            name="ck_experiment_context_package_type",
+        ),
+        Index("ix_experiment_context_customer_model", "customer_id", "model_name", "created_at"),
+        Index("ix_experiment_context_customer_created", "customer_id", "created_at"),
+    )
+
+
+class ExperimentSpec(Base):
+    """
+    Immutable executable model experiment recipe.
+
+    Specs are the bridge between a DS hypothesis and the actual runner inputs:
+    feature windows, LightGBM objective/parameters, calibration strategy,
+    decision replay assumptions, promotion gates, and provenance.
+    """
+
+    __tablename__ = "experiment_specs"
+
+    experiment_spec_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    model_name = Column(String(50), nullable=False)
+    dataset_id = Column(String(100), nullable=False)
+    template_id = Column(String(100), nullable=False)
+    spec_name = Column(String(255), nullable=False)
+    spec_version = Column(String(40), nullable=False)
+    spec_hash = Column(String(64), nullable=False)
+    spec = Column(JSONB_TYPE, nullable=False)
+    spec_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_by = Column(String(255), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "model_name IN ('demand_forecast', 'anomaly_detector')",
+            name="ck_experiment_spec_model_name",
+        ),
+        CheckConstraint(
+            "dataset_id IN ('m5_walmart', 'freshretailnet_50k')",
+            name="ck_experiment_spec_dataset_id",
+        ),
+        Index("ix_experiment_specs_customer_model", "customer_id", "model_name", "created_at"),
+        Index("ix_experiment_specs_context", "context_package_id", "created_at"),
+        Index("ix_experiment_specs_hash", "customer_id", "spec_hash"),
+    )
+
+
+class ExperimentHypothesis(Base):
+    """Governed hypothesis backlog for human and agent-proposed experiment ideas."""
+
+    __tablename__ = "experiment_hypotheses"
+
+    hypothesis_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    experiment_spec_id = Column(UUID(as_uuid=True), ForeignKey("experiment_specs.experiment_spec_id"), nullable=True)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("model_experiments.experiment_id"), nullable=True)
+    model_name = Column(String(50), nullable=False)
+    experiment_source = Column(String(20), nullable=False, default="manual")
+    title = Column(String(255), nullable=False)
+    hypothesis = Column(Text, nullable=False)
+    experiment_type = Column(String(50), nullable=False)
+    domain_rationale = Column(Text, nullable=True)
+    expected_metric_movement = Column(JSONB_TYPE, nullable=False, default=dict)
+    risk_notes = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="proposed")
+    generated_by = Column(String(255), nullable=False)
+    reviewed_by = Column(String(255), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    hypothesis_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "experiment_source IN ('manual', 'ai_assisted', 'ai_agent')",
+            name="ck_experiment_hypothesis_source",
+        ),
+        CheckConstraint(
+            "status IN ('proposed', 'approved', 'rejected', 'converted', 'archived')",
+            name="ck_experiment_hypothesis_status",
+        ),
+        Index("ix_experiment_hypotheses_customer_model", "customer_id", "model_name", "status", "created_at"),
+        Index("ix_experiment_hypotheses_context", "context_package_id", "status"),
+        Index("ix_experiment_hypotheses_spec", "experiment_spec_id", "status"),
+    )
+
+
+class ExperimentAgentTrace(Base):
+    """
+    Auditable record of agent/LLM inputs, allowed tools, generated output, and
+    the human decision applied to that output.
+    """
+
+    __tablename__ = "experiment_agent_traces"
+
+    trace_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    hypothesis_id = Column(UUID(as_uuid=True), ForeignKey("experiment_hypotheses.hypothesis_id"), nullable=True)
+    experiment_id = Column(UUID(as_uuid=True), ForeignKey("model_experiments.experiment_id"), nullable=True)
+    agent_name = Column(String(100), nullable=False)
+    agent_model = Column(String(100), nullable=True)
+    trace_type = Column(String(30), nullable=False)
+    prompt_hash = Column(String(64), nullable=True)
+    prompt_preview = Column(Text, nullable=True)
+    input_context = Column(JSONB_TYPE, nullable=False, default=dict)
+    tool_allowlist = Column(JSONB_TYPE, nullable=False, default=list)
+    generated_output = Column(JSONB_TYPE, nullable=False, default=dict)
+    human_decision = Column(String(30), nullable=False, default="pending")
+    human_decision_by = Column(String(255), nullable=True)
+    human_decision_at = Column(DateTime, nullable=True)
+    human_decision_rationale = Column(Text, nullable=True)
+    trace_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint(
+            "trace_type IN ('hypothesis_generation', 'experiment_plan', 'interpretation', 'execution_review')",
+            name="ck_experiment_agent_trace_type",
+        ),
+        CheckConstraint(
+            "human_decision IN ('pending', 'approved', 'rejected', 'edited', 'not_required')",
+            name="ck_experiment_agent_trace_human_decision",
+        ),
+        Index("ix_experiment_agent_traces_customer", "customer_id", "created_at"),
+        Index("ix_experiment_agent_traces_context", "context_package_id", "trace_type"),
+        Index("ix_experiment_agent_traces_hypothesis", "hypothesis_id", "trace_type"),
+    )
+
+
+# ─── 35. Model Experiments (Human-Led Hypothesis Testing) ──────────────────
 
 
 class ModelExperiment(Base):
@@ -1241,6 +1511,11 @@ class ModelExperiment(Base):
     model_name = Column(String(50), nullable=False)  # 'demand_forecast', 'promo_lift', etc.
     baseline_version = Column(String(20), nullable=True)  # Champion version at experiment start
     experimental_version = Column(String(20), nullable=True)  # Version produced by experiment
+    experiment_source = Column(String(20), nullable=False, default="manual")
+    context_package_id = Column(
+        UUID(as_uuid=True), ForeignKey("experiment_context_packages.context_package_id"), nullable=True
+    )
+    experiment_spec_id = Column(UUID(as_uuid=True), ForeignKey("experiment_specs.experiment_spec_id"), nullable=True)
     status = Column(String(20), nullable=False, default="proposed")
     proposed_by = Column(String(255), nullable=False)  # User ID or email
     approved_by = Column(String(255), nullable=True)
@@ -1250,10 +1525,18 @@ class ModelExperiment(Base):
     approved_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
-    __table_args__ = (Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),)
+    __table_args__ = (
+        CheckConstraint(
+            "experiment_source IN ('manual', 'ai_assisted', 'ai_agent')",
+            name="ck_model_experiments_source",
+        ),
+        Index("ix_model_experiments_customer", "customer_id", "status", "created_at"),
+        Index("ix_model_experiments_context", "context_package_id", "experiment_source"),
+        Index("ix_model_experiments_spec", "experiment_spec_id", "status"),
+    )
 
 
-# ─── 35. Integration Sync Log ──────────────────────────────────────────────
+# ─── 36. Integration Sync Log ──────────────────────────────────────────────
 
 
 class IntegrationSyncLog(Base):
@@ -1276,4 +1559,186 @@ class IntegrationSyncLog(Base):
     __table_args__ = (
         Index("ix_sync_log_customer_type", "customer_id", "integration_type"),
         Index("ix_sync_log_started_at", "started_at"),
+    )
+
+
+# ─── 36. Replenishment Recommendations ────────────────────────────────────
+
+
+class ReplenishmentRecommendation(Base):
+    """Stored buyer-facing replenishment recommendation with model/policy provenance."""
+
+    __tablename__ = "replenishment_recommendations"
+
+    recommendation_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.supplier_id"), nullable=True)
+    linked_po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.po_id"), nullable=True)
+    status = Column(String(20), nullable=False, default="open")
+    forecast_model_version = Column(String(50), nullable=False)
+    policy_version = Column(String(50), nullable=False)
+    horizon_days = Column(Integer, nullable=False)
+    recommended_quantity = Column(Integer, nullable=False)
+    quantity_available = Column(Integer, nullable=False)
+    quantity_on_order = Column(Integer, nullable=False, default=0)
+    inventory_position = Column(Integer, nullable=False)
+    reorder_point = Column(Integer, nullable=False)
+    safety_stock = Column(Integer, nullable=False)
+    economic_order_qty = Column(Integer, nullable=False)
+    lead_time_days = Column(Integer, nullable=False)
+    service_level = Column(Float, nullable=False)
+    estimated_unit_cost = Column(Float, nullable=True)
+    estimated_total_cost = Column(Float, nullable=True)
+    source_type = Column(String(20), nullable=True)
+    source_id = Column(UUID(as_uuid=True), nullable=True)
+    interval_method = Column(String(50), nullable=True)
+    calibration_status = Column(String(50), nullable=True)
+    no_order_stockout_risk = Column(String(20), nullable=False)
+    order_overstock_risk = Column(String(20), nullable=False)
+    recommendation_rationale = Column(JSONB_TYPE, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_recommendations_customer_status", "customer_id", "status", "created_at"),
+        Index("ix_recommendations_store_product", "store_id", "product_id", "created_at"),
+        CheckConstraint(
+            "status IN ('open', 'accepted', 'edited', 'rejected', 'expired')", name="ck_recommendation_status"
+        ),
+        CheckConstraint("recommended_quantity >= 0", name="ck_recommendation_qty_non_negative"),
+        CheckConstraint("service_level >= 0 AND service_level <= 1", name="ck_recommendation_service_level_range"),
+        CheckConstraint(
+            "no_order_stockout_risk IN ('low', 'medium', 'high')",
+            name="ck_recommendation_stockout_risk",
+        ),
+        CheckConstraint(
+            "order_overstock_risk IN ('low', 'medium', 'high')",
+            name="ck_recommendation_overstock_risk",
+        ),
+    )
+
+
+class RecommendationDecision(Base):
+    """Structured buyer decision event for a replenishment recommendation.
+
+    This records accept/edit/reject independently of purchase-order creation so
+    rejected recommendations can still become auditable model and policy
+    feedback.
+    """
+
+    __tablename__ = "recommendation_decisions"
+
+    decision_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    recommendation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("replenishment_recommendations.recommendation_id"),
+        nullable=False,
+        unique=True,
+    )
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    linked_po_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.po_id"), nullable=True)
+    decision_type = Column(String(20), nullable=False)
+    recommended_qty = Column(Integer, nullable=False)
+    final_qty = Column(Integer, nullable=False)
+    override_qty_delta = Column(Integer, nullable=False, default=0)
+    override_pct = Column(Float, nullable=True)
+    reason_code = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    decided_by = Column(String(255), nullable=True)
+    decided_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    forecast_model_version = Column(String(50), nullable=False)
+    policy_version = Column(String(50), nullable=False)
+    decision_metadata = Column(JSONB_TYPE, nullable=False, default=dict)
+
+    __table_args__ = (
+        Index("ix_recommendation_decisions_customer", "customer_id", "decided_at"),
+        Index("ix_recommendation_decisions_store_product", "store_id", "product_id", "decided_at"),
+        CheckConstraint(
+            "decision_type IN ('accepted', 'edited', 'rejected')",
+            name="ck_recommendation_decision_type",
+        ),
+        CheckConstraint("recommended_qty >= 0", name="ck_recommendation_decision_recommended_qty_non_negative"),
+        CheckConstraint("final_qty >= 0", name="ck_recommendation_decision_final_qty_non_negative"),
+    )
+
+
+class RecommendationOutcome(Base):
+    """Closed-loop realized outcome for a replenishment recommendation."""
+
+    __tablename__ = "recommendation_outcomes"
+
+    outcome_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    recommendation_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("replenishment_recommendations.recommendation_id"),
+        nullable=False,
+        unique=True,
+    )
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=False)
+    store_id = Column(UUID(as_uuid=True), ForeignKey("stores.store_id"), nullable=False)
+    product_id = Column(UUID(as_uuid=True), ForeignKey("products.product_id"), nullable=False)
+    horizon_start_date = Column(Date, nullable=False)
+    horizon_end_date = Column(Date, nullable=False)
+    actual_sales_qty = Column(Float, nullable=False)
+    actual_demand_qty = Column(Float, nullable=False)
+    ending_inventory_qty = Column(Integer, nullable=True)
+    stockout_event = Column(Boolean, nullable=False, default=False)
+    overstock_event = Column(Boolean, nullable=False, default=False)
+    forecast_error_abs = Column(Float, nullable=False)
+    estimated_stockout_value = Column(Float, nullable=True)
+    estimated_overstock_cost = Column(Float, nullable=True)
+    net_estimated_value = Column(Float, nullable=True)
+    demand_confidence = Column(String(20), nullable=False, default="measured")
+    value_confidence = Column(String(20), nullable=False, default="estimated")
+    status = Column(String(20), nullable=False, default="closed")
+    computed_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index("ix_recommendation_outcomes_customer", "customer_id", "computed_at"),
+        Index("ix_recommendation_outcomes_store_product", "store_id", "product_id", "computed_at"),
+        CheckConstraint("actual_sales_qty >= 0", name="ck_recommendation_outcome_sales_non_negative"),
+        CheckConstraint("actual_demand_qty >= 0", name="ck_recommendation_outcome_demand_non_negative"),
+        CheckConstraint("forecast_error_abs >= 0", name="ck_recommendation_outcome_error_non_negative"),
+        CheckConstraint(
+            "demand_confidence IN ('measured', 'estimated', 'provisional', 'unavailable')",
+            name="ck_recommendation_outcome_demand_confidence",
+        ),
+        CheckConstraint(
+            "value_confidence IN ('measured', 'estimated', 'provisional', 'unavailable')",
+            name="ck_recommendation_outcome_value_confidence",
+        ),
+        CheckConstraint("status IN ('closed', 'provisional')", name="ck_recommendation_outcome_status"),
+    )
+
+
+class WebhookEventLog(Base):
+    """Persist inbound webhook deliveries before processing and replay."""
+
+    __tablename__ = "webhook_event_log"
+
+    webhook_event_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    customer_id = Column(UUID(as_uuid=True), ForeignKey("customers.customer_id"), nullable=True)
+    integration_id = Column(UUID(as_uuid=True), ForeignKey("integrations.integration_id"), nullable=True)
+    provider = Column(String(50), nullable=False)
+    merchant_id = Column(String(255), nullable=True)
+    event_type = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default="received")
+    delivery_attempts = Column(Integer, nullable=False, default=0)
+    payload = Column(JSONB_TYPE, nullable=False)
+    headers = Column(JSONB_TYPE, nullable=True)
+    last_error = Column(Text, nullable=True)
+    received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index("ix_webhook_event_log_provider_status", "provider", "status", "received_at"),
+        Index("ix_webhook_event_log_customer", "customer_id", "received_at"),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'failed', 'replayed', 'dead_letter', 'invalid_signature')",
+            name="ck_webhook_event_log_status",
+        ),
+        CheckConstraint("delivery_attempts >= 0", name="ck_webhook_event_log_attempts_non_negative"),
     )

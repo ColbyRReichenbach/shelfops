@@ -137,6 +137,23 @@ class TestEOQ:
         # √(2×100000×200/10) = √4000000 = 2000
         assert eoq == 2000
 
+    def test_perishable_economics_adds_spoilage_cost(self):
+        product = type(
+            "ProductStub",
+            (),
+            {
+                "unit_cost": 2.5,
+                "shelf_life_days": 5,
+                "is_perishable": True,
+            },
+        )()
+
+        economics = InventoryOptimizer._resolve_retail_economics(product, 10.0)
+
+        assert economics["is_perishable"] is True
+        assert economics["spoilage_cost_annual"] == 182.5
+        assert economics["effective_holding_cost_annual"] == 192.5
+
 
 # ── Multiplier Table Coverage ──────────────────────────────────────────
 

@@ -1,8 +1,3 @@
-/**
- * WebSocket hook for real-time alert updates.
- * Agent: full-stack-engineer | Skill: react-dashboard (WebSocket pattern)
- */
-
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { getWebSocketBaseUrl } from '@/lib/api'
@@ -15,6 +10,7 @@ export interface WsMessage {
         | 'heartbeat'
         | 'feedback_loop'
         | 'po_decision'
+        | 'connection_status'
     payload: unknown
 }
 
@@ -52,9 +48,11 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
                 }
             }
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 setConnected(false)
-                const delay = Math.min(3000 * Math.pow(2, retryCount.current), 60000)
+                const delay = event.code === 1013
+                    ? 60000
+                    : Math.min(3000 * Math.pow(2, retryCount.current), 60000)
                 retryCount.current += 1
                 reconnectTimeout.current = setTimeout(connect, delay)
             }

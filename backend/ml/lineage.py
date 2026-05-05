@@ -55,6 +55,7 @@ def standard_model_metadata(
     *,
     model_name: str,
     dataset_id: str,
+    dataset_snapshot_id: str | None = None,
     forecast_grain: str,
     feature_tier: str,
     trigger_source: str | None = None,
@@ -69,11 +70,16 @@ def standard_model_metadata(
     lineage_label: str | None = None,
     baseline_version: str | None = None,
     candidate_version: str | None = None,
+    interval_method: str | None = None,
+    calibration_status: str | None = None,
+    interval_coverage: float | None = None,
+    conformal_residual_quantile: float | None = None,
 ) -> dict[str, Any]:
     feature_set = feature_set_id or f"{feature_tier}_v1"
     return {
         "model_name": model_name,
         "dataset_id": dataset_id,
+        "dataset_snapshot_id": dataset_snapshot_id,
         "forecast_grain": forecast_grain,
         "feature_tier": feature_tier,
         "feature_set_id": feature_set,
@@ -87,6 +93,10 @@ def standard_model_metadata(
         "change_category": change_category,
         "baseline_version": baseline_version,
         "candidate_version": candidate_version,
+        "interval_method": interval_method,
+        "calibration_status": calibration_status,
+        "interval_coverage": interval_coverage,
+        "conformal_residual_quantile": conformal_residual_quantile,
         "lineage_label": lineage_label
         or build_lineage_label(
             model_name=model_name,

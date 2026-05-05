@@ -1,6 +1,6 @@
 # ShelfOps Known Issues
 
-- Last verified date: March 8, 2026
+- Last verified date: April 29, 2026
 - Audience: engineering and operations
 - Scope: active unresolved items only
 - Source of truth: this file
@@ -13,6 +13,7 @@
 ## P1
 
 1. Additional tenant telemetry depth is needed for broader model confidence (`partial`).
+2. Measured anomaly precision requires real cycle-count or buyer-review outcomes (`partial`).
 
 ## Deferred
 
@@ -24,8 +25,10 @@
 - Promotion gate fail-closed behavior (`implemented`).
 - Model registry/champion artifacts synchronized to runtime DB lifecycle in retrain flow (`implemented`).
 - Enterprise seed validation and integration test coverage (`implemented`).
-- EDI ingest worker complete; release matrix green on `main` as of March 8, 2026 (`implemented`).
+- EDI ingest worker coverage and integration validation paths (`implemented`).
 - Kafka event-stream ingest pipeline wired to Celery beat schedule (`implemented`).
 - Multi-event-stream tenant dispatch fixed (`implemented`).
 - Square normalization and webhook processor expansion (`implemented`).
+- M5 benchmark workspace bootstrap and FreshRetailNet anomaly evidence sync (`implemented`).
+- Anomaly detection run and shadow-prediction persistence (`implemented`).
 - Frontend bundle optimization (`implemented`).

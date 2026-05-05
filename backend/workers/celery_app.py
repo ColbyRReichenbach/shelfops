@@ -31,6 +31,7 @@ celery_app.conf.update(
         "workers.retrain.*": {"queue": "ml"},
         "workers.forecast.*": {"queue": "ml"},
         "workers.inventory_optimizer.*": {"queue": "ml"},
+        "workers.replenishment.*": {"queue": "ml"},
         "workers.monitoring.*": {"queue": "sync"},
         "workers.vendor_metrics.*": {"queue": "sync"},
         "workers.promo_tracking.*": {"queue": "sync"},
@@ -77,8 +78,17 @@ celery_app.conf.update(
         # ── Decision Engine ────────────────────────────────────────
         "optimize-reorder-points-nightly": {
             "task": "workers.scheduler.dispatch_active_tenants",
-            "schedule": crontab(hour=2, minute=30),  # After forecast generation
+            "schedule": crontab(hour=3, minute=15),  # After forecast generation
             "kwargs": {"task_name": "workers.inventory_optimizer.optimize_reorder_points"},
+            "options": {"queue": "sync"},
+        },
+        "generate-recommendation-queue-nightly": {
+            "task": "workers.scheduler.dispatch_active_tenants",
+            "schedule": crontab(hour=3, minute=30),
+            "kwargs": {
+                "task_name": "workers.replenishment.generate_recommendation_queue",
+                "task_kwargs": {"horizon_days": 7},
+            },
             "options": {"queue": "sync"},
         },
         # ── Alert & Monitoring ─────────────────────────────────────

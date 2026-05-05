@@ -28,4 +28,5 @@ def test_render_markdown_contains_table_row():
     md = render_markdown(rows)
     assert "| favorita | `data/kaggle/favorita` | `ready` | 10 | 2 | 3 |" in md
     assert "store_nbr x family x date" in md
+    assert "Active target scope is M5 + FreshRetailNet + CSV/Square" in md
     assert "Public datasets are training/evaluation domains only" in md

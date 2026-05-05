@@ -1,6 +1,6 @@
 # ShelfOps Model Tuning and Dataset Readiness
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: ML engineers and data reviewers
 - Scope: dataset readiness, tuning protocol, and promotion gate inputs
 - Source of truth: `backend/workers/retrain.py`, `backend/ml/arena.py`, `backend/ml/experiment.py`, `backend/scripts/validate_training_datasets.py`
@@ -14,10 +14,11 @@
 
 | Dataset family | Status | Notes |
 |---|---|---|
-| Favorita | `implemented` | Canonical contract-ready development dataset. |
-| Walmart | `implemented` | Weekly-format contract-ready dataset path. |
-| Rossmann | `implemented` | Daily-format contract-ready dataset path. |
-| Synthetic seed transactions | `implemented` | Deterministic local validation dataset. |
+| M5 Walmart | `implemented` | Primary public benchmark path for active model evidence. |
+| FreshRetailNet-50K | `implemented` | Secondary stockout-aware benchmark and anomaly detector evidence path. |
+| CSV onboarding | `implemented` | Pilot validation path for merchant-shaped onboarding data. |
+| Square exports | `implemented` | Pilot validation path for mapped POS exports. |
+| Legacy public benchmarks | `implemented` | Reference-only loaders remain available when explicitly invoked. |
 
 ## Tuning Policy
 
@@ -36,6 +37,7 @@
 | Retraining event log (`model_retraining_log`) | `implemented` | Retrain worker now persists trigger/status/version audit rows. |
 | Runtime champion/challenger state (`model_versions`) | `implemented` | Runtime truth for promotion decisions and serving state. |
 | Runtime validation streams (`backtest_results`, `shadow_predictions`) | `implemented` | Continuous validation and challenger comparison evidence. |
+| Anomaly run/shadow streams (`anomaly_detection_runs`, `anomaly_shadow_predictions`) | `implemented` | Benchmark/shadow evidence now persists separately from forecast shadow predictions. |
 | Promotion decision trail (`model_experiments`) | `implemented` | Persisted gate decision records and rationale. |
 | File-log parity with DB promotion lifecycle | `implemented` | Runtime retrain sync reconciles file registry/champion artifacts to DB lifecycle state. |
 
@@ -51,7 +53,8 @@
 PYTHONPATH=backend python3 backend/scripts/validate_training_datasets.py --help
 PYTHONPATH=backend python3 backend/scripts/run_training.py --help
 PYTHONPATH=backend python3 backend/scripts/benchmark_datasets.py --help
-PYTHONPATH=backend python3 backend/scripts/benchmark_dataset_combos.py --help
+PYTHONPATH=backend python3 backend/scripts/bootstrap_benchmark_workspace.py --help
+PYTHONPATH=backend python3 backend/scripts/sync_benchmark_evidence_to_db.py --help
 PYTHONPATH=backend python3 backend/scripts/generate_model_performance_log.py --help
 PYTHONPATH=backend python3 -m pytest backend/tests/test_models_api.py -q
 PYTHONPATH=backend python3 -m pytest backend/tests/test_arena_promotion_gates.py -q

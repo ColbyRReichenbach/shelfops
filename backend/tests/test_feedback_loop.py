@@ -12,14 +12,24 @@ Covers:
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import pytest
 from sqlalchemy import select
 
-from db.models import Customer, PODecision, Product, PurchaseOrder, Store, Supplier
-from ml.feedback_loop import enrich_features_with_feedback, get_feedback_features
+from db.models import (
+    Customer,
+    PODecision,
+    Product,
+    PurchaseOrder,
+    RecommendationDecision,
+    RecommendationOutcome,
+    ReplenishmentRecommendation,
+    Store,
+    Supplier,
+)
+from ml.feedback_loop import build_recommendation_decision_dataset, enrich_features_with_feedback, get_feedback_features
 
 CUSTOMER_ID = "00000000-0000-0000-0000-000000000001"
 
@@ -102,6 +112,71 @@ async def _make_po_with_decision(
     await db.flush()
 
     return po, decision
+
+
+async def _make_recommendation_decision(
+    db,
+    customer_id,
+    store_id,
+    product_id,
+    supplier_id,
+    decision_type,
+    recommended_qty,
+    final_qty,
+    decided_at=None,
+):
+    recommendation = ReplenishmentRecommendation(
+        customer_id=customer_id,
+        store_id=store_id,
+        product_id=product_id,
+        supplier_id=supplier_id,
+        status=decision_type,
+        forecast_model_version="v3",
+        policy_version="replenishment_v1",
+        horizon_days=7,
+        recommended_quantity=recommended_qty,
+        quantity_available=5,
+        quantity_on_order=0,
+        inventory_position=5,
+        reorder_point=10,
+        safety_stock=3,
+        economic_order_qty=max(recommended_qty, 1),
+        lead_time_days=3,
+        service_level=0.95,
+        estimated_unit_cost=1.0,
+        estimated_total_cost=float(recommended_qty),
+        no_order_stockout_risk="high",
+        order_overstock_risk="medium",
+        recommendation_rationale={
+            "forecast_start_date": date.today().isoformat(),
+            "forecast_end_date": (date.today() + timedelta(days=6)).isoformat(),
+            "horizon_demand_mean": float(recommended_qty),
+        },
+    )
+    db.add(recommendation)
+    await db.flush()
+
+    decision = RecommendationDecision(
+        customer_id=customer_id,
+        recommendation_id=recommendation.recommendation_id,
+        store_id=store_id,
+        product_id=product_id,
+        decision_type=decision_type,
+        recommended_qty=recommended_qty,
+        final_qty=final_qty,
+        override_qty_delta=final_qty - recommended_qty,
+        override_pct=((final_qty - recommended_qty) * 100.0 / recommended_qty) if recommended_qty > 0 else None,
+        reason_code="forecast_disagree",
+        decided_by="buyer@test.com",
+        decided_at=decided_at or datetime.utcnow(),
+        forecast_model_version="v3",
+        policy_version="replenishment_v1",
+        decision_metadata={"source": "test"},
+    )
+    db.add(decision)
+    await db.flush()
+
+    return recommendation, decision
 
 
 # ── get_feedback_features ──────────────────────────────────────────────────
@@ -253,6 +328,71 @@ class TestGetFeedbackFeaturesCalculations:
 
         assert isinstance(df.iloc[0]["store_id"], str)
         assert isinstance(df.iloc[0]["product_id"], str)
+
+    async def test_rejected_recommendation_without_po_feeds_feedback_features(self, test_db):
+        customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
+
+        await _make_recommendation_decision(
+            test_db,
+            customer_id,
+            store_id,
+            product_id,
+            supplier_id,
+            "rejected",
+            40,
+            0,
+        )
+
+        df = await get_feedback_features(test_db, CUSTOMER_ID)
+
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["rejection_rate_30d"] == 1.0
+        assert row["avg_qty_adjustment_pct"] == -100.0
+        assert row["forecast_trust_score"] == 0.0
+
+    async def test_recommendation_decision_dataset_includes_closed_outcome_labels(self, test_db):
+        customer_id, store_id, product_id, supplier_id = await _seed_base_entities(test_db)
+        recommendation, decision = await _make_recommendation_decision(
+            test_db,
+            customer_id,
+            store_id,
+            product_id,
+            supplier_id,
+            "edited",
+            40,
+            50,
+        )
+        outcome = RecommendationOutcome(
+            recommendation_id=recommendation.recommendation_id,
+            customer_id=customer_id,
+            store_id=store_id,
+            product_id=product_id,
+            horizon_start_date=date.today(),
+            horizon_end_date=date.today() + timedelta(days=6),
+            actual_sales_qty=48.0,
+            actual_demand_qty=48.0,
+            ending_inventory_qty=2,
+            stockout_event=False,
+            overstock_event=False,
+            forecast_error_abs=8.0,
+            net_estimated_value=12.5,
+            demand_confidence="estimated",
+            value_confidence="estimated",
+            status="closed",
+        )
+        test_db.add(outcome)
+        await test_db.flush()
+
+        df = await build_recommendation_decision_dataset(test_db, CUSTOMER_ID, require_closed_outcome=True)
+
+        assert len(df) == 1
+        row = df.iloc[0]
+        assert row["decision_id"] == str(decision.decision_id)
+        assert row["decision_type"] == "edited"
+        assert bool(row["label_available"]) is True
+        assert row["actual_sales_qty"] == 48.0
+        assert row["net_estimated_value"] == 12.5
 
 
 # ── enrich_features_with_feedback ─────────────────────────────────────────

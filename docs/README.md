@@ -1,6 +1,6 @@
 # ShelfOps Documentation Index
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: engineers, hiring managers, operators, recruiters
 - Scope: active source-of-truth docs plus clearly labeled planning/spec documents
 - Source of truth: this index, with only the sections below explicitly labeled as current-state docs treated as runtime truth
@@ -13,6 +13,8 @@
 
 ## Product
 
+- Current state: `CURRENT_STATE.md` (repo root)
+- Public claims boundary: `CLAIMS.md` (repo root)
 - Production readiness: `docs/product/production_readiness.md`
 - Roadmap: `docs/product/roadmap.md`
 - Known limitations: `docs/product/known_limitations.md`
@@ -34,13 +36,9 @@
 - SLO policy: `docs/operations/slo_policy.md`
 - Integration incident runbook: `docs/operations/integration_incident_runbook.md`
 
-## Demo
-
-- Demo package index: `docs/demo/README.md`
-
 ## Evidence
 
-- Evidence policy and curated snapshots: `docs/evidence/README.md`
+- Evidence policy: `docs/evidence/README.md`
 
 ## Planning And Specs
 

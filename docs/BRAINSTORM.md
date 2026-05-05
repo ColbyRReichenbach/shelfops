@@ -1,10 +1,10 @@
 # ShelfOps — Strategy Brainstorm
 
-- Last verified date: March 10, 2026
+- Last verified date: May 5, 2026
 - Audience: builders and planners
 - Scope: open ideas, unresolved questions, and future strategy threads
-- Status: **Active planning document — not a source of truth for current runtime behavior**
-- Source of truth: verify all current-state claims against `docs/README.md`, active docs, and code before reusing them externally
+- Status: **Historical planning notes — not a source of truth for current runtime behavior**
+- Source of truth: verify all current-state claims against root `CURRENT_STATE.md`, `CLAIMS.md`, `DATA_SOURCES.md`, `.codex/ROADMAP.md`, and code before reusing them externally
 - Started: February 24, 2026
 - Purpose: Capture all open ideas, questions, and strategy threads before splitting into
   specific specs, runbooks, or improvement plans. Nothing here is a commitment yet.
@@ -20,24 +20,29 @@
 
 ---
 
-## 0. What Already Exists (Ground Truth)
+## 0. Historical Starting Audit (Not Current Truth)
 
-Before brainstorming forward, a quick audit of what is actually in the codebase and docs.
-Knowing this prevents us from designing things that are already built.
+This section reflects an earlier planning audit and may be stale. Verify any
+runtime, model, or promotion claim against the root truth docs and code before
+using it externally.
 
 ### Feedback Loop — Already Built
 
-`backend/ml/feedback_loop.py` converts PO decision outcomes into forecast model features.
-It is **not a separate model** — it enriches the training feature matrix.
+`backend/ml/feedback_loop.py` converts structured recommendation decisions, with
+legacy PO decisions as a fallback, into lagged forecast features. It also builds
+a separate recommendation decision/outcome dataset for policy analysis. It is
+**not a separate model** and it does not treat buyer choices as demand labels.
 
 Three features produced:
 - `rejection_rate_30d` — % of model suggestions buyer rejected in last 30 days
 - `avg_qty_adjustment_pct` — how much buyers are adjusting recommended quantities on average
 - `forecast_trust_score` — composite signal of buyer agreement with model
 
-These are computed per-tenant, per-SKU, and fed back into the next training cycle via
-`features.py`. The loop is: PO decision → `PODecision` table → `feedback_loop.py` at
-training time → feature matrix → model retrain.
+These are computed per-tenant, per-SKU, and can be fed into the next training
+cycle via `features.py`. The runtime loop is: recommendation decision →
+`RecommendationDecision` table → closed recommendation outcome when available →
+auditable decision dataset and lagged aggregate features → governed retrain or
+policy review.
 
 **Important edge case not yet handled**: Not all buyer overrides are corrections.
 See Section 3.3 (Feedback Quality) for open questions here.
@@ -272,13 +277,15 @@ force the entire model to cold-start.
 
 ### 3.1 What's Already Working
 
-`feedback_loop.py` converts PO decisions into features. This is architecturally correct.
+`feedback_loop.py` converts recommendation decisions into lagged features and
+decision/outcome datasets. Legacy PO decisions remain supported.
 The loop:
-1. Buyer approves / rejects / edits a PO suggestion
-2. Decision + reason code stored in `PODecision` table
-3. At next training cycle, `feedback_loop.py` computes per-SKU signals
-4. Those signals become features in the next model training run
-5. Model learns: "buyer consistently rejects this SKU → adjust prior"
+1. Buyer accepts / edits / rejects a replenishment recommendation
+2. Decision + reason code stored in `RecommendationDecision`
+3. Closed outcome is joined after the horizon can be measured
+4. `feedback_loop.py` computes per-SKU lagged signals and a decision dataset
+5. Governed retraining or policy review can use those signals; buyer choices are
+   not treated as direct demand labels
 
 ### 3.2 Feedback Loop Latency Problem
 
@@ -299,8 +306,10 @@ suppress for 7 days. A `model_error` rejection should suppress until next retrai
 **Not all buyer overrides are model corrections.** Training on all feedback uncritically
 teaches the model to mimic buyer behavior, not to predict demand.
 
-The `PODecision` table has a `rejection_reason` field. Currently it exists but there is
-no logic enforcing which reason codes flow back into training vs. which are logged only.
+The current `RecommendationDecision` table stores reason codes for accept, edit,
+and reject actions. The code builds lagged aggregate features and
+decision/outcome datasets, but it still does not enforce a production policy for
+which reason codes should influence retraining vs. policy review only.
 
 **Proposed rule — what flows into training labels:**
 - `model_error` → YES, use as corrective training signal
@@ -704,7 +713,8 @@ in the UI for operators or tenants.
    alerts count. This is the DS/operator view.
 2. **Tenant buyer view** (connects to demo): Model performance trend over time.
    "Your forecast accuracy has improved from MASE 0.95 to MASE 0.71 since onboarding."
-   This is the ROI proof surface for the SMB buyer — make the model improvement visible
+   This is the ROI proof surface for the SMB buyer — make governed model/policy
+   improvement visible
    without requiring them to understand MASE.
 
 ### 10.7 Forecast Horizon Too Short for Seasonal Planning
@@ -1034,7 +1044,7 @@ Additions to Section 8 from new findings in Sections 10–13.
 | Webhook dead-letter queue (`WebhookEvent` table) | `models.py`, Alembic, webhook processors | High | 10.4 |
 | Data freshness check job + staleness alerting | `workers/`, `monitoring.py` | High | 10.5 |
 | Operator tenant health dashboard | frontend | Medium | 10.6 |
-| Buyer-facing model improvement history card + timeline | frontend | High | 12.1 |
+| Buyer-facing model/policy improvement history card + timeline | frontend | High | 12.1 |
 | Configurable forecast horizon per tenant (up to 90d) | `config.py`, `train.py`, `predict.py` | Medium | 10.7 |
 | Seasonal SKU extended horizon (auto, scoped by is_seasonal) | `predict.py`, `workers/` | Medium | 10.7 |
 | Perishable-aware optimizer (capped SS, adjusted holding cost) | `optimizer.py` | Medium | 11.1 |
@@ -1242,10 +1252,10 @@ Alternatively: Redis lock on `champion_lock:{customer_id}` during promotion.
 
 ### 16.4 Feedback Loop Idempotency
 
-**Current state**: The feedback loop test suite covers feature computation
-correctness but NOT idempotency. Running `compute_feedback_features()` twice
-on the same `PODecision` dataset could double-count rejections in the training
-signal if the function is called multiple times before a retrain.
+**Current state**: The feedback loop test suite covers feature computation,
+rejected recommendation capture, and decision/outcome dataset creation. The
+feature path is a read-time window aggregate, so repeated reads do not duplicate
+rows.
 
 **Specific risk**: If Celery `acks_late=True` causes a task retry (worker dies
 after computing but before acknowledging), the feedback computation runs twice.
@@ -2155,9 +2165,11 @@ Surface the comparison in the PO suggestion UI:
 - **Volume tier**: 250 units @ $4.25 = $1,063 — surplus sells through in ~11 days at
   current velocity — **net saving vs. standard: $74**
 
-Buyer clicks "accept volume tier" or "use standard." Decision logged in `PODecision` with
-the tier reasoning attached. Over time, whether buyers accept or reject volume tier
-suggestions becomes a feature in the feedback loop (§3.1).
+Buyer clicks "accept volume tier" or "use standard." Decision reasoning should be
+logged through `RecommendationDecision` when it comes from a replenishment
+recommendation, with legacy `PODecision` reserved for PO-only workflows. Over
+time, whether buyers accept or reject volume-tier suggestions can become a
+lagged feature or policy-training signal (§3.1).
 
 **The ShelfOps angle over the enterprise version**: enterprise systems also model
 opportunity cost of working capital, multi-tier supplier negotiations, and currency

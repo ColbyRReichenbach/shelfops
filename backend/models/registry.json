@@ -1,17 +1,72 @@
 {
   "models": [
     {
-      "version": "v1",
+      "version": "v3",
+      "model_name": "demand_forecast",
       "feature_tier": "cold_start",
-      "trained_at": "2026-02-10T13:57:51.974315+00:00",
-      "dataset": "favorita",
-      "rows_trained": 27,
-      "mae": 41.97858802699905,
-      "mape": 0.2854896065857254,
+      "trained_at": "2026-04-19T23:49:44.848415+00:00",
+      "dataset": "m5_walmart",
+      "rows_trained": 1147800,
+      "mae": 0.7011100629617129,
+      "mape": 0.5731624460219926,
+      "wape": 0.7415310133677194,
+      "mase": 0.8021514841508381,
+      "bias_pct": -0.0024377509037064255,
+      "forecast_grain": "dataset_specific",
+      "segment_strategy": "global",
+      "rule_overlay_enabled": false,
+      "evaluation_window_days": 30,
       "status": "champion",
-      "promoted_at": "2026-02-10T13:57:51.974341+00:00",
-      "promotion_reason": "experiment_rollback"
+      "promoted_at": "2026-04-19T23:52:34.979842+00:00",
+      "lifecycle_events": [
+        {
+          "event_type": "registered",
+          "at": "2026-04-19T23:49:44.848455+00:00",
+          "from_status": null,
+          "to_status": "candidate",
+          "reason": "file_registry_registration",
+          "actor": null,
+          "related_version": "v3",
+          "metadata": {
+            "dataset_id": "m5_walmart",
+            "architecture": "lightgbm",
+            "objective": "poisson",
+            "lineage_label": "demand_forecast__lightgbm__poisson__global__cold_start_v1"
+          }
+        },
+        {
+          "event_type": "promoted_to_champion",
+          "at": "2026-04-19T23:52:34.979842+00:00",
+          "from_status": "candidate",
+          "to_status": "champion",
+          "reason": "m5_subset20_holdout_beats_public_baselines",
+          "actor": null,
+          "related_version": "v3",
+          "metadata": {
+            "holdout_evaluation_path": "backend/reports/m5_subset20_holdout_eval.json",
+            "benchmark_report_path": "backend/reports/m5_subset20_benchmark.json"
+          }
+        }
+      ],
+      "last_lifecycle_event": {
+        "event_type": "promoted_to_champion",
+        "at": "2026-04-19T23:52:34.979842+00:00",
+        "from_status": "candidate",
+        "to_status": "champion",
+        "reason": "m5_subset20_holdout_beats_public_baselines",
+        "actor": null,
+        "related_version": "v3",
+        "metadata": {
+          "holdout_evaluation_path": "backend/reports/m5_subset20_holdout_eval.json",
+          "benchmark_report_path": "backend/reports/m5_subset20_benchmark.json"
+        }
+      },
+      "promotion_reason": "m5_subset20_holdout_beats_public_baselines",
+      "dataset_snapshot_id": "dsnap_09e19c9147a57fe5",
+      "architecture": "lightgbm",
+      "interval_method": "split_conformal",
+      "interval_coverage": 0.9000010454783063
     }
   ],
-  "updated_at": "2026-03-09T16:32:04.907694+00:00"
+  "updated_at": "2026-04-20T00:45:00+00:00"
 }

@@ -1,6 +1,6 @@
 # ShelfOps API Contracts
 
-- Last verified date: March 9, 2026
+- Last verified date: April 29, 2026
 - Audience: frontend engineers, backend engineers, integrators
 - Scope: canonical API shapes and deprecation policy
 - Source of truth: router definitions under `backend/api/v1/routers/`
@@ -22,6 +22,12 @@
 | `GET /api/v1/ml/models/history` | `implemented` | Model version history from DB-backed lifecycle table. |
 | `POST /api/v1/ml/models/{version}/promote` | `implemented` | Admin-only manual promotion with registry/champion artifact sync. |
 | `GET /api/v1/integrations/sync-health` | `implemented` | Integration freshness and SLA envelope. |
+| `GET /api/v1/data/readiness` | `implemented` | Tenant onboarding readiness state. |
+| `POST /api/v1/data/csv/validate` | `implemented` | CSV schema/reference validation. |
+| `POST /api/v1/data/csv/ingest` | `implemented` | CSV import plus readiness refresh. |
+| `GET /api/v1/replenishment/queue` | `implemented` | Buyer recommendation queue. |
+| `POST /api/v1/replenishment/recommendations/{id}/accept` | `implemented` | Accept recommendation and create linked purchase order decision. |
+| `GET /api/v1/experiments/spec-templates` | `implemented` | Curated forecast and anomaly runner specs. |
 
 ## Deprecation Headers (Alias Paths)
 

@@ -1,223 +1,519 @@
-/**
- * ML Ops Command Center — Model health, experiments, backtests, data health.
- */
-
 import { useState } from 'react'
-import { Brain, FlaskConical, TrendingDown, Database, Sparkles, ShieldCheck, DollarSign, Activity } from 'lucide-react'
-import {
-    useMLModels, useBacktests, useExperiments,
-    useModelHistory, useModelSHAP, useMLEffectiveness, useMLHealth, useSyncHealth,
-} from '@/hooks/useShelfOps'
-import type { MLEffectiveness, ModelHistoryEntry } from '@/lib/types'
-import ModelArena from '@/components/mlops/ModelArena'
-import BacktestCharts from '@/components/mlops/BacktestCharts'
-import FeatureImportance from '@/components/mlops/FeatureImportance'
-import ExperimentWorkbench from '@/components/mlops/ExperimentWorkbench'
+import { Activity, AlertTriangle, Brain, CheckCircle2, Clock, Database, FlaskConical, GitBranch, ScrollText, ShieldCheck } from 'lucide-react'
+
+import CalibrationPanel from '@/components/mlops/CalibrationPanel'
 import DataHealthDashboard from '@/components/mlops/DataHealthDashboard'
-
-const TABS = [
-    { key: 'models', label: 'Models', icon: Brain },
-    { key: 'experiments', label: 'Experiments', icon: FlaskConical },
-    { key: 'backtests', label: 'Backtests', icon: TrendingDown },
-    { key: 'data', label: 'Data Health', icon: Database },
-] as const
-
-type TabKey = (typeof TABS)[number]['key']
+import ExperimentWorkbench from '@/components/mlops/ExperimentWorkbench'
+import ModelArena from '@/components/mlops/ModelArena'
+import ModelCardPanel from '@/components/mlops/ModelCardPanel'
+import SegmentMetricsTable from '@/components/mlops/SegmentMetricsTable'
+import { useActiveModelEvidence, useExperimentLedger, useMLEffectiveness, useMLHealth, useMLModels, useModelHistory, useSyncHealth } from '@/hooks/useShelfOps'
+import type { ActiveModelEvidence, ExperimentLedgerEntry, MLModel } from '@/lib/types'
 
 export default function MLOpsPage() {
-    const [activeTab, setActiveTab] = useState<TabKey>('models')
-    const [modelFilter, setModelFilter] = useState<string>('')
-
+    const [activeModelName, setActiveModelName] = useState<'demand_forecast' | 'anomaly_detector'>('demand_forecast')
     const { data: health, isLoading: healthLoading } = useMLHealth()
-    const { data: models = [] } = useMLModels(modelFilter || undefined)
-    const { data: backtests = [], isLoading: backtestsLoading } = useBacktests(90, modelFilter || undefined)
-    const {
-        data: experiments = [],
-        isLoading: experimentsLoading,
-        isError: experimentsError,
-        error: experimentsErrorDetail,
-    } = useExperiments(modelFilter || undefined)
-    const { data: modelHistory = [], isError: modelHistoryError, error: modelHistoryErrorDetail } = useModelHistory(12)
+    const { data: evidence, isLoading: evidenceLoading } = useActiveModelEvidence('demand_forecast')
+    const { data: anomalyEvidence, isLoading: anomalyEvidenceLoading } = useActiveModelEvidence('anomaly_detector')
+    const { data: models = [] } = useMLModels()
+    const { data: modelHistory = [] } = useModelHistory(12)
     const { data: syncData = [], isLoading: syncLoading } = useSyncHealth()
-    const { data: effectiveness } = useMLEffectiveness(30, modelFilter || 'demand_forecast')
+    const { data: effectiveness } = useMLEffectiveness(30, 'demand_forecast')
+    const { data: experimentLedger = [], isLoading: ledgerLoading } = useExperimentLedger({
+        modelName: 'demand_forecast',
+        limit: 50,
+    })
+    const { data: anomalyExperimentLedger = [], isLoading: anomalyLedgerLoading } = useExperimentLedger({
+        modelName: 'anomaly_detector',
+        limit: 50,
+    })
 
-    const activeModelName = modelFilter || 'demand_forecast'
-    const championForInsights =
-        health?.champions?.find(champion => champion.model_name === activeModelName) ??
-        health?.champions?.find(champion => champion.model_name === 'demand_forecast') ??
-        health?.champions?.[0]
-    const championVersion = championForInsights?.version ?? ''
-    const { data: shapData, isLoading: shapLoading } = useModelSHAP(championVersion)
-
-    // Unique model names for filter dropdown
-    const modelNames = [...new Set(models.map(m => m.model_name))]
+    const forecastModels = models.filter(model => model.model_name === 'demand_forecast')
+    const anomalyModels = models.filter(model => model.model_name === 'anomaly_detector')
+    const championModel = forecastModels.find(model => model.version === evidence?.version)
+        ?? forecastModels.find(model => model.status === 'champion')
+    const championHistory = modelHistory.find(model => model.version === evidence?.version)
+        ?? modelHistory.find(model => model.status === 'champion')
+    const modelNames = [...new Set([...models.map(model => model.model_name), 'demand_forecast', 'anomaly_detector'])]
+    const activeEvidence = activeModelName === 'anomaly_detector' ? anomalyEvidence : evidence
+    const activeEvidenceLoading = activeModelName === 'anomaly_detector' ? anomalyEvidenceLoading : evidenceLoading
+    const activeLedger = activeModelName === 'anomaly_detector' ? anomalyExperimentLedger : experimentLedger
+    const activeLedgerLoading = activeModelName === 'anomaly_detector' ? anomalyLedgerLoading : ledgerLoading
+    const activeModelLabel = activeModelName === 'anomaly_detector' ? 'Anomaly Detection' : 'Forecasting'
+    const activeRegistryModels = models.filter(model => model.model_name === activeModelName)
+    const activePrimaryMetric = activeModelName === 'anomaly_detector'
+        ? {
+            icon: Brain,
+            label: 'Precision',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(anomalyEvidence?.benchmark_metrics?.precision),
+            detail: anomalyEvidence?.dataset_id ?? 'FreshRetailNet evidence',
+        }
+        : {
+            icon: Activity,
+            label: 'Holdout WAPE',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(evidence?.holdout.wape),
+            detail: evidence?.benchmark_rows?.[1]?.wape !== undefined
+                ? `vs baseline ${formatPercent(evidence.benchmark_rows[1].wape)}`
+                : 'baseline pending',
+        }
+    const activeSecondaryMetric = activeModelName === 'anomaly_detector'
+        ? {
+            icon: Activity,
+            label: 'Recall',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(anomalyEvidence?.benchmark_metrics?.recall),
+            detail: 'known stockouts caught',
+        }
+        : {
+            icon: ShieldCheck,
+            label: 'Interval coverage',
+            value: activeEvidenceLoading ? 'Loading' : formatPercent(evidence?.interval_coverage),
+            detail: evidence?.calibration_status ?? 'calibration pending',
+        }
 
     return (
-        <div className="p-6 lg:p-8 space-y-6 animate-fade-in">
-            {/* Header */}
-            <div className="flex items-start justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold tracking-tight text-shelf-primary">ML Ops</h1>
-                    <p className="text-sm text-shelf-foreground/60 mt-1">
-                        {healthLoading ? 'Loading...' : (
-                            <>
-                                {health?.champions?.length ?? 0} champion{(health?.champions?.length ?? 0) !== 1 ? 's' : ''} active
-                                {' '}&middot;{' '}
-                                {health?.recent_backtests_7d ?? 0} backtests this week
-                                {' '}&middot;{' '}
-                                {Object.values(health?.model_counts ?? {}).reduce((a, b) => a + b, 0)} total versions
-                            </>
-                        )}
+        <div className="page-shell">
+            <div className="hero-panel hero-panel-blue">
+                <div className="max-w-3xl">
+                    <div className="hero-chip text-[#0071e3]">
+                        <Brain className="h-3.5 w-3.5" />
+                        Model Lab
+                    </div>
+                    <h1 className="mt-4 text-4xl font-semibold tracking-tight text-[#1d1d1f]">
+                        Run auditable model experiments before promotion.
+                    </h1>
+                    <p className="mt-3 text-sm leading-6 text-[#4f4f53]">
+                        Track hypotheses, gated backtests, shadow decisions, champion evidence, and runtime freshness in one governed workflow.
                     </p>
                 </div>
 
-                {/* Health indicator */}
-                {health && (
-                    <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium ${
-                        health.status === 'healthy'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-yellow-100 text-yellow-700'
-                    }`}>
-                        <div className={`h-2 w-2 rounded-full ${health.status === 'healthy' ? 'bg-green-500' : 'bg-yellow-500'} animate-pulse`} />
-                        {health.status === 'healthy' ? 'System Healthy' : 'Needs Attention'}
-                    </div>
-                )}
-            </div>
-
-            {/* Champion Summary Cards */}
-            {health && health.champions.length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {health.champions.map(c => (
-                        <div key={c.model_name} className="card border border-amber-200 shadow-sm p-4 bg-amber-50/30">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Sparkles className="h-4 w-4 text-amber-600" />
-                                <p className="text-xs font-medium text-amber-700 uppercase tracking-wider">Champion</p>
-                            </div>
-                            <p className="text-sm font-semibold text-shelf-foreground">{c.model_name.replace('demand_forecast', 'Forecast').replace(/_/g, ' ')}</p>
-                            <p className="text-xs text-shelf-foreground/50 font-mono">{c.version}</p>
-                            {c.metrics && (
-                                <div className="mt-1 space-y-1 text-xs text-shelf-foreground/60">
-                                    <p>MASE: {typeof c.metrics.mase === 'number' ? c.metrics.mase.toFixed(2) : '—'}</p>
-                                    <p>WAPE: {typeof c.metrics.wape === 'number' ? `${(c.metrics.wape * 100).toFixed(1)}%` : '—'}</p>
-                                </div>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {effectiveness?.status === 'ok' && effectiveness.metrics && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                    <MetricCard
+                <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <HeroStat
                         icon={ShieldCheck}
-                        label="Current Champion"
-                        value={effectiveness.metrics.mase !== null ? effectiveness.metrics.mase.toFixed(2) : '—'}
-                        detail={`MASE · ${effectiveness.trend}`}
+                        label={`${activeModelLabel} champion`}
+                        value={activeEvidenceLoading ? 'Loading' : (activeEvidence?.version ?? 'not selected')}
+                        detail={activeEvidence?.dataset_id ?? 'evidence pending'}
                     />
-                    <MetricCard
-                        icon={Activity}
-                        label="Forecast Bias"
-                        value={effectiveness.metrics.bias_pct !== null ? `${(effectiveness.metrics.bias_pct * 100).toFixed(1)}%` : '—'}
-                        detail="Signed bias; positive means over-forecasting"
-                    />
-                    <MetricCard
-                        icon={TrendingDown}
-                        label="Stockout Miss"
-                        value={effectiveness.metrics.stockout_miss_rate !== null ? `${(effectiveness.metrics.stockout_miss_rate * 100).toFixed(1)}%` : '—' }
-                        detail={`Coverage ${effectiveness.metrics.coverage !== null ? `${(effectiveness.metrics.coverage * 100).toFixed(0)}%` : '—'}`}
-                    />
-                    <MetricCard
-                        icon={DollarSign}
-                        label="Opportunity Cost"
-                        value={effectiveness.metrics.opportunity_cost_stockout !== null ? `$${Math.round(effectiveness.metrics.opportunity_cost_stockout).toLocaleString()}` : '—'}
-                        detail="Lost-sales risk over the active window"
+                    <HeroStat {...activePrimaryMetric} />
+                    <HeroStat {...activeSecondaryMetric} />
+                    <HeroStat
+                        icon={Database}
+                        label="Runtime status"
+                        value={healthLoading ? 'Loading' : (health?.status ?? 'not reporting')}
+                        detail={`${health?.champions?.length ?? 0} active models monitored`}
                     />
                 </div>
-            )}
-
-            {/* Tabs + Filter */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex gap-1 rounded-lg bg-shelf-secondary/10 p-1">
-                    {TABS.map(tab => {
-                        const Icon = tab.icon
-                        return (
-                            <button
-                                key={tab.key}
-                                onClick={() => setActiveTab(tab.key)}
-                                className={`flex items-center gap-2 rounded-md px-4 py-1.5 text-sm font-medium transition-all ${
-                                    activeTab === tab.key
-                                        ? 'bg-white text-shelf-primary shadow-sm'
-                                        : 'text-shelf-foreground/60 hover:text-shelf-primary'
-                                }`}
-                            >
-                                <Icon className="h-4 w-4" />
-                                {tab.label}
-                            </button>
-                        )
-                    })}
-                </div>
-
-                {activeTab !== 'data' && modelNames.length > 1 && (
-                    <select
-                        value={modelFilter}
-                        onChange={e => setModelFilter(e.target.value)}
-                        className="rounded-lg border border-shelf-foreground/10 bg-white px-3 py-1.5 text-sm text-shelf-foreground"
-                    >
-                        <option value="">All Models</option>
-                        {modelNames.map(name => (
-                            <option key={name} value={name}>{name}</option>
-                        ))}
-                    </select>
-                )}
             </div>
 
-            {/* Tab Content */}
-            {activeTab === 'models' && (
-                <div className="space-y-6">
-                    {effectiveness?.status === 'ok' && effectiveness.metrics && (
-                        <GovernanceScorecard effectiveness={effectiveness} />
-                    )}
-                    <ModelArena models={models} />
-                    {modelHistory.length > 0 && (
-                        <ModelHistoryTable
-                            history={modelHistory}
-                            isError={modelHistoryError}
-                            errorMessage={modelHistoryErrorDetail instanceof Error ? modelHistoryErrorDetail.message : 'Unable to load model lineage.'}
-                        />
-                    )}
-                    {shapData && shapData.features.length > 0 && (
-                        <FeatureImportance
-                            features={shapData.features}
-                            isLoading={shapLoading}
-                            version={championVersion}
-                        />
-                    )}
-                </div>
-            )}
+            <ModelFamilyFilter
+                activeModelName={activeModelName}
+                onChange={setActiveModelName}
+                forecastVersion={evidence?.version}
+                anomalyVersion={anomalyEvidence?.version}
+            />
 
-            {activeTab === 'experiments' && (
-                <ExperimentWorkbench
-                    modelNames={modelNames}
-                    defaultModelName={modelFilter || modelNames[0] || 'demand_forecast'}
-                    runHistory={experiments}
-                    runsLoading={experimentsLoading}
-                    runsError={experimentsError}
-                    runsErrorMessage={experimentsErrorDetail instanceof Error ? experimentsErrorDetail.message : 'Unable to load training run evidence.'}
+            <ModelLabWorkflow
+                experiments={activeLedger}
+                isLoading={activeLedgerLoading}
+                activeVersion={activeEvidence?.version}
+                activeModelLabel={activeModelLabel}
+            />
+
+            {activeModelName === 'anomaly_detector' && (
+                <AnomalyEvidencePanel
+                    evidence={anomalyEvidence}
+                    models={anomalyModels}
+                    isLoading={anomalyEvidenceLoading}
                 />
             )}
 
-            {activeTab === 'backtests' && (
-                <BacktestCharts backtests={backtests} isLoading={backtestsLoading} />
+            <section className="space-y-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <FlaskConical className="h-4 w-4 text-[#0071e3]" />
+                            <h2 className="text-lg font-semibold text-[#1d1d1f]">Experiment Pipeline</h2>
+                        </div>
+                        <p className="mt-2 max-w-3xl text-sm text-[#6e6e73]">
+                            Hypotheses, lineage, approvals, run reports, and shadow outcomes stay together before a challenger can affect recommendations.
+                        </p>
+                    </div>
+                    <span className="inline-flex w-fit rounded-full bg-[#0071e3]/10 px-3 py-1 text-xs font-semibold text-[#0071e3]">
+                        {activeLedgerLoading ? 'Loading ledger' : `${activeLedger.length} ledger entries`}
+                    </span>
+                </div>
+                <ExperimentWorkbench
+                    modelNames={modelNames}
+                    defaultModelName={activeModelName}
+                    showModelSwitcher={false}
+                    key={activeModelName}
+                />
+            </section>
+
+            {activeModelName === 'demand_forecast' && (
+                <>
+                    <ModelCardPanel evidence={evidence} championModel={championModel} championHistory={championHistory} />
+                    <CalibrationPanel evidence={evidence} effectiveness={effectiveness} />
+                    <SegmentMetricsTable effectiveness={effectiveness} />
+                </>
             )}
 
-            {activeTab === 'data' && (
-                <DataHealthDashboard syncData={syncData} isLoading={syncLoading} />
-            )}
+            <section className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
+                <div className="card space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Brain className="h-4 w-4 text-[#0071e3]" />
+                        <h2 className="text-lg font-semibold text-[#1d1d1f]">Runtime Registry</h2>
+                    </div>
+                    <p className="text-sm text-[#6e6e73]">
+                        See the active model family first; expand when older challengers or archived versions are needed.
+                    </p>
+                    <ModelArena models={activeRegistryModels} initialVisible={3} />
+                </div>
+
+                <div className="card space-y-4">
+                    <div className="flex items-center gap-2">
+                        <Database className="h-4 w-4 text-[#0071e3]" />
+                        <h2 className="text-lg font-semibold text-[#1d1d1f]">Data Freshness</h2>
+                    </div>
+                    <p className="text-sm text-[#6e6e73]">
+                        Model quality depends on current, complete source data.
+                    </p>
+                    <DataHealthDashboard syncData={syncData} isLoading={syncLoading} />
+                </div>
+            </section>
         </div>
     )
 }
 
-function MetricCard({
+function ModelFamilyFilter({
+    activeModelName,
+    onChange,
+    forecastVersion,
+    anomalyVersion,
+}: {
+    activeModelName: 'demand_forecast' | 'anomaly_detector'
+    onChange: (modelName: 'demand_forecast' | 'anomaly_detector') => void
+    forecastVersion: string | undefined
+    anomalyVersion: string | undefined
+}) {
+    const options = [
+        {
+            modelName: 'demand_forecast' as const,
+            label: 'Forecasting',
+            detail: 'Demand, uncertainty, replenishment replay',
+            version: forecastVersion,
+        },
+        {
+            modelName: 'anomaly_detector' as const,
+            label: 'Anomaly Detection',
+            detail: 'Shelf availability, stockout review workload',
+            version: anomalyVersion,
+        },
+    ]
+
+    return (
+        <section className="card border border-black/[0.02] p-3 shadow-sm">
+            <div className="grid gap-2 md:grid-cols-2">
+                {options.map(option => {
+                    const active = activeModelName === option.modelName
+                    return (
+                        <button
+                            key={option.modelName}
+                            type="button"
+                            onClick={() => onChange(option.modelName)}
+                            className={`rounded-lg border px-4 py-3 text-left transition ${
+                                active
+                                    ? 'border-[#0071e3]/30 bg-[#f5f9ff] text-[#0071e3]'
+                                    : 'border-transparent bg-[#f5f5f7] text-[#6e6e73] hover:border-black/[0.04] hover:bg-white hover:text-[#1d1d1f]'
+                            }`}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <p className="font-semibold">{option.label}</p>
+                                    <p className="mt-1 truncate text-xs">{option.detail}</p>
+                                </div>
+                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                    active ? 'bg-[#0071e3]/10 text-[#0071e3]' : 'bg-white text-[#86868b]'
+                                }`}>
+                                    {option.version ?? 'not selected'}
+                                </span>
+                            </div>
+                        </button>
+                    )
+                })}
+            </div>
+        </section>
+    )
+}
+
+function ModelLabWorkflow({
+    experiments,
+    isLoading,
+    activeVersion,
+    activeModelLabel,
+}: {
+    experiments: ExperimentLedgerEntry[]
+    isLoading: boolean
+    activeVersion: string | undefined
+    activeModelLabel: string
+}) {
+    const proposed = countStatus(experiments, 'proposed')
+    const approved = countStatus(experiments, 'approved')
+    const shadowTesting = countStatus(experiments, 'shadow_testing')
+    const completed = countStatus(experiments, 'completed')
+
+    return (
+        <section className="card space-y-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <GitBranch className="h-4 w-4 text-[#0071e3]" />
+                        <h2 className="text-lg font-semibold text-[#1d1d1f]">Release Workflow</h2>
+                    </div>
+                    <p className="mt-2 text-sm text-[#6e6e73]">
+                        The active model changes only after a recorded hypothesis, review gate, backtest, and promotion decision.
+                    </p>
+                </div>
+                <span className="inline-flex w-fit rounded-full bg-[#34c759]/10 px-3 py-1 text-xs font-semibold text-[#1f8f45]">
+                    {activeModelLabel} {activeVersion ?? 'not selected'}
+                </span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <WorkflowStep
+                    icon={ScrollText}
+                    label="Hypotheses"
+                    value={isLoading ? 'Loading' : proposed.toLocaleString()}
+                    detail="awaiting review"
+                    tone="neutral"
+                />
+                <WorkflowStep
+                    icon={CheckCircle2}
+                    label="Approved"
+                    value={isLoading ? 'Loading' : approved.toLocaleString()}
+                    detail="ready to run"
+                    tone="good"
+                />
+                <WorkflowStep
+                    icon={FlaskConical}
+                    label="Backtests"
+                    value={isLoading ? 'Loading' : experiments.length.toLocaleString()}
+                    detail="ledger entries"
+                    tone="blue"
+                />
+                <WorkflowStep
+                    icon={Clock}
+                    label="Shadow"
+                    value={isLoading ? 'Loading' : shadowTesting.toLocaleString()}
+                    detail="active model"
+                    tone="warn"
+                />
+                <WorkflowStep
+                    icon={ShieldCheck}
+                    label="Reports"
+                    value={isLoading ? 'Loading' : completed.toLocaleString()}
+                    detail="release reports"
+                    tone="purple"
+                />
+            </div>
+        </section>
+    )
+}
+
+function AnomalyEvidencePanel({
+    evidence,
+    models,
+    isLoading,
+}: {
+    evidence: ActiveModelEvidence | undefined
+    models: MLModel[]
+    isLoading: boolean
+}) {
+    const champion = models.find(model => model.status === 'champion')
+    const challenger = models.find(model => model.status === 'challenger' || model.status === 'candidate')
+    const shadowDecision = evidence?.shadow?.decision
+    const decisionReason = typeof shadowDecision?.reason === 'string'
+        ? shadowDecision.reason
+        : 'Awaiting benchmark and buyer feedback.'
+
+    return (
+        <section className="card space-y-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                    <div className="flex items-center gap-2">
+                        <AlertTriangle className="h-4 w-4 text-[#ff9500]" />
+                        <h2 className="text-lg font-semibold text-[#1d1d1f]">Anomaly Detector</h2>
+                    </div>
+                    <p className="mt-2 max-w-3xl text-sm text-[#6e6e73]">
+                        FreshRetailNet stockout labels benchmark inventory-integrity detection separately from the M5 forecasting champion.
+                    </p>
+                </div>
+                <span className="inline-flex w-fit rounded-full bg-[#ff9500]/10 px-3 py-1 text-xs font-semibold text-[#a15c00]">
+                    {isLoading ? 'Loading evidence' : `champion ${evidence?.version ?? champion?.version ?? 'not selected'}`}
+                </span>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+                <WorkflowStep
+                    icon={ShieldCheck}
+                    label="Precision"
+                    value={formatPercent(evidence?.benchmark_metrics?.precision)}
+                    detail="confirmed stockout hit rate"
+                    tone="good"
+                />
+                <WorkflowStep
+                    icon={Activity}
+                    label="Recall"
+                    value={formatPercent(evidence?.benchmark_metrics?.recall)}
+                    detail="known stockouts caught"
+                    tone="blue"
+                />
+                <WorkflowStep
+                    icon={AlertTriangle}
+                    label="False Positive"
+                    value={formatPercent(evidence?.benchmark_metrics?.false_positive_rate)}
+                    detail="cycle-count noise"
+                    tone="warn"
+                />
+                <WorkflowStep
+                    icon={Clock}
+                    label="Shadow"
+                    value={evidence?.shadow?.challenger_version ?? challenger?.version ?? '—'}
+                    detail={formatPercent(evidence?.shadow?.recall)}
+                    tone="purple"
+                />
+                <WorkflowStep
+                    icon={Database}
+                    label="Rows"
+                    value={formatInteger(evidence?.benchmark_metrics?.rows_eval)}
+                    detail={evidence?.dataset_id ?? 'FreshRetailNet'}
+                    tone="neutral"
+                />
+                <WorkflowStep
+                    icon={CheckCircle2}
+                    label="Feedback"
+                    value={formatInteger(evidence?.feedback?.outcomes_recorded)}
+                    detail={evidence?.feedback?.feedback_provenance ?? 'not measured yet'}
+                    tone="neutral"
+                />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[0.95fr,1.05fr]">
+                <div className="rounded-lg border border-black/[0.04] bg-[#f5f5f7] p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#86868b]">Shadow Decision</p>
+                    <p className="mt-2 text-sm font-medium text-[#1d1d1f]">{decisionReason}</p>
+                    <p className="mt-3 text-xs leading-5 text-[#6e6e73]">
+                        {evidence?.claim_boundary ?? 'Benchmark anomaly evidence only. Buyer outcomes require real cycle-count feedback.'}
+                    </p>
+                    <div className="mt-4 grid gap-2 text-xs text-[#6e6e73] sm:grid-cols-3">
+                        <div>
+                            <span className="block font-mono text-sm text-[#1d1d1f]">
+                                {formatInteger(evidence?.feedback?.shadow_predictions)}
+                            </span>
+                            <span>shadow predictions</span>
+                        </div>
+                        <div>
+                            <span className="block font-mono text-sm text-[#1d1d1f]">
+                                {formatPercent(evidence?.feedback?.disagreement_rate)}
+                            </span>
+                            <span>disagreement rate</span>
+                        </div>
+                        <div>
+                            <span className="block font-mono text-sm text-[#1d1d1f]">
+                                {formatPercent(evidence?.feedback?.measured_precision)}
+                            </span>
+                            <span>measured precision</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="overflow-hidden rounded-lg border border-black/[0.04]">
+                    <table className="w-full text-left text-xs">
+                        <thead className="bg-[#f5f5f7] text-[#86868b]">
+                            <tr>
+                                <th className="px-3 py-2 font-medium">Profile</th>
+                                <th className="px-3 py-2 font-medium">Precision</th>
+                                <th className="px-3 py-2 font-medium">Recall</th>
+                                <th className="px-3 py-2 font-medium">Review</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-black/[0.04] bg-white">
+                            {(evidence?.benchmark_rows ?? []).slice(0, 3).map(row => (
+                                <tr key={row.label}>
+                                    <td className="px-3 py-2 font-medium text-[#1d1d1f]">{row.label}</td>
+                                    <td className="px-3 py-2 font-mono text-[#1d1d1f]">{formatPercent(row.precision)}</td>
+                                    <td className="px-3 py-2 font-mono text-[#1d1d1f]">{formatPercent(row.recall)}</td>
+                                    <td className="px-3 py-2 font-mono text-[#1d1d1f]">{formatPercent(row.review_rate)}</td>
+                                </tr>
+                            ))}
+                            {(evidence?.benchmark_rows ?? []).length === 0 && (
+                                <tr>
+                                    <td className="px-3 py-6 text-center text-[#86868b]" colSpan={4}>
+                                        No anomaly benchmark rows available.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    )
+}
+
+function WorkflowStep({
+    icon: Icon,
+    label,
+    value,
+    detail,
+    tone,
+}: {
+    icon: typeof FlaskConical
+    label: string
+    value: string
+    detail: string
+    tone: 'neutral' | 'good' | 'blue' | 'warn' | 'purple'
+}) {
+    const toneClass = tone === 'good'
+        ? 'bg-[#34c759]/10 text-[#1f8f45]'
+        : tone === 'blue'
+            ? 'bg-[#0071e3]/10 text-[#0071e3]'
+            : tone === 'warn'
+                ? 'bg-[#ffcc00]/20 text-[#8a6a00]'
+                : tone === 'purple'
+                    ? 'bg-[#5856d6]/10 text-[#5856d6]'
+                    : 'bg-[#f5f5f7] text-[#1d1d1f]'
+
+    return (
+        <div className="rounded-[18px] border border-black/[0.04] bg-white px-4 py-4">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-2xl ${toneClass}`}>
+                <Icon className="h-4 w-4" />
+            </div>
+            <p className="mt-4 text-xs font-medium uppercase tracking-[0.16em] text-[#86868b]">{label}</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight text-[#1d1d1f]">{value}</p>
+            <p className="mt-1 text-xs text-[#6e6e73]">{detail}</p>
+        </div>
+    )
+}
+
+function countStatus(experiments: ExperimentLedgerEntry[], status: string) {
+    return experiments.filter(experiment => experiment.status === status).length
+}
+
+function formatPercent(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+        return '—'
+    }
+    return `${(value * 100).toFixed(1)}%`
+}
+
+function formatInteger(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+        return '—'
+    }
+    return Math.round(value).toLocaleString()
+}
+
+function HeroStat({
     icon: Icon,
     label,
     value,
@@ -229,141 +525,13 @@ function MetricCard({
     detail: string
 }) {
     return (
-        <div className="card border border-white/40 shadow-sm p-4">
-            <div className="flex items-center gap-2 mb-2">
-                <Icon className="h-4 w-4 text-shelf-primary" />
-                <p className="text-xs uppercase tracking-wider text-shelf-foreground/50 font-medium">{label}</p>
+        <div className="hero-stat-card">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#f5f5f7]">
+                <Icon className="h-5 w-5 text-[#1d1d1f]" />
             </div>
-            <p className="text-2xl font-semibold text-shelf-foreground">{value}</p>
-            <p className="text-xs text-shelf-foreground/55 mt-1">{detail}</p>
-        </div>
-    )
-}
-
-function GovernanceScorecard({ effectiveness }: { effectiveness: MLEffectiveness }) {
-    const familySegments = effectiveness.segment_breakdowns?.family?.segments ?? []
-    const topFamily = familySegments[0]
-
-    return (
-        <div className="card border border-white/40 shadow-sm p-5 space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-                <div>
-                    <h2 className="text-lg font-semibold text-shelf-primary">Model Governance Scorecard</h2>
-                    <p className="text-sm text-shelf-foreground/60 mt-1">
-                        {effectiveness.model_name.replace(/_/g, ' ')} · {effectiveness.forecast_grain ?? 'unknown grain'} · {effectiveness.confidence}
-                    </p>
-                </div>
-                <div className="text-xs text-shelf-foreground/55">
-                    Window: {effectiveness.evaluation_window?.start_date ?? '—'} to {effectiveness.evaluation_window?.end_date ?? '—'}
-                </div>
-            </div>
-
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
-                <ScoreCell label="WAPE" value={effectiveness.metrics?.wape !== null ? `${((effectiveness.metrics?.wape ?? 0) * 100).toFixed(1)}%` : '—'} />
-                <ScoreCell label="MASE" value={effectiveness.metrics?.mase !== null ? (effectiveness.metrics?.mase ?? 0).toFixed(2) : '—'} />
-                <ScoreCell label="Overstock $" value={effectiveness.metrics?.overstock_dollars !== null ? `$${Math.round(effectiveness.metrics?.overstock_dollars ?? 0).toLocaleString()}` : '—'} />
-                <ScoreCell label="Lost Sales Qty" value={effectiveness.metrics?.lost_sales_qty !== null ? Math.round(effectiveness.metrics?.lost_sales_qty ?? 0).toLocaleString() : '—'} />
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <div className="rounded-xl border border-shelf-foreground/10 bg-shelf-secondary/5 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-shelf-foreground/50">Promotion Logic</p>
-                    <div className="mt-3 space-y-2 text-sm text-shelf-foreground/70">
-                        <p>Champion/challenger promotion now follows business and DS guardrails together.</p>
-                        <p>Primary scorecard: MASE, WAPE, bias, stockout miss, and overstock economics.</p>
-                        <p>Rule overlays are tracked separately so raw model quality is visible.</p>
-                        {effectiveness.by_version?.[0]?.dataset_id && (
-                            <p>Dataset lineage: {effectiveness.by_version[0].dataset_id} / {effectiveness.by_version[0].forecast_grain ?? 'unknown grain'}</p>
-                        )}
-                    </div>
-                </div>
-                <div className="rounded-xl border border-shelf-foreground/10 bg-shelf-secondary/5 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-shelf-foreground/50">Segment Evidence</p>
-                    <div className="mt-3 space-y-2 text-sm text-shelf-foreground/70">
-                        <p>Family breakdowns available: {effectiveness.segment_breakdowns?.family?.available ? 'yes' : 'no'}</p>
-                        <p>Store deciles available: {effectiveness.segment_breakdowns?.store_decile?.available ? 'yes' : 'no'}</p>
-                        <p>Promo breakdowns available: {effectiveness.segment_breakdowns?.promo?.available ? 'yes' : 'no'}</p>
-                        {topFamily && (
-                            <p>
-                                Largest family segment: <span className="font-medium text-shelf-foreground">{topFamily.segment}</span>
-                                {' '}({topFamily.samples} rows, {(topFamily.wape * 100).toFixed(1)}% WAPE)
-                            </p>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    )
-}
-
-function ScoreCell({ label, value }: { label: string; value: string }) {
-    return (
-        <div className="rounded-xl border border-shelf-foreground/10 bg-white/70 p-3">
-            <p className="text-xs uppercase tracking-wider text-shelf-foreground/50">{label}</p>
-            <p className="mt-1 text-lg font-semibold text-shelf-foreground">{value}</p>
-        </div>
-    )
-}
-
-function ModelHistoryTable({
-    history,
-    isError,
-    errorMessage,
-}: {
-    history: ModelHistoryEntry[]
-    isError: boolean
-    errorMessage: string
-}) {
-    if (isError) {
-        return (
-            <div className="card border border-red-200 bg-red-50/50 shadow-sm p-5 text-sm text-red-700">
-                {errorMessage}
-            </div>
-        )
-    }
-
-    return (
-        <div className="card border border-white/40 shadow-sm overflow-hidden">
-            <div className="px-4 py-3 border-b border-shelf-foreground/5">
-                <h3 className="text-sm font-semibold text-shelf-primary uppercase tracking-wider">Model Lineage</h3>
-            </div>
-            <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                    <thead>
-                        <tr className="border-b border-shelf-foreground/5 text-left text-xs font-semibold uppercase tracking-wider text-shelf-foreground/50">
-                            <th className="px-4 py-3">Version</th>
-                            <th className="px-4 py-3">Status</th>
-                            <th className="px-4 py-3">Lineage</th>
-                            <th className="px-4 py-3 text-right">MASE</th>
-                            <th className="px-4 py-3 text-right">WAPE</th>
-                            <th className="px-4 py-3">Dates</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-shelf-foreground/5">
-                        {history.map(row => (
-                            <tr key={row.version} className="hover:bg-shelf-foreground/[0.02] transition-colors">
-                                <td className="px-4 py-3 font-mono text-xs">{row.version}</td>
-                                <td className="px-4 py-3">
-                                    <span className="inline-flex rounded-full bg-shelf-primary/10 px-2 py-0.5 text-xs font-medium text-shelf-primary">
-                                        {row.status}
-                                    </span>
-                                </td>
-                                <td className="px-4 py-3 text-xs text-shelf-foreground/65">
-                                    <div>{row.lineage_label ?? '—'}</div>
-                                    <div>{row.architecture ?? '—'} / {row.objective ?? '—'} / {row.feature_set_id ?? '—'}</div>
-                                </td>
-                                <td className="px-4 py-3 text-right font-mono">{row.mase !== null ? row.mase.toFixed(2) : '—'}</td>
-                                <td className="px-4 py-3 text-right font-mono">{row.wape !== null ? `${(row.wape * 100).toFixed(1)}%` : '—'}</td>
-                                <td className="px-4 py-3 text-xs text-shelf-foreground/60">
-                                    <div>Created: {new Date(row.created_at).toLocaleDateString()}</div>
-                                    <div>Promoted: {row.promoted_at ? new Date(row.promoted_at).toLocaleDateString() : '—'}</div>
-                                    <div>Archived: {row.archived_at ? new Date(row.archived_at).toLocaleDateString() : '—'}</div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
+            <p className="mt-4 text-sm font-medium text-[#86868b]">{label}</p>
+            <p className="mt-1 text-2xl font-semibold tracking-tight text-[#1d1d1f]">{value}</p>
+            <p className="mt-2 text-xs text-[#6e6e73]">{detail}</p>
         </div>
     )
 }

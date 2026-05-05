@@ -7,7 +7,7 @@ Dependency injection for DB sessions, auth, and tenant context.
 from collections.abc import AsyncGenerator
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession

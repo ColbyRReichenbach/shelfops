@@ -61,8 +61,30 @@ async def test_ml_backtests_contract_returns_forecast_fields(client, seeded_db, 
 @pytest.mark.asyncio
 async def test_sync_health_contract_is_enveloped(client, seeded_db, test_db):
     """Sync health endpoint should return envelope + sources array."""
-    from db.models import IntegrationSyncLog
+    from core.security import encrypt
+    from db.models import Integration, IntegrationSyncLog
 
+    test_db.add(
+        Integration(
+            customer_id=seeded_db["customer_id"],
+            provider="square",
+            access_token_encrypted=encrypt("test-access-token"),
+            refresh_token_encrypted=encrypt("test-refresh-token"),
+            merchant_id="MERCHANT123",
+            status="connected",
+            config={
+                "square_mapping_confirmed": False,
+                "square_mapping_coverage": {
+                    "locations_total": 2,
+                    "locations_mapped": 1,
+                    "catalog_total": 3,
+                    "catalog_mapped": 2,
+                },
+                "square_unmapped_location_ids": ["loc-2"],
+                "square_unmapped_catalog_ids": ["item-3"],
+            },
+        )
+    )
     test_db.add(
         IntegrationSyncLog(
             customer_id=seeded_db["customer_id"],
@@ -93,6 +115,9 @@ async def test_sync_health_contract_is_enveloped(client, seeded_db, test_db):
     assert "syncs_24h" in source
     assert "failures_24h" in source
     assert "sla_status" in source
+    assert source["mapping_confirmed"] is False
+    assert source["unmapped_location_ids"] == ["loc-2"]
+    assert source["unmapped_catalog_ids"] == ["item-3"]
 
 
 @pytest.mark.asyncio
@@ -206,6 +231,67 @@ async def test_record_anomaly_outcome_maps_to_valid_db_status(seeded_db, test_db
         outcome="not_a_real_outcome",
     )
     assert invalid["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_record_anomaly_outcome_updates_linked_shadow_prediction(seeded_db, test_db):
+    """Cycle-count feedback should flow back to anomaly shadow records."""
+    from db.models import Anomaly, AnomalyDetectionRun, AnomalyShadowPrediction
+    from ml.alert_outcomes import record_anomaly_outcome
+
+    run = AnomalyDetectionRun(
+        customer_id=seeded_db["customer_id"],
+        model_name="anomaly_detector",
+        model_version="a2",
+        run_type="shadow",
+        status="completed",
+        rows_scored=1,
+        anomalies_detected=1,
+        provenance="benchmark",
+        completed_at=datetime.utcnow(),
+    )
+    test_db.add(run)
+    await test_db.flush()
+    shadow = AnomalyShadowPrediction(
+        run_id=run.run_id,
+        customer_id=seeded_db["customer_id"],
+        store_id=seeded_db["store"].store_id,
+        product_id=seeded_db["product"].product_id,
+        detected_for_date=date.today(),
+        champion_version="a1",
+        challenger_version="a2",
+        champion_score=0.61,
+        challenger_score=0.72,
+        champion_flag=True,
+        challenger_flag=True,
+    )
+    test_db.add(shadow)
+    await test_db.flush()
+    anomaly = Anomaly(
+        customer_id=seeded_db["customer_id"],
+        store_id=seeded_db["store"].store_id,
+        product_id=seeded_db["product"].product_id,
+        anomaly_type="ml_detected",
+        severity="warning",
+        description="Linked shadow anomaly",
+        anomaly_metadata={"anomaly_shadow_prediction_id": str(shadow.prediction_id)},
+        status="detected",
+    )
+    test_db.add(anomaly)
+    await test_db.commit()
+
+    result = await record_anomaly_outcome(
+        db=test_db,
+        customer_id=seeded_db["customer_id"],
+        anomaly_id=anomaly.anomaly_id,
+        outcome="false_positive",
+        outcome_notes="No shelf issue found",
+        action_taken="cycle_count",
+    )
+
+    assert result["status"] == "success"
+    assert shadow.actual_outcome == "false_positive"
+    assert shadow.outcome_recorded_at is not None
 
 
 @pytest.mark.asyncio

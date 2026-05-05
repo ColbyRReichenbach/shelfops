@@ -1,0 +1,18 @@
+{
+  "claim_boundaries_ref": "data_registry/datasets.yaml",
+  "content_hash": "2a5939eda04fc48f5bd0460102b9adf74b51ad0484b3c2d2e3432b3940d4f563",
+  "created_at": "2026-04-29T00:17:39.488562+00:00",
+  "dataset_id": "m5_walmart",
+  "date_max": "2016-04-24",
+  "date_min": "2011-10-03",
+  "forecast_grain": "store_product_daily",
+  "frequency": "daily",
+  "geography": "US",
+  "implementation_status": "benchmark_active",
+  "product_count": 29,
+  "row_count": 49980,
+  "schema_version": "v1",
+  "snapshot_id": "dsnap_2a5939eda04fc48f",
+  "source_type": "benchmark",
+  "store_count": 10
+}

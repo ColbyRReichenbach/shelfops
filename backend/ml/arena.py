@@ -55,6 +55,234 @@ def _relative_non_regression(candidate: float | None, champion: float | None, to
     return candidate <= champion * (1 + tolerance_pct / 100.0)
 
 
+def compare_candidate_vs_champion_metrics(
+    champion_metrics: dict[str, Any] | None,
+    candidate_metrics: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Compare candidate metrics against champion metrics using the live promotion gates.
+
+    Returns a serializable decision bundle that can be used both by the DB-backed
+    auto-promotion flow and offline/demo challenger evaluation scripts.
+    """
+    champion_metrics = champion_metrics or {}
+    candidate_metrics = candidate_metrics or {}
+
+    champion_mae = _as_float(champion_metrics.get("mae"))
+    champion_mape = _as_float(champion_metrics.get("mape"))
+    champion_wape = _as_float(champion_metrics.get("wape"))
+    champion_mase = _as_float(champion_metrics.get("mase"))
+    champion_bias = _as_float(champion_metrics.get("bias_pct"))
+    champion_coverage = _as_float(champion_metrics.get("coverage"))
+    champion_stockout = _as_float(champion_metrics.get("stockout_miss_rate"))
+    champion_overstock_rate = _as_float(champion_metrics.get("overstock_rate"))
+    champion_overstock_dollars = _as_float(champion_metrics.get("overstock_dollars"))
+    champion_overstock_confidence = _confidence_label(champion_metrics.get("overstock_dollars_confidence"))
+    champion_lost_sales_qty = _as_float(champion_metrics.get("lost_sales_qty"))
+    champion_stockout_cost = _as_float(champion_metrics.get("opportunity_cost_stockout"))
+    champion_stockout_cost_confidence = _confidence_label(champion_metrics.get("opportunity_cost_stockout_confidence"))
+    champion_overstock_cost = _as_float(champion_metrics.get("opportunity_cost_overstock"))
+    champion_overstock_cost_confidence = _confidence_label(
+        champion_metrics.get("opportunity_cost_overstock_confidence")
+    )
+
+    candidate_mae = _as_float(candidate_metrics.get("mae"))
+    candidate_mape = _as_float(candidate_metrics.get("mape"))
+    candidate_wape = _as_float(candidate_metrics.get("wape"))
+    candidate_mase = _as_float(candidate_metrics.get("mase"))
+    candidate_bias = _as_float(candidate_metrics.get("bias_pct"))
+    candidate_coverage = _as_float(candidate_metrics.get("coverage"))
+    candidate_stockout = _as_float(candidate_metrics.get("stockout_miss_rate"))
+    candidate_overstock_rate = _as_float(candidate_metrics.get("overstock_rate"))
+    candidate_overstock_dollars = _as_float(candidate_metrics.get("overstock_dollars"))
+    candidate_overstock_confidence = _confidence_label(candidate_metrics.get("overstock_dollars_confidence"))
+    candidate_lost_sales_qty = _as_float(candidate_metrics.get("lost_sales_qty"))
+    candidate_stockout_cost = _as_float(candidate_metrics.get("opportunity_cost_stockout"))
+    candidate_stockout_cost_confidence = _confidence_label(
+        candidate_metrics.get("opportunity_cost_stockout_confidence")
+    )
+    candidate_overstock_cost = _as_float(candidate_metrics.get("opportunity_cost_overstock"))
+    candidate_overstock_cost_confidence = _confidence_label(
+        candidate_metrics.get("opportunity_cost_overstock_confidence")
+    )
+
+    required_gate_inputs = {
+        "candidate.mae": candidate_mae,
+        "candidate.mape": candidate_mape,
+        "candidate.coverage": candidate_coverage,
+        "candidate.stockout_miss_rate": candidate_stockout,
+        "candidate.overstock_rate": candidate_overstock_rate,
+        "candidate.overstock_dollars": candidate_overstock_dollars,
+        "candidate.lost_sales_qty": candidate_lost_sales_qty,
+        "candidate.opportunity_cost_stockout": candidate_stockout_cost,
+        "candidate.opportunity_cost_overstock": candidate_overstock_cost,
+        "champion.mae": champion_mae,
+        "champion.mape": champion_mape,
+        "champion.coverage": champion_coverage,
+        "champion.stockout_miss_rate": champion_stockout,
+        "champion.overstock_rate": champion_overstock_rate,
+        "champion.overstock_dollars": champion_overstock_dollars,
+        "champion.lost_sales_qty": champion_lost_sales_qty,
+        "champion.opportunity_cost_stockout": champion_stockout_cost,
+        "champion.opportunity_cost_overstock": champion_overstock_cost,
+    }
+    missing_required_inputs = [name for name, value in required_gate_inputs.items() if value is None]
+
+    mae_gate = _relative_non_regression(candidate_mae, champion_mae, tolerance_pct=2.0)
+    mape_gate = _relative_non_regression(candidate_mape, champion_mape, tolerance_pct=2.0)
+    wape_gate = True if candidate_wape is None or champion_wape is None else candidate_wape <= champion_wape * 1.02
+    mase_gate = True if candidate_mase is None or champion_mase is None else candidate_mase <= champion_mase * 1.02
+    bias_gate = (
+        True if candidate_bias is None or champion_bias is None else abs(candidate_bias) <= abs(champion_bias) + 0.01
+    )
+    coverage_gate = (
+        candidate_coverage is not None and champion_coverage is not None and candidate_coverage >= champion_coverage
+    )
+
+    stockout_gate = (
+        candidate_stockout is not None
+        and champion_stockout is not None
+        and candidate_stockout <= champion_stockout + 0.005
+    )
+    overstock_rate_gate = (
+        candidate_overstock_rate is not None
+        and champion_overstock_rate is not None
+        and candidate_overstock_rate <= champion_overstock_rate + 0.005
+    )
+
+    overstock_confidence_gate = candidate_overstock_confidence in {
+        "measured",
+        "estimated",
+    } and champion_overstock_confidence in {
+        "measured",
+        "estimated",
+    }
+    stockout_cost_confidence_gate = candidate_stockout_cost_confidence in {
+        "measured",
+        "estimated",
+    } and champion_stockout_cost_confidence in {
+        "measured",
+        "estimated",
+    }
+    overstock_cost_confidence_gate = candidate_overstock_cost_confidence in {
+        "measured",
+        "estimated",
+    } and champion_overstock_cost_confidence in {
+        "measured",
+        "estimated",
+    }
+
+    lost_sales_gate = _relative_non_regression(candidate_lost_sales_qty, champion_lost_sales_qty, tolerance_pct=0.5)
+    stockout_cost_gate = (
+        _relative_non_regression(candidate_stockout_cost, champion_stockout_cost, tolerance_pct=0.5)
+        and stockout_cost_confidence_gate
+    )
+    overstock_cost_gate = (
+        _relative_non_regression(candidate_overstock_cost, champion_overstock_cost, tolerance_pct=0.5)
+        and overstock_cost_confidence_gate
+    )
+
+    if candidate_overstock_dollars is not None and champion_overstock_dollars is not None and overstock_confidence_gate:
+        improved = candidate_overstock_dollars <= champion_overstock_dollars * 0.99
+        near_flat_with_stockout_gain = (
+            candidate_overstock_dollars <= champion_overstock_dollars * 1.005
+            and candidate_stockout_cost is not None
+            and champion_stockout_cost is not None
+            and candidate_stockout_cost < champion_stockout_cost
+        )
+        overstock_dollars_gate = improved or near_flat_with_stockout_gain
+    else:
+        overstock_dollars_gate = False
+
+    gate_checks = {
+        "mae_gate": mae_gate,
+        "mape_gate": mape_gate,
+        "wape_gate": wape_gate,
+        "mase_gate": mase_gate,
+        "bias_gate": bias_gate,
+        "coverage_gate": coverage_gate,
+        "stockout_miss_gate": stockout_gate,
+        "overstock_rate_gate": overstock_rate_gate,
+        "lost_sales_qty_gate": lost_sales_gate,
+        "opportunity_cost_stockout_confidence_gate": stockout_cost_confidence_gate,
+        "opportunity_cost_stockout_gate": stockout_cost_gate,
+        "opportunity_cost_overstock_confidence_gate": overstock_cost_confidence_gate,
+        "opportunity_cost_overstock_gate": overstock_cost_gate,
+        "overstock_dollars_confidence_gate": overstock_confidence_gate,
+        "overstock_dollars_gate": overstock_dollars_gate,
+    }
+
+    should_promote = all(gate_checks.values()) and not missing_required_inputs
+    fail_reasons = [name for name, passed in gate_checks.items() if not passed]
+    if missing_required_inputs:
+        fail_reasons.insert(0, f"missing_required_inputs:{','.join(sorted(missing_required_inputs))}")
+    decision_reason = (
+        "passed_business_and_ds_gates"
+        if should_promote
+        else ("failed_gates:" + ",".join(fail_reasons) if fail_reasons else "failed_unknown_gate")
+    )
+
+    return {
+        "promoted": should_promote,
+        "reason": decision_reason,
+        "gate_checks": gate_checks,
+        "champion_mae": champion_mae,
+        "candidate_mae": candidate_mae,
+        "decision": {
+            "gates": gate_checks,
+            "champion_metrics": {
+                "mae": champion_mae,
+                "mape": champion_mape,
+                "wape": champion_wape,
+                "mase": champion_mase,
+                "bias_pct": champion_bias,
+                "coverage": champion_coverage,
+                "stockout_miss_rate": champion_stockout,
+                "overstock_rate": champion_overstock_rate,
+                "lost_sales_qty": champion_lost_sales_qty,
+                "opportunity_cost_stockout": champion_stockout_cost,
+                "opportunity_cost_stockout_confidence": champion_stockout_cost_confidence,
+                "opportunity_cost_overstock": champion_overstock_cost,
+                "opportunity_cost_overstock_confidence": champion_overstock_cost_confidence,
+                "overstock_dollars": champion_overstock_dollars,
+                "overstock_dollars_confidence": champion_overstock_confidence,
+            },
+            "candidate_metrics": {
+                "mae": candidate_mae,
+                "mape": candidate_mape,
+                "wape": candidate_wape,
+                "mase": candidate_mase,
+                "bias_pct": candidate_bias,
+                "coverage": candidate_coverage,
+                "stockout_miss_rate": candidate_stockout,
+                "overstock_rate": candidate_overstock_rate,
+                "lost_sales_qty": candidate_lost_sales_qty,
+                "opportunity_cost_stockout": candidate_stockout_cost,
+                "opportunity_cost_stockout_confidence": candidate_stockout_cost_confidence,
+                "opportunity_cost_overstock": candidate_overstock_cost,
+                "opportunity_cost_overstock_confidence": candidate_overstock_cost_confidence,
+                "overstock_dollars": candidate_overstock_dollars,
+                "overstock_dollars_confidence": candidate_overstock_confidence,
+            },
+            "thresholds": {
+                "max_mae_regression_pct": 2.0,
+                "max_mape_regression_pct": 2.0,
+                "max_wape_regression_pct": 2.0,
+                "max_mase_regression_pct": 2.0,
+                "max_bias_abs_regression_pp": 1.0,
+                "max_stockout_miss_pp": 0.5,
+                "max_overstock_rate_pp": 0.5,
+                "max_lost_sales_qty_regression_pct": 0.5,
+                "max_stockout_opportunity_cost_regression_pct": 0.5,
+                "max_overstock_opportunity_cost_regression_pct": 0.5,
+                "overstock_dollars_improvement_pct": 1.0,
+                "overstock_dollars_tolerance_pct": 0.5,
+            },
+            "missing_required_inputs": missing_required_inputs,
+        },
+    }
+
+
 # ─── Model Version CRUD ─────────────────────────────────────────────────────
 
 
@@ -252,239 +480,11 @@ async def evaluate_for_promotion(
             "candidate_mae": candidate_metrics.get("mae"),
         }
 
-    champion_metrics = champion.get("metrics") or {}
-
-    champion_mae = _as_float(champion_metrics.get("mae"))
-    champion_mape = _as_float(champion_metrics.get("mape"))
-    champion_wape = _as_float(champion_metrics.get("wape"))
-    champion_mase = _as_float(champion_metrics.get("mase"))
-    champion_bias = _as_float(champion_metrics.get("bias_pct"))
-    champion_coverage = _as_float(champion_metrics.get("coverage"))
-    champion_stockout = _as_float(champion_metrics.get("stockout_miss_rate"))
-    champion_overstock_rate = _as_float(champion_metrics.get("overstock_rate"))
-    champion_overstock_dollars = _as_float(champion_metrics.get("overstock_dollars"))
-    champion_overstock_confidence = _confidence_label(champion_metrics.get("overstock_dollars_confidence"))
-    champion_lost_sales_qty = _as_float(champion_metrics.get("lost_sales_qty"))
-    champion_stockout_cost = _as_float(champion_metrics.get("opportunity_cost_stockout"))
-    champion_stockout_cost_confidence = _confidence_label(champion_metrics.get("opportunity_cost_stockout_confidence"))
-    champion_overstock_cost = _as_float(champion_metrics.get("opportunity_cost_overstock"))
-    champion_overstock_cost_confidence = _confidence_label(
-        champion_metrics.get("opportunity_cost_overstock_confidence")
-    )
-
-    candidate_mae = _as_float(candidate_metrics.get("mae"))
-    candidate_mape = _as_float(candidate_metrics.get("mape"))
-    candidate_wape = _as_float(candidate_metrics.get("wape"))
-    candidate_mase = _as_float(candidate_metrics.get("mase"))
-    candidate_bias = _as_float(candidate_metrics.get("bias_pct"))
-    candidate_coverage = _as_float(candidate_metrics.get("coverage"))
-    candidate_stockout = _as_float(candidate_metrics.get("stockout_miss_rate"))
-    candidate_overstock_rate = _as_float(candidate_metrics.get("overstock_rate"))
-    candidate_overstock_dollars = _as_float(candidate_metrics.get("overstock_dollars"))
-    candidate_overstock_confidence = _confidence_label(candidate_metrics.get("overstock_dollars_confidence"))
-    candidate_lost_sales_qty = _as_float(candidate_metrics.get("lost_sales_qty"))
-    candidate_stockout_cost = _as_float(candidate_metrics.get("opportunity_cost_stockout"))
-    candidate_stockout_cost_confidence = _confidence_label(
-        candidate_metrics.get("opportunity_cost_stockout_confidence")
-    )
-    candidate_overstock_cost = _as_float(candidate_metrics.get("opportunity_cost_overstock"))
-    candidate_overstock_cost_confidence = _confidence_label(
-        candidate_metrics.get("opportunity_cost_overstock_confidence")
-    )
-
-    required_gate_inputs = {
-        "candidate.mae": candidate_mae,
-        "candidate.mape": candidate_mape,
-        "candidate.coverage": candidate_coverage,
-        "candidate.stockout_miss_rate": candidate_stockout,
-        "candidate.overstock_rate": candidate_overstock_rate,
-        "candidate.overstock_dollars": candidate_overstock_dollars,
-        "candidate.lost_sales_qty": candidate_lost_sales_qty,
-        "candidate.opportunity_cost_stockout": candidate_stockout_cost,
-        "candidate.opportunity_cost_overstock": candidate_overstock_cost,
-        "champion.mae": champion_mae,
-        "champion.mape": champion_mape,
-        "champion.coverage": champion_coverage,
-        "champion.stockout_miss_rate": champion_stockout,
-        "champion.overstock_rate": champion_overstock_rate,
-        "champion.overstock_dollars": champion_overstock_dollars,
-        "champion.lost_sales_qty": champion_lost_sales_qty,
-        "champion.opportunity_cost_stockout": champion_stockout_cost,
-        "champion.opportunity_cost_overstock": champion_overstock_cost,
-    }
-    missing_required_inputs = [name for name, value in required_gate_inputs.items() if value is None]
-
-    # DS gates (strict)
-    mae_gate = _relative_non_regression(candidate_mae, champion_mae, tolerance_pct=2.0)
-    mape_gate = _relative_non_regression(candidate_mape, champion_mape, tolerance_pct=2.0)
-    wape_gate = True if candidate_wape is None or champion_wape is None else candidate_wape <= champion_wape * 1.02
-    mase_gate = True if candidate_mase is None or champion_mase is None else candidate_mase <= champion_mase * 1.02
-    bias_gate = (
-        True if candidate_bias is None or champion_bias is None else abs(candidate_bias) <= abs(champion_bias) + 0.01
-    )
-    coverage_gate = (
-        candidate_coverage is not None and champion_coverage is not None and candidate_coverage >= champion_coverage
-    )
-
-    # Business gates (fail closed if required inputs are missing).
-    stockout_gate = (
-        candidate_stockout is not None
-        and champion_stockout is not None
-        and candidate_stockout <= champion_stockout + 0.005
-    )
-
-    overstock_rate_gate = (
-        candidate_overstock_rate is not None
-        and champion_overstock_rate is not None
-        and candidate_overstock_rate <= champion_overstock_rate + 0.005
-    )
-
-    overstock_confidence_gate = candidate_overstock_confidence in {
-        "measured",
-        "estimated",
-    } and champion_overstock_confidence in {
-        "measured",
-        "estimated",
-    }
-    stockout_cost_confidence_gate = candidate_stockout_cost_confidence in {
-        "measured",
-        "estimated",
-    } and champion_stockout_cost_confidence in {
-        "measured",
-        "estimated",
-    }
-    overstock_cost_confidence_gate = candidate_overstock_cost_confidence in {
-        "measured",
-        "estimated",
-    } and champion_overstock_cost_confidence in {
-        "measured",
-        "estimated",
-    }
-
-    lost_sales_gate = _relative_non_regression(candidate_lost_sales_qty, champion_lost_sales_qty, tolerance_pct=0.5)
-    stockout_cost_gate = (
-        _relative_non_regression(candidate_stockout_cost, champion_stockout_cost, tolerance_pct=0.5)
-        and stockout_cost_confidence_gate
-    )
-    overstock_cost_gate = (
-        _relative_non_regression(candidate_overstock_cost, champion_overstock_cost, tolerance_pct=0.5)
-        and overstock_cost_confidence_gate
-    )
-
-    if candidate_overstock_dollars is not None and champion_overstock_dollars is not None and overstock_confidence_gate:
-        improved = candidate_overstock_dollars <= champion_overstock_dollars * 0.99
-        near_flat_with_stockout_gain = (
-            candidate_overstock_dollars <= champion_overstock_dollars * 1.005
-            and candidate_stockout_cost is not None
-            and champion_stockout_cost is not None
-            and candidate_stockout_cost < champion_stockout_cost
-        )
-        overstock_dollars_gate = improved or near_flat_with_stockout_gain
-    else:
-        overstock_dollars_gate = False
-
-    should_promote = (
-        all(
-            [
-                mae_gate,
-                mape_gate,
-                wape_gate,
-                mase_gate,
-                bias_gate,
-                coverage_gate,
-                stockout_gate,
-                overstock_rate_gate,
-                lost_sales_gate,
-                stockout_cost_confidence_gate,
-                stockout_cost_gate,
-                overstock_cost_confidence_gate,
-                overstock_cost_gate,
-                overstock_confidence_gate,
-                overstock_dollars_gate,
-            ]
-        )
-        and not missing_required_inputs
-    )
-
-    gate_checks = {
-        "mae_gate": mae_gate,
-        "mape_gate": mape_gate,
-        "wape_gate": wape_gate,
-        "mase_gate": mase_gate,
-        "bias_gate": bias_gate,
-        "coverage_gate": coverage_gate,
-        "stockout_miss_gate": stockout_gate,
-        "overstock_rate_gate": overstock_rate_gate,
-        "lost_sales_qty_gate": lost_sales_gate,
-        "opportunity_cost_stockout_confidence_gate": stockout_cost_confidence_gate,
-        "opportunity_cost_stockout_gate": stockout_cost_gate,
-        "opportunity_cost_overstock_confidence_gate": overstock_cost_confidence_gate,
-        "opportunity_cost_overstock_gate": overstock_cost_gate,
-        "overstock_dollars_confidence_gate": overstock_confidence_gate,
-        "overstock_dollars_gate": overstock_dollars_gate,
-    }
-
-    decision = {
-        "gates": gate_checks,
-        "champion_metrics": {
-            "mae": champion_mae,
-            "mape": champion_mape,
-            "wape": champion_wape,
-            "mase": champion_mase,
-            "bias_pct": champion_bias,
-            "coverage": champion_coverage,
-            "stockout_miss_rate": champion_stockout,
-            "overstock_rate": champion_overstock_rate,
-            "lost_sales_qty": champion_lost_sales_qty,
-            "opportunity_cost_stockout": champion_stockout_cost,
-            "opportunity_cost_stockout_confidence": champion_stockout_cost_confidence,
-            "opportunity_cost_overstock": champion_overstock_cost,
-            "opportunity_cost_overstock_confidence": champion_overstock_cost_confidence,
-            "overstock_dollars": champion_overstock_dollars,
-            "overstock_dollars_confidence": champion_overstock_confidence,
-        },
-        "candidate_metrics": {
-            "mae": candidate_mae,
-            "mape": candidate_mape,
-            "wape": candidate_wape,
-            "mase": candidate_mase,
-            "bias_pct": candidate_bias,
-            "coverage": candidate_coverage,
-            "stockout_miss_rate": candidate_stockout,
-            "overstock_rate": candidate_overstock_rate,
-            "lost_sales_qty": candidate_lost_sales_qty,
-            "opportunity_cost_stockout": candidate_stockout_cost,
-            "opportunity_cost_stockout_confidence": candidate_stockout_cost_confidence,
-            "opportunity_cost_overstock": candidate_overstock_cost,
-            "opportunity_cost_overstock_confidence": candidate_overstock_cost_confidence,
-            "overstock_dollars": candidate_overstock_dollars,
-            "overstock_dollars_confidence": candidate_overstock_confidence,
-        },
-        "thresholds": {
-            "max_mae_regression_pct": 2.0,
-            "max_mape_regression_pct": 2.0,
-            "max_wape_regression_pct": 2.0,
-            "max_mase_regression_pct": 2.0,
-            "max_bias_abs_regression_pp": 1.0,
-            "max_stockout_miss_pp": 0.5,
-            "max_overstock_rate_pp": 0.5,
-            "max_lost_sales_qty_regression_pct": 0.5,
-            "max_stockout_opportunity_cost_regression_pct": 0.5,
-            "max_overstock_opportunity_cost_regression_pct": 0.5,
-            "overstock_dollars_improvement_pct": 1.0,
-            "overstock_dollars_tolerance_pct": 0.5,
-        },
-        "missing_required_inputs": missing_required_inputs,
-    }
-
-    fail_reasons = [name for name, passed in gate_checks.items() if not passed]
-    if missing_required_inputs:
-        fail_reasons.insert(0, f"missing_required_inputs:{','.join(sorted(missing_required_inputs))}")
-    decision_reason = (
-        "passed_business_and_ds_gates"
-        if should_promote
-        else ("failed_gates:" + ",".join(fail_reasons) if fail_reasons else "failed_unknown_gate")
-    )
+    comparison = compare_candidate_vs_champion_metrics(champion.get("metrics") or {}, candidate_metrics)
+    should_promote = bool(comparison["promoted"])
+    gate_checks = comparison["gate_checks"]
+    decision = comparison["decision"]
+    decision_reason = str(comparison["reason"])
 
     # Persist decision context with candidate metrics for reproducibility.
     enriched_metrics = dict(candidate_metrics)
@@ -542,18 +542,11 @@ async def evaluate_for_promotion(
             model_name=model_name,
             new_champion=candidate_version,
             old_champion=champion["version"],
-            candidate_mae=round(candidate_mae or 0, 2),
-            champion_mae=round(champion_mae or 0, 2),
+            candidate_mae=round(float(comparison["candidate_mae"] or 0), 2),
+            champion_mae=round(float(comparison["champion_mae"] or 0), 2),
             gate_checks=gate_checks,
         )
-        return {
-            "promoted": True,
-            "reason": decision_reason,
-            "gate_checks": gate_checks,
-            "champion_mae": champion_mae,
-            "candidate_mae": candidate_mae,
-            "decision": decision,
-        }
+        return comparison
     else:
         # Not promoted → set as challenger for shadow testing
         challenger_metrics = append_lifecycle_event(
@@ -581,18 +574,11 @@ async def evaluate_for_promotion(
             model_name=model_name,
             challenger=candidate_version,
             reason="failed_business_or_ds_gates",
-            candidate_mae=round(candidate_mae or 0, 2),
-            champion_mae=round(champion_mae or 0, 2),
+            candidate_mae=round(float(comparison["candidate_mae"] or 0), 2),
+            champion_mae=round(float(comparison["champion_mae"] or 0), 2),
             gate_checks=gate_checks,
         )
-        return {
-            "promoted": False,
-            "reason": decision_reason,
-            "gate_checks": gate_checks,
-            "champion_mae": champion_mae,
-            "candidate_mae": candidate_mae,
-            "decision": decision,
-        }
+        return comparison
 
 
 async def promote_to_champion(

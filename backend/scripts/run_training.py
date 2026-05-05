@@ -4,7 +4,7 @@ Standalone Training Script — Run the ML pipeline from the command line.
 
 Usage:
   python scripts/run_training.py --data-dir data/seed --version v1
-  python scripts/run_training.py --data-dir data/kaggle/favorita --dataset favorita --promote
+  python scripts/run_training.py --data-dir /path/to/canonical_csv_dir --dataset tenant_csv
   python scripts/run_training.py --help
 
 This is the recommended way to run your first training before
@@ -30,7 +30,13 @@ Examples:
   # Train on synthetic seed data
   python scripts/run_training.py --data-dir data/seed --version v1
 
-  # Train on Kaggle Favorita data
+  # Train on the active M5 benchmark path
+  python scripts/run_training.py --data-dir data/benchmarks/m5_walmart --dataset m5_walmart --promote
+
+  # Train on canonical CSV data
+  python scripts/run_training.py --data-dir /path/to/canonical_csv_dir --dataset tenant_csv --promote
+
+  # Legacy reference: train on Kaggle Favorita data
   python scripts/run_training.py --data-dir data/kaggle/favorita --dataset favorita --promote
 
   # Auto-detect version and data
@@ -46,8 +52,8 @@ Examples:
     parser.add_argument(
         "--dataset",
         type=str,
-        default="unknown",
-        help="Dataset name for MLflow tracking (default: unknown)",
+        default="custom",
+        help="Dataset name for MLflow tracking (default: custom)",
     )
     parser.add_argument(
         "--version",
@@ -107,8 +113,10 @@ Examples:
     if data_dir is None:
         # Auto-detect: check common locations
         candidates = [
+            os.path.join(os.getcwd(), "data", "benchmarks", "m5_walmart"),
             os.path.join(os.getcwd(), "data", "seed"),
             os.path.join(os.getcwd(), "data", "kaggle"),
+            os.path.join(os.path.dirname(__file__), "..", "..", "data", "benchmarks", "m5_walmart"),
             os.path.join(os.path.dirname(__file__), "..", "..", "data", "seed"),
             os.path.join(os.path.dirname(__file__), "..", "..", "data", "kaggle"),
         ]
@@ -131,6 +139,7 @@ Examples:
         sys.exit(1)
 
     # ── Load and prepare data ────────────────────────────────────────
+    from ml.dataset_snapshots import create_dataset_snapshot, persist_dataset_snapshot
     from ml.features import create_features
     from ml.train import save_models, train_ensemble
     from workers.retrain import _load_csv_data, _next_version
@@ -151,6 +160,11 @@ Examples:
     # Step 1: Load data
     print("Step 1/4: Loading training data...")
     transactions_df = _load_csv_data(data_dir)
+    resolved_dataset_id = (
+        str(transactions_df["dataset_id"].iloc[0])
+        if "dataset_id" in transactions_df.columns and len(transactions_df) > 0
+        else args.dataset
+    )
     print(
         f"  ✓ Loaded {len(transactions_df):,} rows "
         f"({transactions_df['store_id'].nunique()} stores, "
@@ -161,16 +175,11 @@ Examples:
         from ml.replay_partition import build_time_partition, write_partition_manifest
 
         source_paths = [str(p.resolve()) for p in sorted(Path(data_dir).rglob("*.csv")) if p.is_file()]
-        dataset_id = (
-            str(transactions_df["dataset_id"].iloc[0])
-            if "dataset_id" in transactions_df.columns and len(transactions_df) > 0
-            else args.dataset
-        )
         partition = build_time_partition(
             transactions_df,
             holdout_days=args.holdout_days,
             train_end_date=args.train_end_date,
-            dataset_id=dataset_id,
+            dataset_id=resolved_dataset_id,
             source_paths=source_paths,
         )
         transactions_df = partition["train_df"]
@@ -190,6 +199,14 @@ Examples:
         if transactions_df["date"].max().date().isoformat() > train_end_date:
             print("\n❌ Partition integrity check failed: training data exceeds train_end_date.")
             sys.exit(1)
+
+    dataset_snapshot = create_dataset_snapshot(
+        transactions_df,
+        dataset_id=resolved_dataset_id,
+    )
+    snapshot_path = persist_dataset_snapshot(dataset_snapshot)
+    print(f"  ✓ Dataset snapshot: {dataset_snapshot['snapshot_id']}")
+    print(f"  ✓ Snapshot file:   {snapshot_path}")
 
     # Step 2: Feature engineering
     print("\nStep 2/4: Engineering features...")
@@ -226,6 +243,7 @@ Examples:
         dataset_name=args.dataset,
         promote=args.promote,
         rows_trained=len(features_df),
+        dataset_snapshot=dataset_snapshot,
     )
 
     elapsed = time.time() - start
@@ -240,6 +258,7 @@ Examples:
     print(f"  MAE:       {ensemble_info.get('estimated_mae', 'N/A')}")
     print(f"  MAPE:      {xgb_metrics.get('mape', 'N/A')}")
     print(f"  Promoted:  {args.promote}")
+    print(f"  Snapshot:  {dataset_snapshot['snapshot_id']}")
     print(f"  Time:      {elapsed:.1f}s")
     print(f"  Artifacts: {model_dir}")
     print()

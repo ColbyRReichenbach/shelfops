@@ -1,11 +1,20 @@
-/**
- * API Client — Wraps fetch with auth token injection and error handling.
- * Agent: full-stack-engineer | Skill: react-dashboard
- */
-
 import { useAuth0 } from '@auth0/auth0-react'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? ''
+function resolveApiBaseUrl(): string {
+    const configuredBase = import.meta.env.VITE_API_URL?.trim()
+    if (configuredBase) {
+        return new URL(configuredBase, window.location.origin).toString().replace(/\/$/, '')
+    }
+
+    const { hostname, origin, protocol, port } = window.location
+    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1'
+
+    if (isLocalHost && port !== '8000') {
+        return `${protocol}//${hostname}:8000`
+    }
+
+    return origin
+}
 
 export interface ApiError {
     status: number
@@ -13,10 +22,7 @@ export interface ApiError {
 }
 
 export function getApiBaseUrl(): string {
-    if (!API_BASE) {
-        return window.location.origin
-    }
-    return new URL(API_BASE, window.location.origin).toString().replace(/\/$/, '')
+    return resolveApiBaseUrl()
 }
 
 export function getWebSocketBaseUrl(): string {
@@ -25,7 +31,7 @@ export function getWebSocketBaseUrl(): string {
     return apiUrl.toString().replace(/\/$/, '')
 }
 
-export function getApiErrorDetail(error: unknown, fallback = 'Unknown error'): string {
+export function getApiErrorDetail(error: unknown, fallback = 'Unable to complete request.'): string {
     if (error && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
     }
@@ -41,21 +47,26 @@ async function request<T>(
     options: RequestInit = {},
 ): Promise<T> {
     const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
         ...(options.headers as Record<string, string> | undefined),
     }
     if (token) {
         headers.Authorization = `Bearer ${token}`
     }
+    if (options.body !== undefined && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json'
+    }
 
-    const response = await fetch(`${API_BASE}${path}`, {
+    const apiBase = getApiBaseUrl()
+    const requestUrl = apiBase ? `${apiBase}${path}` : path
+
+    const response = await fetch(requestUrl, {
         ...options,
         headers,
     })
 
     if (!response.ok) {
         const body = await response.json().catch(() => ({ detail: response.statusText }))
-        throw { status: response.status, detail: body.detail ?? 'Unknown error' } as ApiError
+        throw { status: response.status, detail: body.detail ?? 'Unable to complete request.' } as ApiError
     }
 
     if (response.status === 204) {

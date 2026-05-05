@@ -3,7 +3,7 @@ ML Ops API — Model health, experiments, backtests, and data health.
 
 Endpoints:
   GET /ml/models          — List all model versions with status
-  GET /ml/models/{version}/shap — Feature importance for a version
+  GET /ml/models/{version}/feature-importance — Artifact-backed model drivers
   GET /ml/backtests       — Backtest results time-series
   GET /ml/experiments     — Training run history by model_name
   GET /ml/registry        — Full model registry with iteration history
@@ -144,19 +144,7 @@ async def list_models(
     ]
 
 
-@router.get("/models/{version}/shap")
-async def get_model_shap(
-    version: str,
-    user: dict = Depends(get_current_user),
-    db: AsyncSession = Depends(get_tenant_db),
-) -> dict[str, Any]:
-    """
-    Get SHAP feature importance for a model version.
-
-    Returns top features sorted by importance for bar chart rendering.
-    """
-    del user, db
-
+async def _model_feature_importance_payload(version: str) -> dict[str, Any]:
     # Check model-specific report dirs first, then global
     search_paths = [
         REPORTS_DIR / f"demand_forecast_{version}" / "feature_importance.json",
@@ -173,9 +161,36 @@ async def get_model_shap(
                 "version": version,
                 "features": [{"name": k, "importance": round(v, 4)} for k, v in sorted_features],
                 "source": path.name,
+                "evidence_type": "artifact_feature_importance",
             }
 
-    return {"version": version, "features": [], "source": None}
+    return {"version": version, "features": [], "source": None, "evidence_type": "unavailable"}
+
+
+@router.get("/models/{version}/feature-importance")
+async def get_model_feature_importance(
+    version: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    """
+    Get artifact-backed global model-driver importance for a model version.
+
+    Returns top features sorted by importance for bar chart rendering.
+    """
+    del user, db
+    return _model_feature_importance_payload(version)
+
+
+@router.get("/models/{version}/shap", deprecated=True)
+async def get_model_shap_legacy(
+    version: str,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_tenant_db),
+) -> dict[str, Any]:
+    """Backward-compatible alias for older clients."""
+    del user, db
+    return _model_feature_importance_payload(version)
 
 
 # ── Backtests ──────────────────────────────────────────────────────────────

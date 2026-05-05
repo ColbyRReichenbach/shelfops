@@ -204,12 +204,14 @@ class InventoryOptimizer:
 
         # 6. Calculate EOQ
         product = await self.db.get(Product, product_id)
-        holding_cost = (
+        base_holding_cost = (
             product.holding_cost_per_unit_per_day * 365
             if product and product.holding_cost_per_unit_per_day
             else (product.unit_cost * 0.25 if product and product.unit_cost else 5.0)
             # Default: 25% of unit cost per year (industry standard)
         )
+        retail_economics = self._resolve_retail_economics(product, base_holding_cost)
+        holding_cost = float(retail_economics["effective_holding_cost_annual"])
         annual_demand = avg_daily_demand * 365
         eoq = self._calculate_eoq(annual_demand, cost_per_order, holding_cost)
         eoq = max(eoq, min_order_qty)
@@ -263,6 +265,7 @@ class InventoryOptimizer:
             "holding_cost_annual": round(holding_cost, 2),
             "cost_per_order": cost_per_order,
             "min_order_qty": min_order_qty,
+            "decision_economics": retail_economics,
             "forecast_horizon_days": forecast_horizon_days,
             "expected_order_qty_used_for_sourcing": expected_order_qty,
         }
@@ -424,6 +427,32 @@ class InventoryOptimizer:
         std_dev = max(0.01, float(std_demand or avg_daily * 0.3))
 
         return avg_daily, std_dev
+
+    @staticmethod
+    def _resolve_retail_economics(product: Product | None, base_holding_cost_annual: float) -> dict[str, Any]:
+        unit_cost = float(product.unit_cost) if product and product.unit_cost is not None else None
+        shelf_life_days = int(product.shelf_life_days or 0) if product else 0
+        is_perishable = bool(product and (product.is_perishable or (shelf_life_days > 0 and shelf_life_days <= 45)))
+
+        spoilage_cost_annual = 0.0
+        spoilage_confidence = "unavailable"
+        if is_perishable and shelf_life_days > 0 and unit_cost is not None:
+            spoilage_cost_annual = (unit_cost / shelf_life_days) * 365
+            spoilage_confidence = "estimated"
+        elif is_perishable:
+            spoilage_confidence = "provisional"
+
+        effective_holding_cost_annual = max(0.01, float(base_holding_cost_annual) + spoilage_cost_annual)
+        return {
+            "base_holding_cost_annual": round(float(base_holding_cost_annual), 4),
+            "spoilage_cost_annual": round(spoilage_cost_annual, 4),
+            "effective_holding_cost_annual": round(effective_holding_cost_annual, 4),
+            "unit_cost": unit_cost,
+            "shelf_life_days": shelf_life_days or None,
+            "is_perishable": is_perishable,
+            "spoilage_confidence": spoilage_confidence,
+            "cost_confidence": "measured" if unit_cost is not None else "unavailable",
+        }
 
     @staticmethod
     def _calculate_eoq(

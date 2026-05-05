@@ -407,12 +407,12 @@ async def _get_vendor_scorecard(db: AsyncSession) -> list[VendorScorecardRow]:
         # actual_delivery_date is Date; suggested_at is DateTime — normalise both
         # to date before subtracting so the delta is always in whole days.
         delivery_date: date = (
-            lt_row.actual_delivery_date
-            if isinstance(lt_row.actual_delivery_date, date)
-            else lt_row.actual_delivery_date.date()
+            lt_row.actual_delivery_date.date()
+            if isinstance(lt_row.actual_delivery_date, datetime)
+            else lt_row.actual_delivery_date
         )
         suggested_date: date = (
-            lt_row.suggested_at if isinstance(lt_row.suggested_at, date) else lt_row.suggested_at.date()
+            lt_row.suggested_at.date() if isinstance(lt_row.suggested_at, datetime) else lt_row.suggested_at
         )
         delta_days = (delivery_date - suggested_date).days
         sid = lt_row.supplier_id

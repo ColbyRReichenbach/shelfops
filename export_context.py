@@ -13,7 +13,7 @@ TARGET_FILES = [
     "TECHNICAL_README.md",
 ]
 
-OUTPUT_FILE = "shelfops-landing/codebase_snapshot.md"
+OUTPUT_FILE = "codebase_snapshot.md"
 
 def extract_codebase():
     num_files = 0

@@ -4,7 +4,7 @@ Validate and summarize training dataset readiness for multi-domain modeling.
 
 Usage:
   python backend/scripts/validate_training_datasets.py
-  python backend/scripts/validate_training_datasets.py --base-dir data/kaggle --output backend/reports/DATASET_VALIDATION_REPORT.md
+  python backend/scripts/validate_training_datasets.py --base-dir . --output backend/reports/DATASET_VALIDATION_REPORT.md
 """
 
 from __future__ import annotations
@@ -36,10 +36,11 @@ class DatasetResult:
 
 
 DATASET_PATHS = {
-    "favorita": "data/kaggle/favorita",
-    "walmart": "data/kaggle/walmart",
-    "rossmann": "data/kaggle/rossmann",
-    "seed_synthetic": "data/seed",
+    "m5_walmart": "data/benchmarks/m5_walmart",
+    "freshretailnet_50k": "data/benchmarks/freshretailnet_50k",
+    "csv_onboarding": "data/onboarding/csv",
+    "square_exports": "data/onboarding/square",
+    "favorita_legacy": "data/kaggle/favorita",
 }
 
 
@@ -134,7 +135,8 @@ def render_markdown(results: list[DatasetResult], base_dir: Path | None = None) 
             "- `ready`: canonical contract loads and required fields are present.",
             "- `missing`: dataset directory is not present locally.",
             "- `error`: loader failed after readiness checks.",
-            "- `blocked`: dataset looks like Favorita but is missing required source files or fields.",
+            "- `blocked`: legacy Favorita-style layout is present but missing required source files or fields.",
+            "- Active target scope is M5 + FreshRetailNet + CSV/Square; Favorita is legacy/reference only.",
             "- Public datasets are training/evaluation domains only and do not populate live tenant catalogs.",
         ]
     )

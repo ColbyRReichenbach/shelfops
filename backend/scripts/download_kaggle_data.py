@@ -1,13 +1,18 @@
 """
-Kaggle Dataset Downloader for ShelfOps ML Training
+Legacy Kaggle Dataset Downloader for ShelfOps ML Training
 
 Downloads and preprocesses public retail datasets from Kaggle for
 training the demand forecasting models.
 
 Available datasets:
-  1. Favorita Grocery Sales (3.5M+ rows) — best for grocery forecasting
-  2. Walmart Sales Forecasting — department-level weekly data
-  3. Rossmann Store Sales — European daily store sales
+  1. Favorita Grocery Sales (legacy reference)
+  2. Walmart Sales Forecasting (legacy weekly reference, not M5)
+  3. Rossmann Store Sales (legacy reference)
+
+Note:
+  The active ShelfOps roadmap now targets M5/Walmart and FreshRetailNet for
+  benchmark evidence. This helper remains only for older Kaggle dataset flows
+  already present in the repo.
 
 Prerequisites:
   pip install kaggle
@@ -196,8 +201,8 @@ def main():
     parser.add_argument(
         "--dataset",
         choices=list(DATASETS.keys()) + ["all"],
-        default="favorita",
-        help="Dataset to download (default: favorita)",
+        required=True,
+        help="Legacy Kaggle dataset to download",
     )
     parser.add_argument(
         "--output",
@@ -215,7 +220,7 @@ def main():
     output_dir = Path(args.output)
 
     print("=" * 60)
-    print("📊 ShelfOps — Kaggle Dataset Downloader")
+    print("📊 ShelfOps — Legacy Kaggle Dataset Downloader")
     print("=" * 60)
 
     if not check_kaggle_credentials():
@@ -232,8 +237,10 @@ def main():
     print()
     print("=" * 60)
     print("✅ Done! Next steps:")
-    print("  1. Run: python scripts/seed_enterprise_data.py")
-    print("  2. Or copy preprocessed CSVs to SFTP staging dir")
+    print("  1. If you are working on legacy/reference data, run the downstream seed or contract flow you need.")
+    print(
+        "  2. For the active roadmap, use DATA_SOURCES.md and the .codex tasks instead of relying on these Kaggle defaults."
+    )
     print("=" * 60)
 
 
